@@ -219,9 +219,6 @@ calc_taludhoek <- function(profiel_nr){
 
 }
 
-
-  
-    
 # Visualise profielen-------------------------------------------------------------
 visualise_profiel<- function(proftest){
   proftest <- profiel[ID == i,]
