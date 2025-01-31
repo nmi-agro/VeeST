@@ -250,7 +250,7 @@ visualise_profiel<- function(proftest){
     )+
     ggtitle(paste0("Dwarsprofiel oever en sloot op locatie ",proftest$name)) +
     labs(x= "afstand in meters",y="diepte in mNAP")
-  ggsave(file=paste0('output/profielen/',proftest$name,"_",proftest$ID,'.png'),width = 40,height = 15,units='cm',dpi=1000)
+  ggsave(file=paste0('output/',unique(proftest$gebied),'/profielen/profiel_',unique(proftest$SlootID),"_",proftest$ID,'.png'),width = 40,height = 15,units='cm',dpi=1000)
   
 }
 
