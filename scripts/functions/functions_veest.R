@@ -139,7 +139,7 @@ calc_taludhoek <- function(profiel_nr){
   #copy the trasnect of the oever
   dt1 <- setDT(profiel_nr)
   
-  #select first and last point first shore
+  #select first and last point first shore (3 meters from shoreline)
   min_dist <- min(dt1[Opmerking == "waterlijn",'dist']) - 3
   first_point <- dt1[sectie == 'oever' & dist > min_dist] 
   first_point <- first_point[Puntnummer == min(Puntnummer)]
@@ -250,7 +250,7 @@ visualise_profiel<- function(proftest){
     )+
     ggtitle(paste0("Dwarsprofiel oever en sloot op locatie ",proftest$name)) +
     labs(x= "afstand in meters",y="diepte in mNAP")
-  ggsave(file=paste0('output/',unique(proftest$gebied),'/profielen/profiel_',unique(proftest$SlootID),"_",proftest$ID,'.png'),width = 40,height = 15,units='cm',dpi=1000)
+  ggsave(file=paste0('output/',unique(proftest$gebied[!is.na(proftest$gebied)]),'/profielen/profiel_',unique(proftest$SlootID),"_",proftest$ID,'.png'),width = 40,height = 15,units='cm',dpi=1000)
   
 }
 

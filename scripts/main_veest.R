@@ -21,7 +21,8 @@ aan <- read_sf(paste0(workspace,"./GIS/AAN_niveau3b.shp"))
 ## 3.2 load was/ wordt locaties-----------------------------------------
 locaties <- readxl::read_excel(paste0(workspace, 'GIS/wp_locaties_naam_correcties.xlsx'))
 setDT(locaties)
-locaties[,gebied := sapply(strsplit(SlootID, '_'), `[`, 1)]
+locaties[,gebied := GebiedID]
+locaties[is.na(gebied),gebied := sapply(strsplit(SlootID, '_'), `[`, 1)]
 locaties[,sloot := sapply(strsplit(SlootID, '_'), `[`, 2)]
 locaties[,behandeling := sapply(strsplit(SlootID, '_'), `[`, 3)]
 locaties[,oever := sapply(strsplit(SlootID, '_'), `[`, 4)]
@@ -29,6 +30,7 @@ locaties[,SlootID_kort := paste0(gebied, '_',sloot, '_',behandeling)]
 # locaties$geom <- sprintf("LINESTRING(%s %s, %s %s)", locaties$Start_traject_long,locaties$Start_traject_lat,locaties$End_traject_long,locaties$End_traject_lat)
 locaties$geom <- sprintf("LINESTRING(%s %s, %s %s)", locaties$Start_traject_lat,locaties$Start_traject_long,locaties$End_traject_lat,locaties$End_traject_long)
 locaties <- locaties[geom == "LINESTRING(NA NA, NA NA)", geom:= "LINESTRING(0 0, 0 0)" ]
+locaties[,behandeling := gsub('-DRGLG','',behandeling)]
 locaties <- st_as_sf(locaties, wkt = "geom", crs = 4326)
 locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
 
@@ -47,7 +49,7 @@ gpsoevers <- st_read(paste0(workspace,'gps_penetrometer_oevers.gpkg'))
 ## 3.5 to do: add precipitation surplus (2 evaluate penetrometerdata)
 
 # 4. Penetrometer----------------------------------------------
-## import----------------------------------------------
+## 4.1 import----------------------------------------------
 ### import gps dxf files------------------------------------------------------
 gps <-  importGPS(inputdir = paste0(workspace,"./GPS"))
 gps <- st_collection_extract(gps, type = c("POINT"))
@@ -170,7 +172,7 @@ pen[name == 'MB_plot2_wp1' & plot %in% c('plot2pen3','plot2pen4','plot2pen5'), e
 
 # proces gps files
 
-## proces ----------------------------------------------
+## 4.2 proces ----------------------------------------------
 ### process gps files--------------------------------------------------------
 ## add location info for filtering and correcting
 gps[, gebied:= tstrsplit(name, "_")[1]]
@@ -304,8 +306,33 @@ penmerge[,dieptebin := cut(Diept, breaks = c('0','10','20','30','40','50','85'),
 penmerge_wide <- dcast(penmerge[!is.na(Diept),], SlootID~sectie+dieptebin, value.var = c('indringingsweerstand'), fun.aggregate = mean, na.rm = TRUE, fill = FALSE, drop = TRUE)
 
 
+## 4.3 validatie regels penetrometer -------------------------
+# check 4 double coordinates in pen_gps
+gps <- st_as_sf(gps)
+gps2 <- st_zm(gps, crs = 28992)
+coords <- as.data.table(st_coordinates(gps2))
+dubbel <- gps[which(duplicated(coords)),]
+# check double plots in penetrometerdata 
+setDT(gps)
+checkgps <- gps[, nunique := uniqueN(ident), by = c('gebied','plot','extragebied')]
+checkgps <- checkgps[nunique>1,]
+# check wel gps geen pen
+checkgps <- merge(gps[,c('name','gebied','plot','extragebied')],pen[,c('name','gebied','plot','extragebied')], by = c('gebied','plot','extragebied'), all.x = TRUE)
+checkgps <- checkgps[is.na(name.y),]
+# oever present in al pen/gps data
+checkgps <- unique(penmerge[is.na(oever)&!is.na(name_gps), name_gps])
+# check if gps is present 4 penetrometer data
+penmerge[,uni_plots := uniqueN(plot), by = c('name_pen','gebied_pen','sloot_pen','extragebied','trajecten')]
+penmergecheck_misgps <- unique(penmerge[is.na(name_gps),c('name_pen','gebied_pen','sloot_pen','extragebied','trajecten','uni_plots')])
+# check if all locs are present
+penmergecheck <- unique(penmerge[,c('SlootID','name_pen','name_gps','gebied_pen','sloot_pen','extragebied','trajecten','oever')])
+locs_pen <- merge(unique(locaties[,c('SlootID','oever')]), penmergecheck, by = c('SlootID','oever'), all.x =TRUE, suffixes = c('_locs','_pen'))
+# koppeltabelSlootIDpenID (alle penetro zit hierin, koppellocs kunnen missen)
+slootID_penetrometerID <- dcast(penmerge, SlootID+name_gps+oever~.) # check unique loc combos, soms kan een pen 2 keer worden gekoppeld (RH_9_R) daarom allow cartesian
+
+
 # 5. Abiotiek ---------------------------------------------------------
-## import ----------------------------------------------------------
+## 5.1 import ----------------------------------------------------------
 inputdir <- paste0(workspace,"./ODK_abiotiek")
 abio <- file.info(list.files(path= paste0(inputdir), pattern=".csv", full.names =  T))
 abio <- rownames(abio)[which.max(abio$mtime)]
@@ -330,7 +357,7 @@ abio <- merge(abio, oh[,c('SlootID','Onderholling')], by = 'SlootID',all.x = TRU
 abio[!is.na(Onderholling), holleoever := Onderholling]
 abio[,Onderholling:= NULL]
 
-## process abio-----------------------------------------------------
+## 5.2 process abio-----------------------------------------------------
 # correct Mijnden
 abio[datum %in% '2024-07-24 11:42:55' & SlootID == 'MD_8_NVO_n', SlootID := 'MD_8_NVO1_n']
 abio[SlootID == 'MD_1_NVO_z_twee', SlootID := 'MD_1_NVO1_z']
@@ -380,10 +407,22 @@ abio_mis <-  abio_mis[,!grepl('_mis',colnames(abio_mis)), with = FALSE]
 
 abio_slib_agg <- rbind(abio_slib_agg[!is.na(slib_redox_mgL),],abio_mis, fill=TRUE)
 
+## 5.3 validatie abiotiek -------------------------------
+## check dubbele codes
+checkabioloc <- dcast(abio, SlootID~datum)
+### make matrix wq by ditch ID
+loc.wq <- unique(abio[,c('SlootID','gebied','sloot',"Oevermonster_AgroCares","bodemmonster_oeverzone2b3","bodemmonster_oeverzone2b3_subsamples", "bodemmonster_oever2b3_boven",  
+                         "bodemmonster_oever2b3_boven_subsamples"  ,"bodemmonster_oeverzone2b3_diep", "bodemmonster_oeverzone2b3_diep_subsamples", "slibmonster","slibmonster_subsamples","bodemmonster_water","porievochtmonster",                        
+                         "porievochtmonster_subsamples","porievochtmonster_code","Waterkwaliteitmonster", "watermonster_subsamples","watermonster_code")])
+locs_abio <- merge(unique(locaties[,c('SlootID','oever')]), abio[,c('SlootID','oever','SlootID_old_abio','instanceID')], by = 'SlootID', all.x =TRUE, suffixes = c('_locs','_abio'))
+# check if all abio locs are present in locaties
+locs_abio <- unique(abio[,c('SlootID','SlootID_old_abio')])
+
+
 # 6. Slootprofielen ---------------------------------------------------
-## Import
+## 6.1 Import ---------------------------------------
 profiel <-  importGPSprof(inputdir = paste0(workspace,"./GPS slootprofielen"))
-## Postprocess profielen-----------------------------------------------------
+## 6.2 Postprocess profielen-----------------------------------------------------
 ### correct Mijnden -------------------------------------
 setDT(profiel)
 profiel[name == 'MD_1_NVO' & Puntnummer == 11, Opmerking := 'waterlijn']
@@ -494,14 +533,21 @@ locs_prof_diff <- profiel_wide[!profiel_wide$name %in% locs_prof$name,]
 setDT(locs_prof)
 uniqueN(locs_prof[,c('name','sectie_2')])
 locs_prof_double <- table(locs_prof[,c('name','sectie_2')])
-locs_prof_double <- as.data.table(table(locs_prof[,c('name','sectie_2')]))
+locs_prof_double <- as.data.table(table(locs_prof[,c('name','sectie_2')])) # mag 0 en 1 zijn
+locs_prof_double <- as.data.table(table(locs_prof[,c('SlootID')]))
 # DR_4_M-AUG wordt twee keer doorkruist door een profiel: mogelijk later een gemiddelde van talud etc. per slootID nemen
 locs_prof <- locs_prof[!(SlootID == 'DR_4_M-AUG_Z' & name == '4_nak_reg_s2'),]
-locs_prof_double <- as.data.table(table(locs_prof[,c('SlootID','sectie_2')]))
 # add loc code
 setDT(profiel)
 setDT(locs_prof)
+# select only right shore based on intersect with locs
 profiel <- merge(profiel, locs_prof, by.x =c('name','sectie_2'), by.y = c('name','sectie_2'), all.x = TRUE, all.y = FALSE, suffixes= c('','_locs'))
+
+## 6.3 check voor dubbele locatiecodes in profielen ------------------
+uniqueN(profiel$name) == uniqueN(profiel$ID)
+checkloc <- dcast(profiel, name~., value.var = 'ID', fun.aggregate = uniqueN)
+# check 4 floating secties
+check_floating_secties <- profiel[!sectie == shift(sectie,-1) & !sectie == shift(sectie,+1)]
 
 # 7. Vegetatie --------------------------------------------------------
 inputdir <- paste0(workspace,"./ODK_vegetatie")
@@ -513,97 +559,204 @@ veg[, datum := as.Date(Date_start_auto) ]
 veg_loc_cor <- read_sf(paste0(workspace,"./GIS/locaties_opnames_veest_devel.gpkg"), layer = 'VEG')
 setDT(veg_loc_cor)
 check <- veg_loc_cor[!SlootID %in% locaties$SlootID,]
-veg_loc_cor[SlootID =='DR_3_M-JUL_N', SlootID:= 'DR_3_M-AUG_N']
-veg_loc_cor[SlootID =='DR_3_M-AUG_N', SlootID:= 'DR_3_M-JUL_N']
+veg_loc_cor[SlootID =='DR_4_M-JUL-KR_N', SlootID:= 'DR_4a_M-JUL-KR_N']
+veg_loc_cor[SlootID =='DR_4_M-AUG-KR_N', SlootID:= 'DR_4a_M-AUG-KR_N']
 veg_loc_cor[SlootID =='KW11_WP1_Z', SlootID:= 'KW_11_WP1_Z']
-veg_loc_cor[SlootID =='RH_3_R_KR_O', SlootID:= 'RH_3_R-KR_O']
-veg_loc_cor[SlootID =='SW_3_M_NVO_Z', SlootID:= 'SW_3_M_NVO_Z']
-veg_loc_cor[SlootID =='SW_4_M-AF-NVO_NW', SlootID:= 'SW_4_M-NVO-AF_NW']
-veg_loc_cor[SlootID =='SW_3_M-AF_Z', SlootID:= 'SW_3_M-NVO-AF_Z']
-veg_loc_cor[SlootID =='SW_3_M_Z', SlootID:= 'SW_3_M-NVO_Z']
-veg_loc_cor[SlootID =='WL_2_M-AF_W', SlootID:= 'WL_2_M-AF_O']
-veg_loc_cor[SlootID =='WL_2_M_W', SlootID:= 'WL_2_M_O']
 veg_loc_cor[SlootID =='KW_1_WP1_N', SlootID:= 'KW_1a_WP1_N']
 veg_loc_cor[SlootID =='KW_2_WP1_Z', SlootID:= 'KW_2a_WP1_Z']
 veg_loc_cor[SlootID =='KW_3_WP1_Z', SlootID:= 'KW_3a_WP1_Z']
+veg_loc_cor[SlootID =='SW_3_M-AF_Z', SlootID:= 'SW_3_M-NVO-AF_Z']
+veg_loc_cor[SlootID =='SW_3_M_Z', SlootID:= 'SW_3_M-NVO_Z']
+veg_loc_cor[SlootID =='SW_4_M-AF-NVO_NW', SlootID:= 'SW_4_M-NVO-AF_NW']
+veg_loc_cor[SlootID =='WL_2_M_W', SlootID:= 'WL_2_M_O']
+veg_loc_cor[SlootID =='MD_1_NVO1_Z', SlootID:= 'MD_1a_NVO1_Z']
+veg_loc_cor[SlootID =='MD_2_NVO2_N', SlootID:= 'MD_2b_NVO2_N']
+veg_loc_cor[SlootID =='MD_8_NVO1_N', SlootID:= 'MD_8a_NVO1_N']
 # merge with unique/ koppelnames
 setDT(locaties)
 veg <- merge(veg, veg_loc_cor , by ='instanceID', all.x = TRUE, all.y = FALSE, suffixes = c('_veg','_locs'))
 veg[, SlootID := SlootID_locs]
+# instance id not correct
 veg[SlootID_veg == 'Kw_2_R', SlootID := "KW_2_R_W"]
 veg[SlootID_veg == 'ZG3_M-PR_w', SlootID := "ZG_3_M-PR_W"]
 veg[SlootID_veg == 'Rh_13_wp1_z', SlootID := "RH_13_WP1_Z"]
 veg[SlootID_veg == 'SW2_M_w', SlootID := "SW2_M_W"]
-
+veg[SlootID_veg == 'WL2_M-AF_o', SlootID := "WL_2_M-AF_O"]
 veg <- veg[!is.na(SlootID),]
-# remove ';' that are not separators
-veg[veg == ';'] <- ':'
-veg <- veg[prenul_meting == 0,]
-
-# 8. Waterbodemdata ---------------------------------------------------
-# 9. Bodemgegevens oever ----------------------------------------------
-# 10. Waterkwaliteit--------------------------------------------------
-# 11. Validatie --------------------------------------------------
-## 11.1 validatie regels penetrometer -------------------------
-# check 4 double coordinates in pen_gps
-gps <- st_as_sf(gps)
-gps2 <- st_zm(gps, crs = 28992)
-coords <- as.data.table(st_coordinates(gps2))
-dubbel <- gps[which(duplicated(coords)),]
-# check double plots in penetrometerdata 
-setDT(gps)
-checkgps <- gps[, nunique := uniqueN(ident), by = c('gebied','plot','extragebied')]
-checkgps <- checkgps[nunique>1,]
-# check wel gps geen pen
-checkgps <- merge(gps[,c('name','gebied','plot','extragebied')],pen[,c('name','gebied','plot','extragebied')], by = c('gebied','plot','extragebied'), all.x = TRUE)
-checkgps <- checkgps[is.na(name.y),]
-# oever present in al pen/gps data
-checkgps <- unique(penmerge[is.na(oever)&!is.na(name_gps), name_gps])
-# check if gps is present 4 penetrometer data
-penmerge[,uni_plots := uniqueN(plot), by = c('name_pen','gebied_pen','sloot_pen','extragebied','trajecten')]
-penmergecheck_misgps <- unique(penmerge[is.na(name_gps),c('name_pen','gebied_pen','sloot_pen','extragebied','trajecten','uni_plots')])
-# check if all locs are present
-penmergecheck <- unique(penmerge[,c('SlootID','name_pen','name_gps','gebied_pen','sloot_pen','extragebied','trajecten','oever')])
-locs_pen <- merge(unique(locaties[,c('SlootID','oever')]), penmergecheck, by = c('SlootID','oever'), all.x =TRUE, suffixes = c('_locs','_pen'))
-# koppeltabelSlootIDpenID (alle penetro zit hierin, koppellocs kunnen missen)
-slootID_penetrometerID <- dcast(penmerge, SlootID+name_gps+oever~.) # check unique loc combos, soms kan een pen 2 keer worden gekoppeld (RH_9_R) daarom allow cartesian
-
-## 11.2 validatie abiotiek -------------------------------
-## check dubbele codes
-checkabioloc <- dcast(abio, SlootID~datum)
-### make matrix wq by ditch ID
-loc.wq <- unique(abio[,c('SlootID','gebied','sloot',"Oevermonster","bodemmonster_oeverzone2b3","bodemmonster_oeverzone2b3_subsamples", "bodemmonster_oever2b3_boven",  
-                         "bodemmonster_oever2b3_boven_subsamples"  ,  "bodemmonster_oeverzone2b3_diep", "bodemmonster_oeverzone2b3_diep_subsamples", "slibmonster","slibmonster_subsamples","bodemmonster_water","porievochtmonster",                        
-                         "porievochtmonster_subsamples","porievochtmonster_code","Waterkwaliteitmonster", "watermonster_subsamples","watermonster_code")])
-locs_abio <- merge(unique(locaties[,c('SlootID','oever')]), abio[,c('SlootID','oever','SlootID_old_abio','instanceID')], by = 'SlootID', all.x =TRUE, suffixes = c('_locs','_abio'))
+# 2do remove ';' that are not separators
+vegID <- unique(veg$SlootID[veg$prenul_meting == 0])
+setDT(veg)
+veg <- veg[!(prenul_meting == 1 & SlootID %in% vegID)|prenul_meting == 0,]
 # check if all abio locs are present in locaties
-locs_abio <- unique(abio[,c('SlootID','SlootID_old_abio')])
-## 11.3 check voor dubbele locatiecodes in profielen ------------------
-uniqueN(profiel$name) == uniqueN(profiel$ID)
-checkloc <- dcast(profiel, name~., value.var = 'ID', fun.aggregate = uniqueN)
-# check 4 floating secties
-check_floating_secties <- profiel[!sectie == shift(sectie,-1) & !sectie == shift(sectie,+1)]
-# check if all locs are present
-setDT(profiel)
+locs_veg <- unique(veg[,c('SlootID','SlootID_locs','SlootID_veg','instanceID')])
+
+# 8. Waterbodemdata en waterkwaliteit---------------------------------------------------
+## Bware
+inputdir <- paste0(workspace,"./Bodemanalyses/data VeeST_data_2024_aangepast_27-02-2025.csv")
+watbod <- fread(inputdir, dec = '.', na.strings = c(-999,'NA',''), encoding = "Latin-1")
+watbod[, datum := as.POSIXct(datum_PW) ]
+watbod[, feP_DW_SB := `Fe_mmol/kg DW_SB`/`P_mmol/kg DW_SB`]
+watbod[, feS_DW_SB := `Fe_mmol/kg DW_SB`/`S_mmol/kg DW_SB`]
+watbod[, feP_PW := `Fe_µmol/l_PW`/`P_µmol/l_PW`]
+watbod[, feS_PW := `Fe_µmol/l_PW`/`S_µmol/l_PW`]
+## ArgoCares
+inputdir <- paste0(workspace,"./Bodemanalyses/AgroCares_CustomPackage_Slib_1922.N.23_27-02-2025 INCOMPLETE.xlsx")
+tabbladen <- excel_sheets(inputdir)
+tab <- tabbladen[grepl("coding", tolower(tabbladen))]
+watbod_coding <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
+tab <- tabbladen[grepl("P-AL", tabbladen)]
+watbod_pal <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
+tab <- tabbladen[grepl("ICP-MS_CC", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_icpcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, col_names = cnames))
+tab <- tabbladen[grepl("DA_CC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+watbod_dacc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na ='below LOD', col_names = cnames))
+tab <- tabbladen[grepl("pH_CC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+watbod_phcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na = '',col_names = cnames))
+watbod_phcc[,pH_CC := as.numeric(pH_CC)]
+# format van dit xrf blad wijkt af
+tab <- tabbladen[grepl("XRF", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 3))
+cnames <- paste0(as.character(cnames[1]),"_" ,as.character(cnames[2]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_xrf <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, col_names = cnames))
+#put all data frames into list
+df_list <- list(watbod_coding,watbod_pal,watbod_icpcc,watbod_dacc,watbod_phcc,watbod_xrf)      
+#remove duplicate columns
+cols <- as.data.table(lapply(df_list, function(x) { colnames(x) }))
+lapply(df_list, function(x) { x[,c("ID",'ID.x','ID.y','ID_NA','...1','NA_NA'):= NULL]})
+#merge all data frames together
+watbod_ac <- Reduce(function(x, y) merge(x, y, by = 'GSL_ID', all=TRUE), df_list) 
+watbod_ac <- watbod_ac[!is.na(GSL_ID),]
+# change colnames
+colnames(watbod_ac) <- gsub("^C \\(", "", colnames(watbod_ac))
+colnames(watbod_ac) <- gsub(")_", "_xrf_", colnames(watbod_ac))
+colnames(watbod_ac) <- gsub("\r\n", "_", colnames(watbod_ac))
+
+#calc ratios
+watbod_ac[, feP_CC_SB := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
+watbod_ac[, feP_XRF_SB := (`Fe2O3_xrf_g/kg`/ 55.845)/(`P2O5_xrf_g/kg`/ 30.973762)]
+watbod_ac[, feS_CC_SB := (`Fe_CC_mg/kg`/ 5584.5)/(`S_CC_mg/kg`/ 3206.5)]
+watbod_ac[, feS_XRF_SB := (`Fe2O3_xrf_g/kg`/ 55.845)/(`SO3_xrf_g/kg`/ 32.065)]
+#calculate p-org
+watbod_ac[, `P_CC_org_mg/kg` := `P_CC_mg/kg` - `P-PO4_CC_mg/kg`]
+colnames(watbod_ac) <- paste0(colnames(watbod_ac),'_SB')
+
+# 9. Bodemgegevens oever ----------------------------------------------
+## ArgoCares
+inputdir <- paste0(workspace,"./Bodemanalyses/AgroCares_FullPackageCustom_Oever_1922_12-11-2024.xlsx")
+tabbladen <- excel_sheets(inputdir)
+tab <- tabbladen[grepl("coding", tolower(tabbladen))]
+watbod_coding <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
+tab <- tabbladen[grepl("liab", tolower(tabbladen))]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+watbod_liab <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na ='', col_names = cnames))
+watbod_liab <- watbod_liab[ , lapply(.SD,as.numeric), .SDcols = (7:84), by = 'GSL_ID']
+tab <- tabbladen[grepl("Mehlich-3", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_m3 <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, col_names = cnames))
+tab <- tabbladen[grepl("TOC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+watbod_toc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na ='below LOD', col_names = cnames))
+tab <- tabbladen[grepl("Cohex", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_cohex <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, na ='below LOD', col_names = cnames))
+tab <- tabbladen[grepl("P-AL", tabbladen)]
+watbod_pal <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
+tab <- tabbladen[grepl("ICP-MS_CC", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_icpcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, col_names = cnames))
+tab <- tabbladen[grepl("DA_CC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+watbod_dacc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na ='below LOD', col_names = cnames))
+tab <- tabbladen[grepl("pH_CC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+watbod_phcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na = '',col_names = cnames))
+watbod_phcc[,pH_CC := as.numeric(pH_CC)]
+tab <- tabbladen[grepl("XRF", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_xrf <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, col_names = cnames))
+#put all data frames into list
+df_list <- list(watbod_coding,watbod_cohex,watbod_toc,watbod_liab,watbod_m3,watbod_pal,watbod_icpcc,watbod_dacc,watbod_phcc,watbod_xrf)      
+#remove duplicate columns
+cols <- as.data.table(lapply(df_list, function(x) { colnames(x) }))
+lapply(df_list, function(x) { x[,c("ID",'ID.x','ID.y','ID_NA','...1','NA_NA'):= NULL]})
+#merge all data frames together
+oever_ac <- Reduce(function(x, y) merge(x, y, by = 'GSL_ID', all=TRUE), df_list) 
+oever_ac <- oever_ac[!is.na(GSL_ID),]
+# change colnames
+colnames(oever_ac) <- gsub("^C \\(", "", colnames(oever_ac))
+colnames(oever_ac) <- gsub(")_", "_xrf_", colnames(oever_ac))
+colnames(oever_ac) <- gsub("\r\n", "_", colnames(oever_ac))
+# calculate ratios
+oever_ac[, feP_OR_CC := `Fe_CC_mg/kg`/`P_CC_mg/kg`]
+oever_ac[, feP_OR_XRF := `Fe2O3_xrf_g/kg`/`P2O5_xrf_g/kg`]
+oever_ac[, feS_OR_CC := `Fe_CC_mg/kg`/`S_CC_mg/kg`]
+oever_ac[, feS_OR_XRF := `Fe2O3_xrf_g/kg`/`SO3_xrf_g/kg`]
+#calculate p-org
+oever_ac[, `P_CC_org_mg/kg` := `P_CC_mg/kg` - `P-PO4_CC_mg/kg`]
+oever_ac[, basen_bez := (`CA_CO_mmol+/kg` + `MG_CO_mmol+/kg` + `NA_CO_mmol+/kg` + `K_CO_mmol+/kg`) / `CEC_CO_mmol+/kg` * 100]
+# reformat based on sample depth
+oever_ac_25 <- oever_ac[monsterdiepte %in% c("25"  ,"25 "),]
+colnames(oever_ac_25) <- paste0(colnames(oever_ac_25),'_OR_25')
+oever_ac_50 <- oever_ac[monsterdiepte %in% c("50"  ,"50 "),]
+colnames(oever_ac_50) <- paste0(colnames(oever_ac_50),'_OR_50')
+
+# 10. Create database/ merge gegevens ----------------------------------------
 setDT(locaties)
-# locs_prof <- merge(unique(locaties[,c('SlootID','oever')]), unique(profiel[,c('SlootID','oever','SlootID_old_profiel')]), by = 'SlootID', all.x =TRUE, suffixes = c('_locs','_prof'))
-
-# 12. Create database/ merge gegevens ----------------------------------------
-## 12.1 pen wide and prof wide met kentallen per unieke slootID --------------
-# projectie van water en slibmonsters
-# 141 unieke waarnemingen in abio
 abio_proj <- merge(abio_slib_agg, abio_wat_agg, by = c('gebied','sloot'), all.x = T)
-abio_proj <- merge(abio_proj, locs_prof[,-c('gebied','sloot','behandeling','oever')], by = 'SlootID', all.x = T)
-abio_proj <- merge(abio_proj, penmerge_wide, by = 'SlootID', all.x = T)
-abio_proj <- merge(abio_proj, clusters_locs, by = c('SlootID'), all.x = T)
-abio_proj <- merge(abio_proj, veg, by = c('SlootID'), all.x = T)
+## 141 unieke slootIDs in abio
+check_db <- locaties[!SlootID %in% unique(abio_slib_agg$SlootID),]
 
-## 12.2 cluster analyse --------------------------------------------------------
+abio_proj <- merge(abio_proj, locs_prof[,-c('gebied','sloot','behandeling','oever')], by = 'SlootID', all.x = T)
+## 164 unieke slootIDs in profielen (2 zijdig) 
+check_db <- locaties[!SlootID %in% unique(locs_prof$SlootID),]
+
+abio_proj <- merge(abio_proj, penmerge_wide, by = 'SlootID', all.x = T)
+## 169 unieke slootIDs in penetrometer, RH 9 ontbreekt
+check_db <- locaties[!SlootID %in% unique(penmerge_wide$SlootID),]
+
+abio_proj <- merge(abio_proj, clusters_locs[,-c('geom')], by = c('SlootID'), all.x = T)
+check_db <- locaties[!SlootID %in% unique(clusters_locs$SlootID),]
+
+abio_proj <- merge(abio_proj, veg[,-c('Start_traject_lat','Start_traject_long','End_traject_lat','End_traject_long')], by = c('SlootID'), all.x = T)
+# 130 unieke slootid in vegetatie uniqueN(veg$SlootID) 
+check_db <- locaties[!SlootID %in% unique(veg$SlootID),]
+
+abio_proj <- merge(abio_proj, watbod, by = c('SlootID'), all.x = T)
+abio_proj <- merge(abio_proj, watbod_ac, by.x = c('Slibmonster_Bware'), by.y ='Customer_ID_SB', all.x = T)
+# 113 unieke slootid in waterbodem uniqueN(watbod_ac$Customer_ID_SB) uniqueN(watbod$code_SB) = 123 uniqueN(watbod$SlootID)
+check_db <- locaties[!SlootID %in% unique(watbod$SlootID),]
+check_db <- locaties[!Slibmonster_Bware %in% unique(watbod_ac$Customer_ID_SB),]
+
+# 120 unieke uniqueN(abio_proj$Oevermonster_AgroCares) uniqueN(oever_ac$SlootID_kort) 
+abio_proj <- merge(abio_proj, oever_ac_25, by.x = c('Oevermonster_AgroCares'), by.y = c('SlootID_kort_OR_25'), all.x = T, suffixes = c('_SB','_OR'))
+abio_proj <- merge(abio_proj, oever_ac_50, by.x = c('Oevermonster_AgroCares'), by.y = c('SlootID_kort_OR_50'), all.x = T, suffixes = c('_25','_50'))
+check_db <- locaties[!Oevermonster_AgroCares %in% unique(oever_ac_25$SlootID_kort),]
+
+## 10.1 validate complete db
+uniqueN(locaties$SlootID[locaties$`Complete data` == 1]) #120
+# 118 omdat 2 vegetatielocaties missen
+uniqueN(abio_proj[!is.na(slib_pH)&!is.na(water_pH)&!is.na(max_slib)&!is.na(`insteek_[0,10]`)&!is.na(instanceID),c('SlootID')])
+
+# 11. cluster analyse --------------------------------------------------------
 setDT(abio_proj)
 # trofie/afwateringsopp uit GIS, watbte en drooglegging uit dwarsprofielen
-clust_abio <- abio_proj[,c('SlootID','drglg','watbte','trofie',"A_SOM_LOI" ,"A_CLAY_MI" )]
-clust_abio <- clust_abio[complete.cases(clust_abio)]
-clust_abio_s <- scale(clust_abio[,c('drglg','watbte','trofie',"A_SOM_LOI" ,"A_CLAY_MI" )])
+clust_abio <- abio_proj[,c('SlootID','drglg','watbte','trofie',"TOC [%]_OR_25" ,"Z_CLAY_SA_OR_25" )]
+clust_abio <- clust_abio[complete.cases(clust_abio)] # 2 missen
+clust_abio_s <- scale(clust_abio[,c('drglg','watbte','trofie',"TOC [%]_OR_25" ,"Z_CLAY_SA_OR_25" )])
 km <- kmeans(clust_abio_s, 6)
 # Within cluster sum of squares by cluster:
 round(km$betweenss / km$totss,4) * 100
@@ -617,9 +770,9 @@ map <- as.data.table(cbind(map, seq(1:6)))
 clust_abio <- clust_abio[map, clusters := V2, on = c(V2 = "map")]
 clust_abio_uniek <- unique(clust_abio[,c('SlootID','clusters')])
 
-## 12.3 merge with data ----------------------
+## merge with data 
 abio_proj <- merge(abio_proj, clust_abio_uniek, by = c('SlootID'), all.x = T, suffixes = c('','_clustber'))
-# add grouping vars
+# 12. add grouping vars -------------------------------
 abio_proj[text == "Hoogheemraadschap De Stichtse Rijnlanden",waterschap := 'HDSR']
 abio_proj[text == "Hoogheemraadschap Hollands Noorderkwartier" ,waterschap := 'HHNK']
 abio_proj[text == "Waterschap Amstel, Gooi en Vecht",waterschap := 'AGV']
@@ -635,16 +788,18 @@ abio_proj[grepl('r$',BODEMCODE), veentype:= 'zeggerietveen_rietveen']
 abio_proj[grepl('d$',BODEMCODE), veentype:= 'bagger_verslagenveen_gyttja_anders']
 # beheer
 abio_proj[,beheer := 'regulier']
-abio_proj[grepl('M', behandeling),beheer := 'Minimaal']
+abio_proj[grepl('M', behandeling),beheer := 'minimaal']
+abio_proj[grepl('M-AF', behandeling),beheer := 'minimaal + afrastering']
+abio_proj[grepl('R-AF', behandeling),beheer := 'regulier + afrastering']
 abio_proj[grepl('AF', behandeling),beheer := 'afrastering']
-abio_proj[grepl('NVO', behandeling),beheer := 'NVO']
-
+abio_proj[grepl('NVO', behandeling), beheer := 'NVO']
 # sloot_nr: create numeric value for visuals
 abio_proj[,sloot_nr := sloot]
 abio_proj[,sloot_nr := gsub('a','.1', sloot_nr)]
 abio_proj[,sloot_nr := gsub('b','.2', sloot_nr)]
 abio_proj[,sloot_nr := gsub('B','.2', sloot_nr)]
 abio_proj[,sloot_nr := as.numeric(sloot_nr)]
+
 
 # 13. RF model ----------------------------------------
 ## Preparation 
@@ -657,8 +812,8 @@ fr_train <- 0.8
 var_res <-"max_wtd"
 #"Oeverzone_2a_emers_perc","Oeverzone_2b_emers_perc",
 #"Waterzone_1_subm_tot_perc","Waterzone_1_emers_perc") #"max_wtd"
-# "Oeverzone_2a_kaal_perc", "Oeverzone_2b_kaal_perc", 
-# "oever_(10,20]","oever_(20,30]","oever_(30,40]",
+#"Oeverzone_2a_kaal_perc", "Oeverzone_2b_kaal_perc", 
+#"oever_(10,20]","oever_(20,30]","oever_(30,40]",
 
 # covariables/ predictors
 var_cov <- c("perceel_(10,20]",
@@ -733,47 +888,44 @@ partialPlot(rf_res, loc_t[set == "training", ..cols], drglg)
 partialPlot(rf_res, loc_t[set == "training", ..cols], slib_redox_mgL)
 partialPlot(rf_res, loc_t[set == "training", ..cols], water_O2_mgL)
 
+
 # 14. Visualisaties ---------------------------------------------------------
-
-ggplot() +
-  geom_boxplot(data = abio_proj[gebied == 'HW',], aes(x = sloot,  y = (doorzicht2_mid_cm/100)/max_wtd), binwidth = 0.1) + 
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.y = element_text(size = 10), 
-    axis.text = element_text(size = 18, angle = 45),
-    axis.title = element_text(size= 15),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =20, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  # guides(x= ggh4x::guide_axis_nested(delim = "&"))+
-  ggtitle('') +
-  labs(x= 'sloot', y="doorzicht / waterdiepte")
-
-ggplot() +
-  geom_boxplot(data = melt[gebied == 'HW'& variable %in% c('max_wtd','max_slib'),], aes(x = gebied,  y = value, col = level)) + 
-  theme_minimal()+
-  guides(col=guide_legend(title="Parameter"))+
-  theme(
-    strip.background = element_blank(),
-    strip.text.y = element_text(size = 10), 
-    axis.text = element_text(size = 18, angle = 45),
-    axis.title = element_text(size= 15),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =20, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  # guides(x= ggh4x::guide_axis_nested(delim = "&"))+
-  ggtitle('') +
-  labs(x= 'sloot', y="diepte")
 
 ## 14.1 plot profiel--------------
 ### pairs ------------------
 setDT(profiel_wide)
 pairs(profiel_wide[,3:9])
+
+# "tldk_bvwtr_perc" = 3 meter van de oeverlijn/ waterlijn de oever op (niet verder dan insteek)
+# "tldk_ondwtr_perc" = 1 meter het water in bovenkant slib
+# "tldk_vastbodem_perc" = 1 meter water in onderkant slib
+# "tldk_wtrwtr_perc"  = hoek tot bodem 25 cm lager dan waterlijn, bij missend = onderwater
+# "tldk_oevrwtr_perc" = hoek tot oever 25 hoger dan waterlijn, bij missend = oever
+# "mean_talud_oever" = gemiddelde hoek insteek waterlijn
+# "mean_talud_water" = gemiddelde hoek onder water
+# "mean_talud_os_water" = gemiddelde hoek onderkant slib
+
+ggplot(data = profiel_wide, aes(x= drglg, y=tldk_vastbodem_perc))+
+  geom_jitter()+
+  geom_smooth(method="lm") +
+  ylim(-10,200)+
+  # stat_regline_equation(label.x=200, label.y=470)+
+  stat_cor(aes(label=..rr.label..), label.x=0.5, label.y=150)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("Profiel") +
+  labs(x= "drooglegging (m)",y="taludhoek onderkant slib (%)")
+
 ### loop profielplaatjes ------------------
 for(i in unique(profiel$ID)){
   setDT(profiel)
@@ -782,14 +934,13 @@ for(i in unique(profiel$ID)){
 }
 # als water niet aansluit dan is Z op oever lager dan de waterlijn
 
+
 ## 14.2 plot clusters------------
-### boxplots veest
-clust_abio[,behandeling := sapply(strsplit(SlootID, '_'), `[`, 3)]
-clust_abio[!behandeling =='WP1', behandeling := 'WP2']
 abio_proj[!behandeling_1 =='WP1', behandeling_1 := 'WP2']
 ggplot() +
   # geom_boxplot(data = abio_proj, aes(x = gebied, y = clusters)) + 
-  geom_histogram(data = abio_proj, aes(clusters,fill = behandeling_1), col = 'black', binwidth = 1)+
+  geom_histogram(data = abio_proj, aes(clusters_clustber, fill = behandeling_1), col = 'black', binwidth = 1)+
+  # geom_histogram(data = abio_proj, aes(cluster, fill = behandeling_1), col = 'black', binwidth = 1)+
   theme_minimal()+
   theme(
     strip.background = element_blank(),
@@ -805,9 +956,9 @@ ggplot() +
   )+
   ggtitle("") +
   labs(x= "veensloottype",y="aantal monsters")
-ggsave(file=paste0('output/clusters/clusters.png'),width = 40,height = 15,units='cm',dpi=1000)
+ggsave(file=paste0('output/clusters/clusters.png'),width = 25, height = 15,units='cm',dpi=800)
 
-# boxplots all parcels NL
+### boxplots all cluster all parcels NL--------------------
 melt <- melt(setDT(cluster), id.vars = c("clusters"), 
              measure.vars = c( "drlg", "breedtewl", "frac_water" ,"trofie" , "A_SOM_LOI","A_CLAY_MI" ))
 melt$clusters <- as.factor(melt$clusters)
@@ -841,12 +992,11 @@ p<- melt %>%
   #guides(col = '') +
   labs(x= '' , y= '')
 ggplotly(p)
-### clust by data -------------------------
-clust <- merge(locaties, clust_abio[,c('clusters', 'SlootID','drglg','watbte','trofie',"A_SOM_LOI" ,"A_CLAY_MI" )], by = 'SlootID', all.x = TRUE)
 
+### clust by data -------------------------
 # melt data table voor boxplots
-melt <- melt(setDT(clust), id.vars = c("clusters"), 
-             measure.vars = c('drglg','watbte','trofie',"A_SOM_LOI" ,"A_CLAY_MI" ))
+melt <- melt(setDT(abio_proj), id.vars = c("clusters_clustber"), 
+             measure.vars = c('drglg','watbte','trofie',"TOC [%]_25" ,"Z_CLAY_SA_25" ))
 melt$clusters <- as.factor(melt$clusters)
 namenind <- c("drooglegging", "slootbreedte","trofiegraad veen","organisch stof","kleigehalte")
 melt[, level := factor(variable, labels = namenind)]
@@ -878,21 +1028,18 @@ p<- melt %>%
   labs(x= '' , y= '')
 ggplotly(p)
 
-
 ### kaart --------------------------------------
-# kaartweergave
-st_as_sf(clust)
-st_write(clust , paste0(workspace,'clusters_20241107.gpkg')) #1904
+# kaartweergave doet het niet door meerdere geom kolommen
 library(RColorBrewer)
 filcol <- colorRampPalette(brewer.pal(10, 'Spectral'))
-clust$clusters <- as.factor(clust$clusters)
+abio_proj[,clusters_clustber := as.factor(clusters_clustber)]
 nmi_data <- paste0(gsub('\\\\', '/', Sys.getenv('USERPROFILE')), '/SPRINGG/Sven Verweij - NMI-DATA/')
 wschp <- st_read(paste0(nmi_data, "topo/waterschappen/raw/2019_waterschappen_grenzen.gpkg"))%>% st_transform(28992)
-clust_map <- clust[!is.na(clust$Start_traject_lat)&!clust$Start_traject_long==0,]
+clust_map <- st_as_sf(abio_proj[!is.na(Start_traject_lat)&!(Start_traject_long==0),],sf_column_name = 'geom.y')
 
 ggplot() +
-  geom_sf(data = wschp, aes(), col = 'blue', fill = NA) +
-  geom_sf(data = clust_map, aes(fill = clusters, col = clusters), linewidth = 10) +
+  # geom_sf(data = wschp, aes(), col = 'blue', fill = NA) +
+  geom_sf(data = clust_map, aes(fill = clust_map$clusters_clustber, col = clust_map$clusters_clustber)) +
   scale_fill_manual(values = rev(filcol(8)),
                     na.value="white",  drop = FALSE, name = "") +
   scale_size_identity()+
@@ -912,12 +1059,59 @@ ggplot() +
   guides(fill = guide_legend("clusters"))
 ggsave(filename = paste0("kaart_clusters.jpeg"), width = 60, height = 65, unit = "cm")
 
+### relatie clustervar kaart en gemeten---------------
+# werkelijke drooglegging is overal kleiner, dus veensloottype 6 bestaat niet
+# nu alleen cluster 1 zeer waterrijk, 2 en 3 minder
+# trofiegraad anders, geen oligotroof veen bij 1 en 6, wel bij 2
+abio_proj[,clusters_clustber := as.numeric(clusters_clustber)]
+ggplot() +
+  geom_jitter(data = abio_proj, aes(x = clusters, y = clusters_clustber, col = waterschap), size = 3) +
+  # xlim(0,0.8)+ ylim(0,0.8)+
+  geom_abline(intercept = 0, slope = 1)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    axis.title =  element_text(size=18), 
+    axis.text = element_text(size = 15),
+    legend.title = element_text(size= 15),
+    legend.text = element_text(size= 15),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =18, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("Relatie veensloottypen en gemeten veensloottypen") +
+  labs(x= "cluster obv veensloottypen",y="cluster obv meting")
+
+#drooglegging
+ggplot() +
+  geom_jitter(data = abio_proj, aes(x = drlg, y = drglg, col = waterschap), size = 3) +
+  xlim(0,0.8)+ ylim(0,0.8)+
+  geom_abline(intercept = 0, slope = 1)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    axis.title =  element_text(size=18), 
+    axis.text = element_text(size = 15),
+    legend.title = element_text(size= 15),
+    legend.text = element_text(size= 15),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =18, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("Relatie veensloottypen en gemeten veensloottypen") +
+  labs(x= "drooglegging obv peilgebieden",y="drooglegging obv meting")
+
+
 ## 14.3 plot relaties database --------------------
 ### pairs ---------------------------
 pairs(abio_proj[,c("holleoever","water_conductiviteit_uS_cm","water_redox","water_pH","max_slib","max_wtd","slib_pH","oever_[0,10]" ,"oever_(30,40]" ) ,with=FALSE])
-pairs(abio_proj[,c("holleoever","water_pH","max_slib","max_wtd","oever_(30,40]", "slib_redox_mgL"),with=FALSE], col = abio_proj$clust_ber)
-pairs(abio_proj[,c("holleoever","oever_(30,40]","Oeverzone_2b_emers_perc","max_slib","max_wtd","Waterzone_1_subm_tot_perc"),with=FALSE], col = abio_proj$clust_ber)
-pairs(abio_proj[,c("drglg","Oeverzone_2b_breedte_cm","Oeverzone_2a_breedte_cm"),with=FALSE], col = abio_proj$clust_ber)
+pairs(abio_proj[,c("holleoever","water_pH","max_slib","max_wtd","oever_(30,40]", "slib_redox_mgL"),with=FALSE], col = abio_proj$clusters_clustber)
+pairs(abio_proj[,c("holleoever","oever_(30,40]","Oeverzone_2b_emers_perc","max_slib","max_wtd","Waterzone_1_subm_tot_perc"),with=FALSE], col = abio_proj$clusters_clustber)
+pairs(abio_proj[,c("drglg","Oeverzone_2b_breedte_cm","Oeverzone_2a_breedte_cm"),with=FALSE], col = abio_proj$clusters_clustber)
+pairs(abio_proj[,c("holleoever","drglg","slib_redox_mgL","water_pH","max_wtd") ,with=FALSE])
+
 # slib en redox, onderholling en waterdiepte
 qplot(slib_redox_mgL, Waterzone_1_subm_tot_perc, data = abio_proj)
 
@@ -952,9 +1146,28 @@ M <-cor(abio_proj[,cols_num,with=FALSE],use = "complete.obs")
 corrplot(M, type="full", order="hclust",
          col=brewer.pal(n=8, name="RdYlBu"), tl.col = "black",tl.cex =0.8)
 
+### specifieke relaties-------------------------------
+#waterdiepte drooglegging
+ggplot() +
+  geom_jitter(data = abio_proj[max_wtd < 0.8,], aes(x = max_wtd, y = drglg, col = clusters)) + 
+  geom_smooth(data = abio_proj[max_wtd < 0.8,], aes(x = max_wtd, y = drglg)) +
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("Relatie waterdiepte - drooglegging") +
+  labs(x= "waterdiepte (m)",y="drooglegging (m)")
+ggsave(file=paste0('output/clusters/watdte_drglg.png'),width = 15,height = 15,units='cm',dpi=1000)
 
-
-
+# waterdiepte/ indringingsweerstand
 ggplot() +
   geom_jitter(data = abio_proj[!gebied %in% c('HW','ZG','SV','WL','MB'),], aes(x = max_slib, y = `perceel_(10,20]`, col = gebied), size = 2) + 
   geom_smooth(data = abio_proj[!gebied %in% c('HW','ZG','SV','WL'),], aes(x = max_slib, y = `perceel_(10,20]`)) +
@@ -995,118 +1208,83 @@ ggplot() +
   ggtitle("") +
   labs(x= "waterdiepte",y="indringingsweerstand")
 
-ggplot() +
-  geom_jitter(data = abio_proj, aes(x = drlg, y = drglg, col = waterschap), size = 3) +
-  xlim(0,0.8)+ ylim(0,0.8)+
-  geom_abline(intercept = 0, slope = 1)+
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    axis.title =  element_text(size=18), 
-    axis.text = element_text(size = 15),
-    legend.title = element_text(size= 15),
-    legend.text = element_text(size= 15),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =18, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("Relatie veensloottypen en gemeten veensloottypen") +
-  labs(x= "drooglegging obv peilgebieden",y="drooglegging obv meting")
-
-ggplot() +
-  geom_jitter(data = abio_proj[max_wtd < 0.8,], aes(x = max_wtd, y = drglg, col = clusters)) + 
-  geom_smooth(data = abio_proj[max_wtd < 0.8,], aes(x = max_wtd, y = drglg)) +
+# drooglegging 
+# breedte oever watbte, max diepte max_wtd
+# breedte aquatische oever (cm) Oeverzone_2a_breedte_cm
+# tldk_vastbodem_perc tldk_oevrwtr_perc
+p<- ggplot(data = abio_proj, aes(x= drglg , y= tldk_oevrwtr_perc))+
+  geom_jitter(aes(col= gebied, text = SlootID))+
+  geom_smooth(method="gam") +
+  # stat_regline_equation(label.x=200, label.y=470)+
+  stat_cor(aes(label=..rr.label..), label.x=0.5, label.y=0.5)+
+  ylim(0,150)+
   theme_minimal()+
   theme(
     strip.background = element_blank(),
     strip.text.x = element_text(size=10), 
     strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 12),
+    axis.text.x = element_text(size = 10, angle = 90),
     axis.text.y = element_text(size= 12),
     axis.ticks =  element_line(colour = "black"),
     plot.title = element_text(size =12, face="bold", hjust = 0.5),
     panel.background = element_blank(),
     plot.background = element_blank(),
   )+
-  ggtitle("Relatie waterdiepte - drooglegging") +
-  labs(x= "waterdiepte (m)",y="drooglegging (m)")
-ggsave(file=paste0('output/clusters/watdte_drglg.png'),width = 15,height = 15,units='cm',dpi=1000)
+  ggtitle("profiel") +
+  labs(x= "drooglegging (m)",y="waterbreedte (m)")
+ggplotly(p, tooltip = c('text','gebied', 'drglg','watbte'))
 
 
-ggplot() +
-  geom_jitter(data = abio_proj, aes(x = slib_redox_mgL, y = slib_conductiviteit_uS_cm)) + 
-  geom_smooth(data = abio_proj, aes(x = slib_redox_mgL, y = slib_conductiviteit_uS_cm)) +
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 12),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("Relatie ") +
-  labs(x= "redox",y="egv")
-ggsave(file=paste0('output/clusters/watdte_drglg.png'),width = 15,height = 15,units='cm',dpi=1000)
-
-ggplot() +
-  geom_jitter(data = abio_proj, aes(x =slib_redox_mgL  ,y = max_wtd, col = as.factor(clusters))) + 
-  # geom_smooth(data = abio_proj[max_wtd < 0.8,], aes(x = max_wtd, y = max_slib)) +
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 12),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("Relatie waterdiepte - vegetatiebedekking") +
-  labs(x= "Redox ()",y="waterdiepte (m)")
-ggsave(file=paste0('output/clusters/watdte_slib.png'),width = 15,height = 15,units='cm',dpi=1000)
-
-
-### abio histogrammen -----------------------
+## 14.4 abio per gebied en per parameter -----------------------
 
 # reformat data for plot loop
 cols_num <- colnames(abio_proj)[sapply(abio_proj, is.numeric)]
-melt <- melt(setDT(abio_proj), id.vars = c("SlootID","sloot_nr","gebied","sloot","behandeling","beheer"), 
+melt <- melt(setDT(abio_proj), id.vars = c("SlootID","sloot_nr","Gebiedsnaam","gebied","sloot","behandeling","beheer"), 
              measure.vars = cols_num, na.rm = TRUE)
-namenind <- unique(melt$variable)
-namenind <- gsub('uS_cm','(µS/cm)',namenind)
-namenind <- gsub("slib_redox_mgL", "slib redox (mV)",namenind)
-namenind <- gsub('mgL','(mg/l)',namenind)
-namenind <- gsub('_perc',' (%)',namenind)
-namenind <- gsub('_cm^','(cm)',namenind)
-namenind <- gsub('_m^','(m)',namenind, fixed =TRUE)
-namenind <- gsub('_',' ',namenind)
-namenind <- gsub('water redox', 'water redox (mV)', namenind)
-namenind <- gsub("max slib", "maximale slibdikte (m)",namenind)
-namenind <- gsub("max wtd", "maximale waterdiepte (m)",namenind)
-namenind <- gsub("watbte", "waterbreedte (m)",namenind)
-namenind <- gsub("drglg", "drooglegging (m)",namenind)
-namenind <- gsub("drlg", "drooglegging (m)",namenind)
-namenind <- gsub("doorzicht2 mid cm", "doorzicht (cm)",namenind)
-namenind <- gsub("^insteek ", "indringingsweerstand insteek ",namenind)
-namenind <- gsub("^oever", "indringingsweerstand oever ",namenind)
-namenind <- gsub("^perceel ", "indringingsweerstand perceel ",namenind)
-namenind <- gsub("^holleoever", "onderholling oever (cm)",namenind)
-unique(namenind)
-
-melt[,level := factor(variable, labels = namenind)]
+melt[,behandeling := gsub('-DRGLG','', behandeling)]
+pars <- fread(paste0(workspace,"./Bodemanalyses/pars2.csv"), dec = '.', na.strings = c('NA',''), encoding = "Latin-1")
+melt <- merge(melt, pars, by = 'variable', all.x = TRUE)
+melt <- melt[!is.na(melt$parameter),]
+melt[variable == 'doorzicht2_mid_cm', value :=  value/100]
+check <- unique(melt[,c('variable','monsterdiepte','parameter','compartiment','eenheid','methode','varnames')])
+melt[,`gemiddelde VeeST` := mean(value, na.rm = TRUE), by = variable] 
 setDT(melt)
 
 ### loop per parameter alle gebieden
+melt[is.na(eenheid), eenheid := ""]
+melt[,par_eenheid := paste0(parameter,"_", eenheid)]
+
+for(j in unique(melt$par_eenheid)){
+  # j <- unique(melt$par_eenheid)[228]
+  melt_sel <- melt[par_eenheid %in% j,]
+  # sel only pars with or & two depths
+  if(uniqueN(melt_sel$monsterdiepte)>=2& uniqueN(melt_sel$compartiment)>=2){
+  var_folder <- gsub('/','_',j)
+  var_folder <- gsub('%','perc',var_folder)
+  
+  ggplot(melt_sel, aes(x = compartiment, y = value, fill = monsterdiepte)) +
+    facet_wrap(gebied~., scales = "free",
+               nrow = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black')
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = paste0(unique(melt_sel$eenheid)))+
+    ggtitle(unique(melt_sel$parameter)) 
+  ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 25,height = 15,units='cm',dpi=800)
+  } 
+}
+
+### loop per parameter, compartiment, monsterdiepte alle gebieden
 for(i in unique(melt$variable)){
-  # i <- unique(melt$variable)[10]
+  # i <- unique(melt$variable)[4]
   melt_sel <- melt[variable %in% i,]
+  var_folder <- gsub('/','_',unique(melt_sel$variable))
+  var_folder <- gsub('%','perc',var_folder)
   
   ggplot() +
     geom_histogram(data = melt_sel, aes(value), col = 'black') +
@@ -1121,86 +1299,200 @@ for(i in unique(melt$variable)){
     panel.background = element_blank(),
     plot.background = element_blank(),
     )+
-    guides(fill=guide_legend(title=unique(melt_sel$level)))+
-    ggtitle(unique(melt_sel$level)) +
-    labs(x= unique(melt_sel$level), y=paste0("aantal monstertrajecten (n= " , uniqueN(melt_sel$SlootID),') '))
-  ggsave(file=paste0('output/AlleGebieden/hist_parameter_',unique(melt_sel$variable),'.png'), width = 25,height = 15,units='cm',dpi=800)
+    guides(fill=guide_legend(title=unique(melt_sel$varnames)))+
+    ggtitle(unique(melt_sel$varnames)) +
+    labs(x= paste0(unique(melt_sel$eenheid)), y=paste0("aantal monstertrajecten (n= " , uniqueN(melt_sel$SlootID),') '))
+  ggsave(file=paste0('output/AlleGebieden/histogram/',var_folder,'.png'), width = 15,height = 10,units='cm',dpi=800)
 
   ggplot() +
    geom_boxplot(data = melt_sel, aes(x = gebied,  y = value), binwidth = 0.1) + 
    theme_minimal()+
    theme(
     strip.background = element_blank(),
-    strip.text.y = element_text(size = 10), 
-    axis.text = element_text(size = 18, angle = 45),
+    strip.text.y = element_text(size = 12), 
+    axis.text = element_text(size = 14, angle = 45),
     axis.title = element_text(size= 15),
     axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =20, face="bold", hjust = 0.5),
+    plot.title = element_text(size =15, face="bold", hjust = 0.5),
     panel.background = element_blank(),
     plot.background = element_blank(),
   )+
   # guides(x= ggh4x::guide_axis_nested(delim = "&"))+
-  ggtitle(melt_sel$level) +
-  labs(x= 'gebied', y=melt_sel$level)
-ggsave(file=paste0('output/AlleGebieden/box_parameter_',unique(melt_sel$variable),'.png'),width = 30,height = 15,units='cm',dpi=1000)
+  ggtitle(melt_sel$varnames) +
+  labs(x= 'gebied', y=paste0(unique(melt_sel$eenheid)))
+ggsave(file=paste0('output/AlleGebieden/boxplot/',var_folder,'.png'),width = 15,height = 10,units='cm',dpi=800)
+
+
 }
 
-### loop per parameter en gebied
-# gemiddelde water ph klopt niet
-for(i in unique(melt$gebied)){
-  # i <- unique(melt$gebied)[10]
-  melt_sel <- melt[gebied %in% i,]
-  for(j in unique(melt_sel$variable)){
-    # j <- unique(melt_sel$variable)[9]
-    melt_sel_v <- melt_sel[variable %in% j,]
-    melt_var <- melt[variable %in% j,]
-    melt_sel_v <- rbind(melt_sel_v, list('gemiddelde VeeST','gemiddelde VeeST', 'gemiddelde VeeST', 'gemiddelde VeeST', 'gemiddelde VeeST', 'gemiddelde VeeST', j, mean(melt_var$value, na.rm = TRUE), unique(melt_var$level)))
-      
-    ggplot() +
-      geom_bar(data = melt_sel_v, aes(x= SlootID, y =value, fill = gebied),
-               stat = 'summary', fun.y = 'mean',
-               show.legend = FALSE) +
-      coord_flip()+
-      theme_minimal()+
-      theme(
-        strip.background = element_blank(),
-        strip.text.y = element_text(size = 12), 
-        axis.text = element_text(size = 14),
-        axis.title = element_text(size= 15),
-        axis.ticks =  element_line(colour = "black"),
-        plot.title = element_text(size =15, face="bold", hjust = 0.5),
-        panel.background = element_blank(),
-        plot.background = element_blank(),
-      )+
-      guides(fill=guide_legend(title=unique(melt_sel_v$level)))+
-      ggtitle(unique(melt_sel_v$level)) +
-      labs(x= 'SlootID' , y=unique(melt_sel_v$level))
-    ggsave(file=paste0('output/',i,'/odk_parameters/hist_parameter_slootid_',i, '_',j,'.png'), width = 25,height = 15,units='cm',dpi=800)
 
+
+### loop per parameter en gebied
+for(i in unique(melt$gebied)){
+  # i <- unique(melt$gebied)[11]
+  melt_sel <- melt[gebied %in% i,]
+  
+  ggplot() +
+    geom_col(data = melt_sel[variable %in% c('doorzicht2_mid_cm')], aes(x= behandeling, y = value, fill = 'doorzicht (m)')) +
+    geom_point(data = melt_sel[variable %in% c('max_wtd')], aes(x= behandeling, y = value, col = 'maximale waterdiepte (m)'),
+               shape = 95, size = 15) +
+    scale_colour_manual(values =c("#D55E00","skyblue"))+
+    scale_fill_manual(values = c("skyblue","#D55E00"), na.value = "#A6761D")+
+    facet_grid(.~ sloot_nr, space = 'free_x', scales = 'free_x', switch = 'x')+
+    theme_minimal(base_size = 15)+
+    theme(
+      strip.background = element_blank(),
+      strip.text.y = element_text(size = 12), 
+      axis.text.x = element_text(size = 15, vjust = 0.8, angle = 90),
+      axis.text.y = element_text(size = 15),
+      axis.title = element_text(size= 15),
+      axis.ticks =  element_line(colour = "black"),
+      axis.line = element_line(colour='black'),
+      plot.title = element_text(size =18, face="bold", hjust = 0.5),
+      panel.background = element_blank(),
+      panel.border = element_rect(colour='black', fill = NA),
+      plot.background = element_blank(),
+      legend.position = "bottom",
+      legend.box.just = "center"
+    )+
+    guides(fill = guide_legend(title = '', title.vjust = 1))+
+    guides(color = guide_legend(title = ''))+
+    ggtitle(paste0("Waterdiepte & doorzicht in ",unique(melt_sel$Gebiedsnaam))) +
+    labs(x= 'Slootnummer en behandeling' , y= 'meter')
+  ggsave(file=paste0('output/',i,'/abiotiek/',i, '_watdte_zicht','.png'), width = 25,height = 15,units='cm',dpi=800)
+  
+  ### fingerprint
+  sel <- c("SiO2","Al2O3","Zn","Pb","Cu","Ba","MgO","Ni" )
+  sel2 <- c("SO3", "CaO", "Fe2O3")
+  sel3 <- c("N-NH4", "N-NO3")
+  sel4 <- c("P2O5","P-AL","P-CC", "Fe/S", "Fe/P")
+  
+  melt_sel_fp <- melt_sel[(parameter%in%sel & methode == 'xrf')|parameter%in%'organisch stof',]
+  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = monsterdiepte)) +
+    facet_wrap(~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black')
+          ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "")
+  ggsave(file=paste0('output/',i,'/fingerprints/',i, '_metalen_os','.png'), width = 25,height = 15,units='cm',dpi=800)
+  
+  melt_sel_fp <- melt_sel[(parameter%in%sel2 & methode == 'xrf'),]
+  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = monsterdiepte)) +
+    facet_wrap(~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black')
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "")
+  ggsave(file=paste0('output/',i,'/fingerprints/',i, '_ca_fe_s','.png'), width = 25,height = 10,units='cm',dpi=800)
+  
+  melt_sel_fp <- melt_sel[parameter%in%sel4 & methode %in% c('xrf','pal','XRF','calciumchloride','CC'),]
+  melt_sel_fp <- melt_sel_fp[is.na(eenheid), eenheid := ""]
+  ggplot(melt_sel_fp, aes(x = paste0(compartiment), y = value, fill = paste0(methode, ' ',monsterdiepte))) +
+    facet_wrap(~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black'),
+          axis.text.x = element_text(size = 14, angle = 90,hjust=1)
+    ) +
+    guides(fill = guide_legend(title = 'P-fractie en monsterdiepte', title.vjust = 1))+
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "", y = "")
+  ggsave(file=paste0('output/',i,'/fingerprints/',i, '_fe_P','.png'), width = 25,height = 15,units='cm',dpi=800)
+
+  for(j in unique(melt_sel$par_eenheid)){
+    # j <- unique(melt_sel$par_eenheid)[249]
+    melt_sel_v <- melt_sel[par_eenheid %in% j,]
+    # sel only pars with or & two depths
+    if(uniqueN(melt_sel_v$monsterdiepte)>=2){
+    melt_sel_v[,sloot_nr:= as.character(sloot_nr)]
+    melt_sel_v[,sloot_nr:= factor(sloot_nr, levels = c('1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'))]  
+    var_folder <- gsub('/','_',j)
+    var_folder <- gsub('%','perc',var_folder)
+   
     ggplot() +
-      geom_bar(data = melt_sel_v, aes(x= sloot_nr, y =value, fill = gebied), 
-               stat = 'summary', fun.y = 'mean',
-               show.legend = FALSE) +
-      coord_flip()+
-      theme_minimal()+
+      geom_col(data = melt_sel_v, aes(x= behandeling, y = value, fill = compartiment), position = "dodge") +
+      geom_point(data = melt_sel_v, aes(x= behandeling, y = `gemiddelde VeeST`, col = '* gemiddelde VeeST'),
+                 shape = 95, size = 16) +
+      scale_fill_manual(values =c("#D95F02", "#A6761D", "#7570B3", "#1B9E77","#E6AB02","#E7298A"))+
+      scale_colour_manual(values =c("#66A61E", "#1B9E77","#E6AB02","#E7298A"))+
+      facet_grid(monsterdiepte ~ sloot_nr, space = 'free_x', scales = 'free_x', switch = 'x')+
+      theme_minimal(base_size = 15)+
       theme(
         strip.background = element_blank(),
         strip.text.y = element_text(size = 12), 
-        axis.text = element_text(size = 14),
-        axis.title = element_text(size= 15),
+        axis.text.x = element_text(size = 14, vjust = 0.8, angle = 90),
+        axis.text.y = element_text(size = 14),
+        axis.title = element_text(size= 14),
         axis.ticks =  element_line(colour = "black"),
-        plot.title = element_text(size =15, face="bold", hjust = 0.5),
+        axis.line = element_line(colour='black'),
+        plot.title = element_text(size =14, face="bold", hjust = 0.5),
         panel.background = element_blank(),
+        panel.border = element_rect(colour='black', fill = NA),
         plot.background = element_blank(),
+        legend.position = "right",
+        legend.box.just = "center"
       )+
-      guides(fill=guide_legend(title=unique(melt_sel_v$level)))+
-      ggtitle(unique(melt_sel_v$level)) +
-      labs(x= 'SlootID' , y=unique(melt_sel_v$level))
-    ggsave(file=paste0('output/',i,'/odk_parameters/hist_parameter_slootnr_',i, '_',j,'.png'), width = 25,height = 15,units='cm',dpi=800)
+      guides(col = guide_legend(title = ''), fill = guide_legend(title = ''))+
+      ggtitle(paste0(unique(melt_sel_v$parameter), " ",unique(melt_sel_v$Gebiedsnaam))) +
+      labs(x= 'Slootnummer en behandeling' , y=paste0(unique(melt_sel_v$parameter),' (',unique(melt_sel_v$eenheid),') '))
+    ggsave(file=paste0('output/',i,'/abiotiek/',i,'_hist_depths_',var_folder,'.png'), width = 25,height = 15,units='cm',dpi=800)
+    }
+  }
+  
+  for(j in unique(melt_sel$variable)){
+  # j <- unique(melt_sel$variable)[20]
+  melt_sel_v <- melt_sel[variable %in% j,]
+  melt_sel_v[,sloot_nr:= as.character(sloot_nr)]
+  var_folder <- gsub('/','_',j)
+  var_folder <- gsub('%','perc',var_folder)
+  
+  ggplot() +
+    geom_col(data = melt_sel_v, aes(x= behandeling, y = value, fill = beheer)) +
+    geom_point(data = melt_sel_v, aes(x= behandeling, y = `gemiddelde VeeST`, col = '* gemiddelde VeeST'),
+               shape = 95, size = 16) +
+    scale_fill_manual(values =c("#D95F02", "#A6761D", "#7570B3", "#1B9E77","#E6AB02","#E7298A","#66A61E"))+
+    scale_colour_manual(values =c("#66A61E", "#1B9E77","#E6AB02","#E7298A"))+
+    facet_grid(.~ sloot_nr, space = 'free_x', scales = 'free_x', switch = 'x')+
+    theme_minimal(base_size = 15)+
+    theme(
+      strip.background = element_blank(),
+      strip.text.y = element_text(size = 12), 
+      axis.text.x = element_text(size = 14, vjust = 0.8, angle = 90),
+      axis.text.y = element_text(size = 14),
+      axis.title = element_text(size= 14),
+      axis.ticks =  element_line(colour = "black"),
+      axis.line = element_line(colour='black'),
+      plot.title = element_text(size =14, face="bold", hjust = 0.5),
+      panel.background = element_blank(),
+      panel.border = element_rect(colour='black', fill = NA),
+      plot.background = element_blank(),
+      legend.position = "right",
+      legend.box.just = "center"
+    )+
+    guides(col = guide_legend(title = ''), fill = guide_legend(title = ''))+
+    ggtitle(paste0(unique(melt_sel_v$varnames), " ",unique(melt_sel_v$Gebiedsnaam))) +
+    labs(x= 'Slootnummer en behandeling' , y=paste0(unique(melt_sel_v$parameter),' (',unique(melt_sel_v$eenheid),') '))
+  ggsave(file=paste0('output/',i,'/abiotiek/',i, '_hist_',var_folder,'.png'), width = 25,height = 15,units='cm',dpi=800)
   }
 }  
   
-## 14.4 plot penetrometer-------------------------
+## 14.5 plot penetrometer-------------------------
 # calc draagkracht per diepte
 # dist id 1 (perceel) en 2 (insteek) weg
 penmerge[,sectie_f := factor(sectie, levels=c('oever','insteek','perceel'))]
@@ -1225,6 +1517,14 @@ ggplot()+
 ggsave(file=paste0('output/AlleGebieden','/penetrometer/','box_penetrometer_alledieptenapart.png'),width = 20,height = 10,units='in',dpi=800)
 
 ### loop per gebied -------------------------------
+# beheer
+penmerge[,beheer := 'regulier']
+penmerge[grepl('M', behandeling),beheer := 'minimaal']
+penmerge[grepl('M-AF', behandeling),beheer := 'minimaal + afrastering']
+penmerge[grepl('R-AF', behandeling),beheer := 'regulier + afrastering']
+penmerge[grepl('AF', behandeling),beheer := 'afrastering']
+penmerge[grepl('NVO', behandeling), beheer := 'NVO']
+penmerge[grepl('NVO-AF', behandeling), beheer := 'NVO + afrastering']
 penmerge_agg <- penmerge[!is.na(dieptebin),lapply(.SD,mean,na.rm=TRUE),.SDcols='indringingsweerstand',by=c('Diept','sectie','sectie_f')]
 penmerge <- penmerge[!is.na(gebied_locs),]
 
@@ -1234,25 +1534,27 @@ for(gb in unique(penmerge$gebied_locs)){
   penmerge_gb <- penmerge[!is.na(dieptebin) & gebied_locs %in% gb,]
   
   ggplot()+
-    geom_jitter(data = penmerge_gb[sectie == 'oever',], aes(col = paste(SlootID, dist_id, sep = '_', recycle0 = TRUE), x=indringingsweerstand, y = Diept*-1), size = 2)+
+    geom_jitter(data = penmerge_gb[sectie == 'oever',], aes(col = paste(beheer, sep = '_', recycle0 = TRUE), x=indringingsweerstand, y = Diept*-1), size = 2)+
     geom_jitter(data = penmerge_agg[sectie == 'oever',], aes(x=indringingsweerstand, y = Diept*-1, fill = sectie_f))+
-    facet_grid(.~sectie_f, scales = 'free')+
+    
+    facet_grid(.~sloot_locs, scales = 'fixed')+
+    geom_vline(xintercept = 0.5, colour ='red', size = 1)+
     # ylim(0,2)+
-    theme_minimal()+
+    theme_minimal(base_size = 14)+
     theme(
       strip.background = element_blank(),
-      strip.text.x = element_text(size = 12),
-      strip.text.y = element_text(size = 12), 
-      axis.text.x = element_text(size = 12, angle = 90),
-      axis.text.y = element_text(size= 12),
+      strip.text.x = element_text(size = 14),
+      strip.text.y = element_text(size = 14), 
+      axis.text.x = element_text(size = 14, angle = 90),
+      axis.text.y = element_text(size= 14),
       axis.ticks =  element_line(colour = "black"),
-      plot.title = element_text(size =12, face="bold", hjust = 0.5),
+      plot.title = element_text(size =15, face="bold", hjust = 0.5),
       panel.border = element_rect(color = 'black', fill = NA),
       panel.background = element_blank(),
       plot.background = element_blank(),
       )+
-    ggtitle("Indringsweerstand penetrometer (conustype 2cm²)") +
-    labs(x= "indringingsweerstand",y="diepteinterval (cm)", fill = 'Gemiddelde VeeST', col ='Locatie')
+    ggtitle("Indringsweerstand per sloot gemeten tussen waterlijn en insteek") +
+    labs(x= "indringingsweerstand",y="diepteinterval (cm)", fill = 'Gemiddelde VeeST', col ='Behandeling')
   ggsave(file=paste0('output/',gb,'/penetrometer/',unique(penmerge_gb$gebied_loc),'.png'),width = 7.50,height = 7.00,units='in',dpi=800)
 
   print(gb)  
@@ -1288,7 +1590,134 @@ for(loc in unique(penmerge$SlootID)){
   print(loc)  
 }
 
-### overig----------------------
+
+## 14.6 overig----------------------
+
+### waterbodem ----------------
+require(ggpubr)
+p<- ggplot(data = abio_proj, aes(x= `P_µmol/l_PW`, y=`P-AL mg/kg`))+
+  geom_jitter(aes(col= gebied))+
+  geom_smooth(method="lm") +
+  # stat_regline_equation(label.x=200, label.y=220)+
+  stat_cor(aes(label=..rr.label..), label.x=200, label.y=200)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("waterbodem") +
+  labs(x= "P poriewater (umol/l)",y="P-AL slib (mg/kg)")
+ggplotly(p, tooltip = c('SlootID','gebied'))
+
+p<- ggplot(data = abio_proj, aes(x= `P2O5_xrf_g/kg_SB`, y=`P_mmol/kg DW_SB`))+
+  geom_jitter(aes(col= gebied))+
+  geom_smooth(method="lm") +
+  stat_regline_equation(label.x=2, label.y=110)+
+  stat_cor(aes(label=..rr.label..), label.x=2, label.y=100)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("waterbodem") +
+  labs(x= "P tot XRF",y="P tot ICP")
+ggplotly(p, tooltip = c('SlootID','gebied'))
+
+p<- ggplot(data = abio_proj, aes(x= `Fe2O3_xrf_g/kg_SB`, y=`Fe_mmol/kg DW_SB`))+
+  geom_jitter(aes(col= gebied))+
+  geom_smooth(method="lm") +
+  stat_regline_equation(label.x=25, label.y=1100)+
+  stat_cor(aes(label=..rr.label..), label.x=25, label.y=1000)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("waterbodem") +
+  labs(x= "Fe tot XRF",y="Fe tot ICP")
+ggplotly(p, tooltip = c('SlootID','gebied'))
+
+p<- ggplot(data = abio_proj, aes(x= `Zn_xrf_mg/kg_SB`, y=`Zn_mmol/kg DW_SB`))+
+  geom_jitter(aes(col= gebied))+
+  geom_smooth(method="lm") +
+  stat_regline_equation(label.x=500, label.y=12)+
+  stat_cor(aes(label=..rr.label..), label.x=500, label.y=10)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("waterbodem") +
+  labs(x= "zn tot XRF",y="zn tot ICP")
+ggplotly(p, tooltip = c('SlootID','gebied'))
+
+abio_proj[,feP_factor:= cut(abio_proj$feP_PW, breaks = c(0,0.5,1,2,10), include_lowest = T)]
+abio_proj[,feS_factor:= cut(abio_proj$feS_SB_DW, breaks = c(0,0.5,1,2,10), include_lowest = T)]
+abio_proj[,feS_factor_xrf:= cut(abio_proj$feS_SB_XRF, breaks = c(0,0.5,1,2,10), include_lowest = T)]
+abio_proj[,feP_factor_xrf:= cut(abio_proj$feP_SB_XRF, breaks = c(0,0.5,1,2,10), include_lowest = T)]
+abio_proj[,feS_factor_cc:= cut(abio_proj$feS_SB_CC, breaks = c(0,0.5,1,2,10), include_lowest = T)]
+abio_proj[,feP_factor_cc:= cut(abio_proj$feP_SB_CC, breaks = c(0,0.5,1,2,10), include_lowest = T)]
+# p-org `P_CC_org_mg/kg` `P-PO4_CC_mg/kg`
+
+p<- ggplot(data = abio_proj, aes(x= `P_µmol/l_PW`, y=`P-AL mg/kg_SB`, text = SlootID))+
+  geom_jitter(aes(col = feP_factor))+
+  xlim(0,410)+
+  geom_smooth(method="lm") +
+  stat_regline_equation(label.x=200, label.y=220)+
+  stat_cor(aes(label=..rr.label..), label.x=200, label.y=200)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("waterbodem") +
+  labs(x= "P poriewater (umol/l)",y="P-AL slib (mg/kg)")
+ggplotly(p, tooltip = c('text','gebied'))
+
+## waterbodem 
+abio_proj[,gebied :=as.factor(gebied)]
+pairs(abio_proj[feS_SB_DW<6,c('P_µmol/l_PW','feP_PW','feS_SB_DW','feS_PW')], col = abio_proj$gebied)
+pairs(abio_proj[feS_SB_DW<6,c('P_µmol/l_PW','feP_PW','feS_SB_DW','Fe_µmol/l_PW')], col = abio_proj$gebied)
+
+## fingerprint
+
+
+### draagkracht --------------
 ggplot()+
   geom_jitter(data = abio_proj[], aes(col= gebied, x= `perceel_(20,30]`, y=`oever_(20,30]`))+
   theme_minimal()+
@@ -1326,16 +1755,16 @@ ggplot()+
   labs(x= "diepte",y="indringingsweerstand")
 
 ggplot()+
-  geom_jitter(data = abio_proj, aes(x=  holleoever, y=`perceel_[0,10]`, col = waterschap),  size = 3)+
-  geom_jitter(data = abio_proj, aes(x=  holleoever, y=`perceel_(20,30]`, col = waterschap), size = 3)+
-  # geom_jitter(data = abio_proj, aes(x=  holleoever, y=`perceel_(30,40]`, col = waterschap), size = 3)+
+  geom_jitter(data = abio_proj[gebied == 'HW',], aes(x=  holleoever, y=`oever_(30,40]`, col = waterschap),  size = 3)+
+  geom_jitter(data = abio_proj[gebied == 'HW',], aes(x=  holleoever, y=`oever_(20,30]`, col = waterschap), size = 3)+
+  geom_jitter(data = abio_proj[gebied == 'HW',], aes(x=  holleoever, y=`oever_(10,20]`, col = waterschap), size = 3)+
   # scale_color_manual(name = "waterschap")) +
   theme_minimal()+
   theme(
     strip.background = element_blank(),
     axis.title = element_text(size= 14), 
     axis.text = element_text(size= 14),
-    legend.title = element_text(size= 14),
+    legend.title = element_text(size= 15),
     legend.text = element_text(size= 14),
     axis.ticks =  element_line(colour = "black"),
     plot.title = element_text(size =15, face="bold", hjust = 0.5),
@@ -1344,6 +1773,44 @@ ggplot()+
   )+
   ggtitle("Draagkracht oevers") +
   labs(x= "onderholling",y="indringingsweerstand (Mpa)")
+
+ggplot()+
+  geom_jitter(data = abio_proj, aes(x= holleoever, y=(Oeverzone_2a_breedte_cm * Oeverzone_2a_emers_perc)/100, col = waterschap),  size = 3)+
+  # scale_color_manual(name = "waterschap")) +
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    axis.title = element_text(size= 14), 
+    axis.text = element_text(size= 14),
+    legend.title = element_text(size= 15),
+    legend.text = element_text(size= 14),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =15, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("Aanwezigheid emerse vegetatie en onderholling") +
+  labs(x= "onderholling",y="oppervlak emerse vegetatie (m2/ meter oever)")
+
+ggplot()+
+  geom_jitter(data = abio_proj, aes(x=  holleoever, y=`oever_(30,40]`, col = waterschap),  size = 3)+
+  geom_jitter(data = abio_proj, aes(x=  holleoever, y=`oever_(20,30]`, col = waterschap), size = 3)+
+  geom_jitter(data = abio_proj, aes(x=  holleoever, y=`oever_(10,20]`, col = waterschap), size = 3)+
+  # scale_color_manual(name = "waterschap")) +
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    axis.title = element_text(size= 14), 
+    axis.text = element_text(size= 14),
+    legend.title = element_text(size= 15),
+    legend.text = element_text(size= 14),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =15, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("Draagkracht oevers") +
+  labs(x= "onderholling (cm)",y="indringingsweerstand (Mpa)")
  
 ggplot()+
   geom_jitter(data = abio_proj, aes(x=  holleoever, y=`oever_[0,10]`,col = as.factor(V2)),  size = 3)+
@@ -1372,6 +1839,7 @@ ggplot()+
 ### Typen beheer water, oever, perceelrand
 
 
+
 # 15. Export the data ---------------------------------------------------------
 ## locaties---------------------------------------------------------
 locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
@@ -1394,10 +1862,9 @@ write.table(loc.wq, file = paste(workspace,"/output/monst_codes",format(Sys.time
 write.table(veg, file = paste0('output/veg.csv' ), sep = ';',dec = '.', row.names = F)
 
 ## locaties per cluster export----------------------------------------------
-st_write(clusters_locs, paste0(workspace,  "output/clusters_locs_abio.gpkg"), append = TRUE)
+st_write(clusters_locs, paste0(workspace,  "output/clusters_locs_abio_2025.gpkg"), append = TRUE)
 setDT(clusters_locs)
 write.table(clusters_locs, file = paste(workspace,"/output/clusters_locs_abio",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), quote = FALSE, na = "", sep =';', row.names = FALSE)
-st_as_sf(clust_abio)
 
 ## penetrometerdata -------------------------------------------------------
 write.table(penmergecheck, file = paste(workspace,"/output/penetrometer_gps_check",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), quote = FALSE, na = "", sep =';', row.names = FALSE)
