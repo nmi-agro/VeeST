@@ -1325,9 +1325,9 @@ ggsave(file=paste0('output/AlleGebieden/boxplot/',var_folder,'.png'),width = 15,
 
 }
 
-
-
 ### loop per parameter en gebied
+# melt2 <- melt[gebied %in% c('GM','GZ'), gebied:='GWV']
+# melt2 <- melt[gebied %in% 'GWV']
 for(i in unique(melt$gebied)){
   # i <- unique(melt$gebied)[11]
   melt_sel <- melt[gebied %in% i,]
@@ -1342,7 +1342,7 @@ for(i in unique(melt$gebied)){
     theme_minimal(base_size = 15)+
     theme(
       strip.background = element_blank(),
-      strip.text.y = element_text(size = 12), 
+      strip.text.y = element_text(size = 12),
       axis.text.x = element_text(size = 15, vjust = 0.8, angle = 90),
       axis.text.y = element_text(size = 15),
       axis.title = element_text(size= 15),
@@ -1360,13 +1360,13 @@ for(i in unique(melt$gebied)){
     ggtitle(paste0("Waterdiepte & doorzicht in ",unique(melt_sel$Gebiedsnaam))) +
     labs(x= 'Slootnummer en behandeling' , y= 'meter')
   ggsave(file=paste0('output/',i,'/abiotiek/',i, '_watdte_zicht','.png'), width = 25,height = 15,units='cm',dpi=800)
-  
-  ### fingerprint
+
+  ## fingerprint
   sel <- c("SiO2","Al2O3","Zn","Pb","Cu","Ba","MgO","Ni" )
   sel2 <- c("SO3", "CaO", "Fe2O3")
   sel3 <- c("N-NH4", "N-NO3")
   sel4 <- c("P2O5","P-AL","P-CC", "Fe/S", "Fe/P")
-  
+
   melt_sel_fp <- melt_sel[(parameter%in%sel & methode == 'xrf')|parameter%in%'organisch stof',]
   ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = monsterdiepte)) +
     facet_wrap(~parameter+eenheid, scales = "free",
@@ -1381,7 +1381,7 @@ for(i in unique(melt$gebied)){
     scale_fill_brewer(palette = "Set2") +
     labs(x = "compartiment", y = "")
   ggsave(file=paste0('output/',i,'/fingerprints/',i, '_metalen_os','.png'), width = 25,height = 15,units='cm',dpi=800)
-  
+
   melt_sel_fp <- melt_sel[(parameter%in%sel2 & methode == 'xrf'),]
   ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = monsterdiepte)) +
     facet_wrap(~parameter+eenheid, scales = "free",
@@ -1396,7 +1396,7 @@ for(i in unique(melt$gebied)){
     scale_fill_brewer(palette = "Set2") +
     labs(x = "compartiment", y = "")
   ggsave(file=paste0('output/',i,'/fingerprints/',i, '_ca_fe_s','.png'), width = 25,height = 10,units='cm',dpi=800)
-  
+
   melt_sel_fp <- melt_sel[parameter%in%sel4 & methode %in% c('xrf','pal','XRF','calciumchloride','CC'),]
   melt_sel_fp <- melt_sel_fp[is.na(eenheid), eenheid := ""]
   ggplot(melt_sel_fp, aes(x = paste0(compartiment), y = value, fill = paste0(methode, ' ',monsterdiepte))) +
@@ -1421,10 +1421,10 @@ for(i in unique(melt$gebied)){
     # sel only pars with or & two depths
     if(uniqueN(melt_sel_v$monsterdiepte)>=2){
     melt_sel_v[,sloot_nr:= as.character(sloot_nr)]
-    melt_sel_v[,sloot_nr:= factor(sloot_nr, levels = c('1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'))]  
+    melt_sel_v[,sloot_nr:= factor(sloot_nr, levels = c('1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'))]
     var_folder <- gsub('/','_',j)
     var_folder <- gsub('%','perc',var_folder)
-   
+
     ggplot() +
       geom_col(data = melt_sel_v, aes(x= behandeling, y = value, fill = compartiment), position = "dodge") +
       geom_point(data = melt_sel_v, aes(x= behandeling, y = `gemiddelde VeeST`, col = '* gemiddelde VeeST'),
@@ -1435,7 +1435,7 @@ for(i in unique(melt$gebied)){
       theme_minimal(base_size = 15)+
       theme(
         strip.background = element_blank(),
-        strip.text.y = element_text(size = 12), 
+        strip.text.y = element_text(size = 12),
         axis.text.x = element_text(size = 14, vjust = 0.8, angle = 90),
         axis.text.y = element_text(size = 14),
         axis.title = element_text(size= 14),
@@ -1459,6 +1459,7 @@ for(i in unique(melt$gebied)){
   # j <- unique(melt_sel$variable)[20]
   melt_sel_v <- melt_sel[variable %in% j,]
   melt_sel_v[,sloot_nr:= as.character(sloot_nr)]
+  melt_sel_v[,sloot_nr:= factor(sloot_nr, levels = c('1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'))]  
   var_folder <- gsub('/','_',j)
   var_folder <- gsub('%','perc',var_folder)
   
@@ -1492,6 +1493,7 @@ for(i in unique(melt$gebied)){
   }
 }  
   
+
 ## 14.5 plot penetrometer-------------------------
 # calc draagkracht per diepte
 # dist id 1 (perceel) en 2 (insteek) weg
