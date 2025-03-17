@@ -8,6 +8,7 @@ library(nngeo) #azimuth
 library(readxl)
 library(plotly)
 library(RColorBrewer)
+require(ggpubr)
 
 # 2. Settings and functions ----------------------------------------------------------------
 workspace <- paste0(Sys.getenv("NMI-SITE"), 'O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Data/')
@@ -1147,6 +1148,75 @@ corrplot(M, type="full", order="hclust",
          col=brewer.pal(n=8, name="RdYlBu"), tl.col = "black",tl.cex =0.8)
 
 ### specifieke relaties-------------------------------
+# poriewater P en kroos
+p <- ggplot(data = abio_proj, aes(x= `P_µmol/l_PW` , y= Waterzone_1_kroos_perc))+
+  geom_jitter(aes(col= gebied, text = SlootID))+
+  geom_smooth(method="gam") +
+  # stat_regline_equation(label.x=200, label.y=470)+
+  stat_cor(aes(label=after_stat(rr.label)), label.x=200, label.y=20)+
+  # ylim(0,150)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("profiel") +
+  labs(x= "P poriewater (µmol/l)",y="kroos (%)")
+ggplotly(p, tooltip = c('text'))
+
+# poriewater P en algen
+p <- ggplot(data = abio_proj, aes(x= `P_µmol/l_PW` , y= `Chl-a totaal_ug/l_OW`))+
+  geom_jitter(aes(col= gebied, text = SlootID))+
+  geom_smooth(method="gam") +
+  # stat_regline_equation(label.x=200, label.y=470)+
+  stat_cor(aes(label=after_stat(rr.label)), label.x=200, label.y=100)+
+  ylim(0,150)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("profiel") +
+  labs(x= "P poriewater (µmol/l)",y="algen (µmol/l)")
+ggplotly(p, tooltip = c('text'))
+
+# poriewater P en redox
+p <- ggplot(data = abio_proj, aes(x= `P_µmol/l_PW` , y= slib_redox_mgL))+
+  geom_jitter(aes(col= gebied, text = SlootID))+
+  geom_smooth(method="gam") +
+  # stat_regline_equation(label.x=200, label.y=470)+
+  stat_cor(aes(label=after_stat(rr.label)), label.x=200, label.y=20)+
+  # ylim(0,150)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("profiel") +
+  labs(x= "P poriewater (µmol/l)",y="kroos (%)")
+ggplotly(p, tooltip = c('text'))
+
 #waterdiepte drooglegging
 ggplot() +
   geom_jitter(data = abio_proj[max_wtd < 0.8,], aes(x = max_wtd, y = drglg, col = clusters)) + 
@@ -1167,57 +1237,16 @@ ggplot() +
   labs(x= "waterdiepte (m)",y="drooglegging (m)")
 ggsave(file=paste0('output/clusters/watdte_drglg.png'),width = 15,height = 15,units='cm',dpi=1000)
 
-# waterdiepte/ indringingsweerstand
-ggplot() +
-  geom_jitter(data = abio_proj[!gebied %in% c('HW','ZG','SV','WL','MB'),], aes(x = max_slib, y = `perceel_(10,20]`, col = gebied), size = 2) + 
-  geom_smooth(data = abio_proj[!gebied %in% c('HW','ZG','SV','WL'),], aes(x = max_slib, y = `perceel_(10,20]`)) +
-  # coord_fixed(ratio=1, xlim=c(0,1), ylim=c(0,1))+
-  # abline(1,1)+
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 12),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("") +
-  labs(x= "waterdiepte",y="indringingsweerstand")
-
-ggplot() +
-  geom_jitter(data = abio_proj[gebied %in% c('HW','ZG','SV','WL','MB'),], aes(x = max_wtd, y = `perceel_(10,20]`, col = gebied), size = 2) + 
-  geom_smooth(data = abio_proj[gebied %in% c('HW','ZG','SV','WL','MB'),], aes(x = max_wtd, y = `perceel_(10,20]`)) +
-  # coord_fixed(ratio=1, xlim=c(0,1), ylim=c(0,1))+
-  # abline(1,1)+
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 12),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("") +
-  labs(x= "waterdiepte",y="indringingsweerstand")
-
 # drooglegging 
 # breedte oever watbte, max diepte max_wtd
 # breedte aquatische oever (cm) Oeverzone_2a_breedte_cm
 # tldk_vastbodem_perc tldk_oevrwtr_perc
-p<- ggplot(data = abio_proj, aes(x= drglg , y= tldk_oevrwtr_perc))+
+p <- ggplot(data = abio_proj, aes(x= drglg , y= max_wtd))+
   geom_jitter(aes(col= gebied, text = SlootID))+
   geom_smooth(method="gam") +
   # stat_regline_equation(label.x=200, label.y=470)+
-  stat_cor(aes(label=..rr.label..), label.x=0.5, label.y=0.5)+
-  ylim(0,150)+
+  stat_cor(aes(label=after_stat(rr.label)), label.x=0.5, label.y=0.5)+
+  # ylim(0,150)+
   theme_minimal()+
   theme(
     strip.background = element_blank(),
@@ -1231,8 +1260,8 @@ p<- ggplot(data = abio_proj, aes(x= drglg , y= tldk_oevrwtr_perc))+
     plot.background = element_blank(),
   )+
   ggtitle("profiel") +
-  labs(x= "drooglegging (m)",y="waterbreedte (m)")
-ggplotly(p, tooltip = c('text','gebied', 'drglg','watbte'))
+  labs(x= "drooglegging (m)",y="waterdiepte (m)")
+ggplotly(p, tooltip = c('text'))
 
 
 ## 14.4 abio per gebied en per parameter -----------------------
@@ -1493,7 +1522,6 @@ for(i in unique(melt$gebied)){
   }
 }  
   
-
 ## 14.5 plot penetrometer-------------------------
 # calc draagkracht per diepte
 # dist id 1 (perceel) en 2 (insteek) weg
@@ -1596,7 +1624,7 @@ for(loc in unique(penmerge$SlootID)){
 ## 14.6 overig----------------------
 
 ### waterbodem ----------------
-require(ggpubr)
+
 p<- ggplot(data = abio_proj, aes(x= `P_µmol/l_PW`, y=`P-AL mg/kg`))+
   geom_jitter(aes(col= gebied))+
   geom_smooth(method="lm") +
