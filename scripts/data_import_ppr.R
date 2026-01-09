@@ -883,6 +883,11 @@ colnames(oever_ac_50) <- paste0(colnames(oever_ac_50),'_OR_50')
 
 # 8. dikte veraarde laag -------------------------------------------------
 veraardveen <- fread(paste0(workspace,"./Bodemanalyses/Dikteveraardeveenlagen.csv"), dec = '.', na.strings = c(-999,'NA',''), encoding = "Latin-1")
+# 9. Beheergegevens ---------------------------------------------------
+beheer <- fread(paste0(workspace2,"./beheer_wp1_2024.csv"), dec = ',', na.strings = c(-999,'NA',''), encoding = "Latin-1")
+beheer2 <- fread(paste0(workspace2,"./beheer_wp2_2024.csv"), dec = ',', na.strings = c(-999,'NA',''), encoding = "Latin-1")
+beheer <- rbind(beheer, beheer2, fill= TRUE)
+beheer[, jaar := 2024]
 
 # 9. Save workspace ------------------------------------------------------
 save.image(file = paste0(workspace,"/Processed_data_workspace.RData"))

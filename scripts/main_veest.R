@@ -71,6 +71,9 @@ check_db <- locaties[!Oevermonster_AgroCares %in% unique(oever_ac_25$SlootID_kor
 abio_proj <- merge(abio_proj, veraardveen, by.x = c('SlootID_kort'), by.y = 'Slootcode', suffixes = c('','_vaveen'), all.x = T)
 check_db <- locaties[!SlootID_kort %in% unique(veraardveen$Slootcode),]
 
+## beheer data ---------------
+abio_proj <- merge(abio_proj, beheer, by = c('SlootID','jaar'), all.x = T, suffixes = c('','_beheer'))
+check_db <- locaties[!SlootID %in% unique(beheer$SlootID),]
 ## validate complete db--------------
 uniqueN(locaties$SlootID[locaties$`Complete data` == 1]) #238
 uniqueN(abio_proj[!is.na(slib_pH)&!is.na(water_pH)&!is.na(max_slib)&!is.na(`insteek_[0,10]`)&!is.na(instanceID_abio),c('SlootID')])
@@ -235,7 +238,6 @@ nederlandse_namen <- c(
   "Taludhoek waterlijn (%)",
   "Taludhoek oever (%)"
 )
-
 # toevoeging oeverbreedte en veentype
 cols_corr <- c("drglg", "watbte","oevbte",
                "oeverzone_2a_breedte_cm", "oeverzone_2b_breedte_cm", 
@@ -259,7 +261,6 @@ cols_corr <- c("waterzone_1_subm_tot_perc","2","draagkracht_oever",
                  "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc", "slib_redox_pH7","slib_pH",
                  "oevbte", "veentype_num", "Z_CLAY_SA_OR_50",
                  "draagkracht_oever", "draagkracht_perceel", "water_pH", "NH4_µmol/l_PW","P-AL mg p2o5/100g_SB")
-
 # Create readable Dutch names mapping
 nederlandse_namen <- c(
   "waterzone_1_subm_tot_perc" = "Bedekking submerse vegetatie in water (%)",
@@ -288,6 +289,7 @@ nederlandse_namen <- c(
   "NH4_µmol/l_PW" = "Ammonium (µmol/l)",
   "P-AL mg p2o5/100g_SB" = "P-AL slib (mg P2O5/100g)"
 
+
 )
 
 # Check which variables actually exist in the dataset
@@ -295,44 +297,52 @@ available_cols <- cols_corr[cols_corr %in% colnames(abio_proj)]
 print("Available variables:")
 print(available_cols)
 
-# Maak namen vector voor de correlatiematrix
-names(nederlandse_namen) <- available_cols
-
-# Maak correlatiematrix
-abio_proj[,trofie:= as.numeric(trofie)]
+# Create correlation matrix and p-value matrix with the SAME variables
+abio_proj[,trofie := as.numeric(trofie)]
 abio_proj[,draagkracht_perceel := as.numeric(draagkracht_perceel)]
-M <- cor(abio_proj[, available_cols, with = FALSE], use = "complete.obs")
-# Compute a matrix of correlation p-values
-p.mat <- cor_pmat(abio_proj[, available_cols, with = FALSE], use = "complete.obs")
 
-# Pas Nederlandse namen toe op de matrix
+# Handle non-numeric columns
+abio_proj[Maaifrequentie_oever_per_jaar %in% c('0,5'), Maaifrequentie_oever_per_jaar := 0.5]
+abio_proj[is.na(Maaifrequentie_oever_per_jaar), Maaifrequentie_oever_per_jaar := 0]
+abio_proj[,Maaifrequentie_oever_per_jaar := as.numeric(Maaifrequentie_oever_per_jaar)]
+abio_proj[,Baggerfrequentie_per_jaar := as.numeric(Baggerfrequentie_per_jaar)]
+abio_proj[is.na(Baggerfrequentie_per_jaar), Baggerfrequentie_per_jaar := 0]
+abio_proj[Koeien_drinken_sloot == 'onbekend', Koeien_drinken_sloot := 'ja']
+abio_proj[,Koeien_drinken_sloot := as.numeric(factor(Koeien_drinken_sloot, levels = c('nee', 'ja')))]
+
+# Create correlation matrix with available columns only
+cormatrix <- abio_proj[, available_cols, with = FALSE]
+cormatrix <- na.omit(cormatrix)
+
+# Create both matrices with the same data
+M <- cor(cormatrix, use = "complete.obs")
+p.mat <- cor_pmat(cormatrix, use = "complete.obs")
+
+# Apply Dutch names to the same matrix
 colnames(M) <- nederlandse_namen[colnames(M)]
 rownames(M) <- nederlandse_namen[rownames(M)]
 
-# Divergerende Okabe-Ito geïnspireerde kleuren voor correlaties
-okabe_div_colors <- c("#D55E00", "#E69F00", "#F0E442", "#999999", 
-                      "#999999", "#56B4E9", "#0072B2", "#009E73")
-
-# Maak een ggplot versie met slechts de onderste helft
-library(ggcorrplot)
-# Maak de correlatiematrix met onderste helft (upper = FALSE)
+# Now use M (not M_clean) with matching p.mat
 ggcorrplot(M, 
-           type = "lower",           # Alleen onderste helft
-           hc.order = TRUE,          # Hierarchical clustering order
-           outline.color = "white",  # Witte randen
-           colors = c("#D55E00", "#FFFFFF", "#0072B2"),  # Okabe-Ito kleuren
-           lab = TRUE,               # Toon correlatie waarden
-           lab_size = 4,             # Grootte van correlatie labels
-           digits = 1,                # Aantal decimalen
-           tl.cex = 12,              # Grootte van variabele namen
+           type = "lower",
+           hc.order = TRUE,
+           outline.color = "white",
+           colors = c("#D55E00", "#FFFFFF", "#0072B2"),
+           lab = TRUE,
+           lab_size = 4,
+           digits = 1,
+           tl.cex = 12,
            title = "Correlatiematrix: Slootprofiel en vegetatiezones",
            p.mat = p.mat,
-           insig = "blank") +
+           insig = "blank",
+          show.diag = TRUE,
+          legend.title = "") +
   theme(
     plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
     axis.text = element_text(size = 12),
     legend.text = element_text(size = 12)
-  )
+  )+
+  labs(legend.title ='')
 
 
 ### Slootprofiel (drooglegging, waterdiepte midden sloot en langs de oever, slibdikte, doorzicht, breedte zones, talud oevers, onderholling)--------------------------
@@ -2421,8 +2431,8 @@ ggplot() +
   
   # Dubbele y-as met factor 16
   scale_y_continuous(
-    name = "N concentratie (µmol/l)",
-    sec.axis = sec_axis(~ . / 16, name = "P concentratie (µmol/L)")
+    name = "P concentratie (µmol/L)",
+    sec.axis = sec_axis(~ . * 16, name = "N concentratie (µmol/l)")
   ) +
   
   theme_minimal() +
@@ -2438,28 +2448,296 @@ ggplot() +
     panel.grid.major.x = element_blank()
   ) +
   labs(title = "N en P fracties in het oppervlaktewater per gebied",
-       subtitle = "Links: P fracties (schaal ×16), Rechts: N fracties\nError bars tonen standaarddeviatie") +
+       subtitle = "Links: P fracties, Rechts: N fracties (schaal ×16)\nError bars tonen standaarddeviatie") +
   guides(fill = guide_legend(nrow = 1))  # Legenda op één rij
 
-### Samenstelling slib (porievocht en totaal)-----------------------
 
- sel <- c("SiO2","Al2O3","MgO" )
- 
-  sel5 <- c("Zn","Pb","Cu","Ni","PH_CC" ) # kan ook opgelost uitspoelen door pyrietoxidatie en zink spoelt makkelijk uit zure veenbodems
-  sel2 <- c("SO3", "CaO", "Fe2O3")
+#### N en P versie 2 met ratio subplot-------------------
+# Bereken de opbouw van N en P per gebied met juiste parameternamen
+n_breakdown <- melt[parameter %in% c("NH4", "NO3", "TN") & 
+                    compartiment == "water" & !is.na(Gebiedsnaam)]
+n_breakdown <- n_breakdown[, .(mean_value = mean(value, na.rm = TRUE)), by = .(Gebiedsnaam, parameter)]
+n_breakdown <- dcast(n_breakdown, Gebiedsnaam ~ parameter, value.var = "mean_value")
+n_breakdown[, `:=`(
+  TN = TN,
+  N_overig = pmax(0, TN - NH4 - NO3, na.rm = TRUE),
+  NH4 = fifelse(is.na(NH4), 0, NH4),
+  NO3 = fifelse(is.na(NO3), 0, NO3)
+)]
+n_breakdown <- n_breakdown[, .(Gebiedsnaam, NH4, NO3, N_overig, TN)]
+n_breakdown_long <- melt(n_breakdown, id.vars = c("Gebiedsnaam"), measure.vars = c("NH4", "NO3", "N_overig", "TN"), 
+                         variable.name = "fractie", value.name = "waarde")
+n_breakdown_long[, type := "N"]
+
+p_breakdown <- melt[parameter %in% c("P", "PO4") & 
+                    compartiment == "water" & !is.na(Gebiedsnaam)]
+p_breakdown <- p_breakdown[, .(mean_value = mean(value, na.rm = TRUE)), by = .(Gebiedsnaam, parameter)]
+p_breakdown <- dcast(p_breakdown, Gebiedsnaam ~ parameter, value.var = "mean_value")
+p_breakdown[, `:=`(
+  TP = P,
+  P_overig = pmax(0, P - PO4, na.rm = TRUE),
+  PO4 = fifelse(is.na(PO4), 0, PO4)
+)]
+p_breakdown <- p_breakdown[, .(Gebiedsnaam, PO4, P_overig, TP)]
+p_breakdown_long <- melt(p_breakdown, id.vars = c("Gebiedsnaam"), measure.vars = c("PO4", "P_overig", "TP"), 
+                         variable.name = "fractie", value.name = "waarde")
+p_breakdown_long[, type := "P"]
+# Omrekenen van µmol/L naar mg/L
+n_breakdown_long[, waarde_mg_l := waarde * 14.007 / 1000]  # µmol N/L naar mg N/L
+p_breakdown_long[, waarde_mg_l := waarde * 30.974 / 1000]  # µmol P/L naar mg P/L
+# Combineer de datasets
+combined_breakdown <- rbind(
+  n_breakdown_long[, .(Gebiedsnaam, fractie, waarde_mg_l, type)], 
+  p_breakdown_long[, .(Gebiedsnaam, fractie, waarde_mg_l, type)]
+)
+
+# OPLOSSING: Bereken whiskers op basis van originele metingen
+# Haal de originele TN en TP metingen op
+n_origineel <- melt[parameter == "TN" & compartiment == "water" & !is.na(Gebiedsnaam)]
+n_origineel[, waarde_mg_l := value * 14.007 / 1000]  # Omrekenen naar mg/L
+
+p_origineel <- melt[parameter == "P" & compartiment == "water" & !is.na(Gebiedsnaam)]  
+p_origineel[, waarde_mg_l := value * 30.974 / 1000]  # Omrekenen naar mg/L
+
+# Bereken whiskers voor N totaal op basis van alle individuele metingen
+n_totaal_whiskers <- n_origineel[, .(
+  mean_value = mean(waarde_mg_l, na.rm = TRUE),
+  q25 = quantile(waarde_mg_l, 0.25, na.rm = TRUE),
+  q75 = quantile(waarde_mg_l, 0.75, na.rm = TRUE),
+  min_val = min(waarde_mg_l, na.rm = TRUE),
+  max_val = max(waarde_mg_l, na.rm = TRUE),
+  n_obs = .N  # Aantal metingen voor controle
+), by = Gebiedsnaam]
+
+n_totaal_whiskers[, `:=`(
+  whisker_lower = pmax(min_val, q25 - 1.5 * (q75 - q25)),
+  whisker_upper = pmin(max_val, q75 + 1.5 * (q75 - q25))
+)]
+
+# Hetzelfde voor P totaal
+p_totaal_whiskers <- p_origineel[, .(
+  mean_value_mg_l = mean(waarde_mg_l, na.rm = TRUE),
+  q25 = quantile(waarde_mg_l, 0.25, na.rm = TRUE),
+  q75 = quantile(waarde_mg_l, 0.75, na.rm = TRUE),
+  min_val = min(waarde_mg_l, na.rm = TRUE),
+  max_val = max(waarde_mg_l, na.rm = TRUE),
+  n_obs = .N
+), by = Gebiedsnaam]
+p_totaal_whiskers[, `:=`(
+  whisker_lower = pmax(min_val, q25 - 1.5 * (q75 - q25)),
+  whisker_upper = pmin(max_val, q75 + 1.5 * (q75 - q25))
+)]
+
+np_totaal <- melt[parameter %in% c("TN", "P") & compartiment == "water" & !is.na(Gebiedsnaam)]
+np_totaal <- dcast(np_totaal, Gebiedsnaam ~ parameter, value.var = "value", fun.aggregate = mean)
+np_totaal[, NP_ratio_totaal := TN / P]  # Molaire ratio (µmol/µmol)
+
+# Anorganisch N/P ratio (NH4 + NO3) / PO4
+np_anorg <- melt[parameter %in% c("NH4", "NO3", "PO4") & compartiment == "water" & !is.na(Gebiedsnaam)]
+np_anorg <- dcast(np_anorg, Gebiedsnaam ~ parameter, value.var = "value", fun.aggregate = mean)
+np_anorg[, N_anorg := NH4 + NO3][, NP_ratio_anorg := N_anorg / PO4]
+
+# Combineer ratio's
+np_ratios <- merge(np_totaal[, .(Gebiedsnaam, NP_ratio_totaal)], 
+                   np_anorg[, .(Gebiedsnaam, NP_ratio_anorg)], 
+                   by = "Gebiedsnaam")
+
+# Check resultaten
+print("N/P Ratio's per gebied:")
+print(np_ratios[order(Gebiedsnaam), .(Gebiedsnaam, 
+                     `Totaal N/P` = round(NP_ratio_totaal, 1), 
+                     `Anorganisch N/P` = round(NP_ratio_anorg, 1))])
+
+# Voeg toe aan combined_breakdown voor plotting
+combined_breakdown <- merge(combined_breakdown, np_ratios, by = "Gebiedsnaam", all.x = TRUE)
+# Sorteer gebieden op P totaal voor consistente volgorde
+sort_order <- p_totaal_whiskers[order(mean_value_mg_l), .(Gebiedsnaam)]
+combined_breakdown[, Gebiedsnaam := factor(Gebiedsnaam, levels = sort_order$Gebiedsnaam)]
+n_totaal_whiskers[, Gebiedsnaam := factor(Gebiedsnaam, levels = sort_order$Gebiedsnaam)]
+p_totaal_whiskers[, Gebiedsnaam := factor(Gebiedsnaam, levels = sort_order$Gebiedsnaam)]
+
+# Plot 1: N en P fracties - SQUARE ROOT TRANSFORMATIE
+p1 <- ggplot() +
+  # N fracties gestapeld (rechts) - groen
+  geom_col(data = combined_breakdown[type == "N" & fractie != "TN",], 
+           aes(x = as.numeric(Gebiedsnaam) + 0.2, y = waarde_mg_l/7, fill = fractie), 
+           alpha = 0.8, width = 0.4, position = "stack") +
   
- sel3 <- c("N-NH4", "N-NO3")
-  sel4 <- c("P2O5","P-AL","P-CC")
-  sel6 <- c("Fe/P_DW_icp Bware","Fe/P_PW_icp Bware",
-            "Fe/P_CC_calciumchloride","Fe/P__xrf")
-  sel7 <- c("Fe/S__xrf","Fe/S_CC_calciumchloride","Fe/S__icp Bware","Fe/S_DW_icp Bware")
+  # P fracties gestapeld (links) - paars - GESCHAALD MET FACTOR 7 
+  geom_col(data = combined_breakdown[type == "P" & fractie != "TP",], 
+           aes(x = as.numeric(Gebiedsnaam) - 0.2, y = waarde_mg_l , fill = fractie), 
+           alpha = 0.8, width = 0.4, position = "stack") +
   
+  # Whisker errorbars voor TOTAAL N (rechts)
+  geom_errorbar(data = n_totaal_whiskers,
+                aes(x = as.numeric(Gebiedsnaam) + 0.2, 
+                    ymin = whisker_lower/7, 
+                    ymax = whisker_upper/7),
+                width = 0.2, color = "black", size = 0.8) +
+  
+  # Whisker errorbars voor TOTAAL P (links) (geschaald met factor 7)
+  geom_errorbar(data = p_totaal_whiskers,
+                aes(x = as.numeric(Gebiedsnaam) - 0.2, 
+                    ymin = whisker_lower , 
+                    ymax = whisker_upper ),
+                width = 0.2, color = "black", size = 0.8) +
+  
+  # VOLLEDIGE KLEUREN MAPPING VOOR ALLE FRACTIES
+  scale_fill_manual(
+    values = c(
+      "NH4" = "#66C2A5",      # Licht groen voor NH4
+      "NO3" = "#2CA02C",      # Middel groen voor NO3  
+      "N_overig" = "#1B5E20", # Donker groen voor overige N
+      "PO4" = "#9C88FF",      # Licht paars voor PO4
+      "P_overig" = "#5E35B1"  # Donker paars voor overige P
+    ),
+    name = "Fractie",
+    labels = c(
+      "NH4" = "NH4-N",
+      "NO3" = "NO3-N",
+      "N_overig" = "Overig N",
+      "PO4" = "PO4-P", 
+      "P_overig" = "Overig P"
+    )
+  ) +
+  # X-as met juiste gebiedsnaam labels
+  scale_x_continuous(
+    name = "Gebied",
+    breaks = 1:length(sort_order$Gebiedsnaam),
+    labels = sort_order$Gebiedsnaam,
+    expand = expansion(mult = c(0.02, 0.02))  # Meer ruimte aan de randen
+  ) +
+  # SQUARE ROOT TRANSFORMATIE voor Y-as
+  scale_y_continuous(
+    name = "mg P/l",
+    sec.axis = sec_axis(~ .*7, name = "mgN/l")
+  ) +
+  # Flip coördinaten
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.position = "none",
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12),
+    title = element_text(size = 16, face = "bold", hjust = 0.5),
+    subtitle = element_text(size = 14, hjust = 0.5),
+    panel.grid.major.y = element_line(color = "grey90", size = 0.5),
+    panel.grid.minor.y = element_line(color = "grey95", size = 0.3),
+  ) +
+  labs(title = "N en P fracties in oppervlaktewater",
+       subtitle = "Boven: N fracties (groen), Onder: P fracties (paars, schaal ×7)\nErrorbars = whisker-range")
+
+# Plot 2: N/P ratio's met SQUARE ROOT TRANSFORMATIE
+p2 <- ggplot(combined_breakdown) +
+  # Balken naast elkaar met position_dodge
+  geom_col(aes(x = as.numeric(Gebiedsnaam) + 0.2, y = NP_ratio_totaal), fill ="#2C3E50", position = "dodge",width = 0.4, alpha = 0.8, width = 0.7) +
+  geom_col(aes(x = as.numeric(Gebiedsnaam) - 0.2, y = NP_ratio_anorg), fill="#BDC3C7", position = "dodge", width = 0.4, alpha = 0.8, width = 0.7) +
+  # Referentielijnen
+  geom_hline(yintercept = 16, color = "purple", linetype = "dashed", size = 1.2) +
+  # geom_hline(yintercept = 14, color = "darkgreen", linetype = "dashed", size = 1.2) +
+  scale_y_continuous(
+    name = "N/P Ratio (molbasis)") +
+  scale_x_continuous(
+     breaks = 1:length(sort_order$Gebiedsnaam),
+    # MEER RUIMTE TUSSEN GEBIEDEN
+    expand = expansion(mult = c(0.02, 0.02))
+  ) +
+  # Flip coördinaten
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12, color = "black"),
+    axis.text.y = element_blank(),
+    axis.title = element_text(size = 14, color = "black"),
+    axis.title.y = element_blank(),
+    legend.position = "none",
+    title = element_text(size = 16, face = "bold", hjust = 0.5, color = "black"),
+    panel.grid.major.y = element_line(color = "grey90", size = 0.5),
+    panel.grid.minor.y = element_line(color = "grey95", size = 0.3),
+  ) +
+  annotate("text", x = 19, y = 18, label = "16:1", 
+           color = "purple", size = 4, fontface = "bold", hjust = 0) +
+  labs(title = "N/P Ratio (molbasis)",
+       x = NULL,
+       y = "mol/mol") 
+
+# Combineer plots
+combined_np_plot_sqrt <- p1 + p2 + 
+  plot_layout(ncol = 2, widths = c(2, 1)) +
+  plot_annotation(
+    title = "",
+    theme = theme(
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+    )
+  )
+
+# Voeg VOLLEDIGE gedeelde legenda toe
+combined_breakdown[, fractie := factor(fractie, levels = c("NH4", "NO3", "N_overig", "PO4", "P_overig", "totaal-N/P", "anorg-N/P"))]
+legend_plot <- ggplot() +
+  # Voeg een dummy plot toe met ALLE fracties
+  geom_col(data = data.frame(
+    x = 1:7,
+    y = 1:7,
+    fractie = c("NH4", "NO3", "N_overig", "PO4", "P_overig", "totaal-N/P", "anorg-N/P")
+  ), aes(x = x, y = y, fill = fractie)) +
+  scale_fill_manual(
+    values = c(
+      "NH4" = "#66C2A5",      
+      "NO3" = "#2CA02C",      
+      "N_overig" = "#1B5E20", 
+      "PO4" = "#9C88FF",      
+      "P_overig" = "#5E35B1",
+      "totaal-N/P" = "#2C3E50",
+      "anorg-N/P" = "#BDC3C7"
+    ),
+    name = "Fractie:",
+    breaks = c("NH4", "NO3", "N_overig", "PO4", "P_overig", "totaal-N/P", "anorg-N/P"), # Deze volgorde bepaalt legenda
+    labels = c(
+      "NH4" = "NH4-N",
+      "NO3" = "NO3-N", 
+      "N_overig" = "Overig N",
+      "PO4" = "PO4-P",
+      "P_overig" = "Overig P",
+      "totaal-N/P" = "Totaal N/P",
+      "anorg-N/P" = "Anorganisch N/P"
+    )
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 11))
+
+# Combineer alles
+final_plot_sqrt <- combined_np_plot_sqrt + 
+  get_legend(legend_plot) + 
+  plot_layout(heights = c(10, 1))
+
+# Toon de plot
+print(final_plot_sqrt)
+
+# Print N/P ratio statistieken
+cat("\nN/P Ratio's per gebied:\n")
+np_summary <- np_ratios[order(Gebiedsnaam)]
+print(np_summary[, .(Gebiedsnaam, 
+                     `Totaal N/P` = round(NP_ratio_totaal, 1), 
+                     `Anorganisch N/P` = round(NP_ratio_anorg, 1))])
+
+# Opslaan
+ggsave(file = 'output/AlleGebieden/Tussenrapportage/N_P_fracties_ratio_sqrt.png', 
+       plot = final_plot_sqrt, width = 45, height = 25, units = 'cm', dpi = 800)
+
+
+### PAL totaal en per gebied gesorteerd op gemiddelde waarde----------------------------------------------------------
 melt_sel_fp <- melt[parameter%in%c("P2O5","P-AL","P-CC") & methode %in% c('xrf','pal','XRF','calciumchloride','CC'),]
 melt_sel_fp <- melt_sel_fp[is.na(eenheid), eenheid := ""]
-melt_sel_fp <- melt_sel_fp[!par_eenheid %in% 'P-AL_mg/kg',]
-
+melt_sel_fp <- melt_sel_fp[!par_eenheid %in% 'P2O5_g/kg_xrf',]
+# Voeg een kolom toe met de gewenste y-axis labels
+melt_sel_fp[, y_axis_label := paste0(parameter, " (", eenheid, ")")]
 ggplot(melt_sel_fp, aes(x = paste0(compartiment), y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    facet_wrap(~parameter+methode, scales = "free",
+    facet_wrap(~y_axis_label, scales = "free",
                ncol = 3) +
     stat_boxplot(geom = 'errorbar') +
     geom_boxplot(outliers = FALSE) +
@@ -2467,32 +2745,133 @@ ggplot(melt_sel_fp, aes(x = paste0(compartiment), y = value, fill = paste0(compa
     theme(text = element_text(size = 14),
           axis.ticks =  element_line(colour = "black"),
           axis.line = element_line(colour='black'),
-          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
+          axis.text.x = element_text(size = 14, angle = 45,hjust=1),
+          strip.text = element_text(size = 12)  # Aanpassing voor langere labels
     ) +
     guides(fill = guide_legend(title = 'compartiment en monsterdiepte', title.vjust = 1))+
     scale_fill_brewer(palette = "Set2") +
     labs(x = "", y = "", fill = 'compartiment en monsterdiepte')
-  ggsave(file=paste0('output/fingerprints/P-AL_P-CC_P2O5','.png'), width = 25,height = 15,units='cm',dpi=800)
+ggsave(file=paste0('output/fingerprints/P-AL_P-CC_P2O5','.png'), width = 25,height = 15,units='cm',dpi=800)
 
 sort_order <- abio_proj[!is.na(`P-AL mg p2o5/100g_SB`), .(
   mean_pal = mean(`P-AL mg p2o5/100g_SB`, na.rm = TRUE)
 ), by = Gebiedsnaam][order(mean_pal)]
 melt_sel_fp[, Gebiedsnaam := factor(Gebiedsnaam, levels = sort_order$Gebiedsnaam)]
-ggplot(melt_sel_fp[parameter%in%c("P-AL"),], aes(x = Gebiedsnaam, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    # facet_wrap(~compartiment, scales = "free",              ncol = 1) +
-    stat_boxplot(geom = 'errorbar') +
-    geom_boxplot(outliers = FALSE) +
+ggplot(melt_sel_fp[parameter%in%c("P-AL") & eenheid =="mg P2O5/  100g",], aes(x = Gebiedsnaam, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_grid(.~Gebiedsnaam, scales = "free") +
+    # stat_boxplot(geom = 'errorbar', width = 1.2) +  # Bredere errorbars
+    geom_boxplot(outliers = FALSE, width = 1.4) +   # Veel bredere boxplots
     theme_minimal() +
     theme(text = element_text(size = 14),
           axis.ticks =  element_line(colour = "black"),
           axis.line = element_line(colour='black'),
-          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
+          axis.text.x = element_text(size = 14, angle = 45,hjust=1),
+          strip.text = element_blank(),
+          # VERTICALE HULPLIJNEN
+          panel.grid.major.x = element_line(color = "grey80", size = 0.5),
+          panel.grid.minor.x = element_line(color = "grey90", size = 0.3),
+          panel.spacing.x = unit(0.2, "lines"),  # Minder ruimte tussen facets
+          legend.position = "bottom"
     ) +
+  scale_y_sqrt()+
     guides(fill = guide_legend(title = 'compartiment en monsterdiepte', title.vjust = 1))+
     scale_fill_brewer(palette = "Set2") +
-    labs(x = "", y = "", fill = 'compartiment en monsterdiepte')+
+    labs(x = "", y = "mg P2O5/  100g", fill = 'compartiment en monsterdiepte')+
     ggtitle(paste0('P-AL in verschillende gebieden'))
 
+### NH4 per gebied gesorteerd op gemiddelde waarde-------------------------------------
+melt_sel_fp <- melt[parameter%in%c("N-NH4","N-NO2","N-NO3") & methode %in% c('calciumchloride','CC'),]
+melt_sel_fp <- melt_sel_fp[is.na(eenheid), eenheid := ""]
+
+sort_order <- abio_proj[!is.na(abio_proj$`N-NH4_CC_mg/kg_SB`), .(
+  mean_n = mean(`N-NH4_CC_mg/kg_SB`, na.rm = TRUE)
+), by = Gebiedsnaam][order(mean_n)]
+melt_sel_fp[, Gebiedsnaam := factor(Gebiedsnaam, levels = sort_order$Gebiedsnaam)]
+ggplot(melt_sel_fp[parameter%in%c("N-NH4"),], aes(x = Gebiedsnaam, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_grid(parameter~Gebiedsnaam, scales = "free") +
+    # stat_boxplot(geom = 'errorbar', width = 1.2) +  # Bredere errorbars
+    geom_boxplot(outliers = FALSE, width = 1.4) +   # Veel bredere boxplots
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black'),
+          axis.text.x = element_text(size = 14, angle = 45,hjust=1),
+          strip.text.y = element_text(size = 14),
+          strip.text.x = element_blank(),
+          # VERTICALE HULPLIJNEN
+          panel.grid.major.x = element_line(color = "grey80", size = 0.5),
+          panel.grid.minor.x = element_line(color = "grey90", size = 0.3),
+          panel.spacing.x = unit(0.2, "lines"),  # Minder ruimte tussen facets
+          legend.position = "bottom"
+    ) +
+  scale_y_sqrt()+
+    guides(fill = guide_legend(title = 'compartiment en monsterdiepte', title.vjust = 1))+
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "", y = "mg/kg", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0('Anorganisch stikstof in verschillende gebieden'))
+
+# Selecteer de anorganische stikstof parameters voor CC methode
+melt_sel_n <- melt[parameter %in% c("N-NH4", "N-NO2", "N-NO3") & 
+                   methode %in% c('calciumchloride', 'CC') & 
+                   !is.na(Gebiedsnaam)]
+# Bereken de som van anorganische stikstof per SlootID, compartiment en monsterdiepte
+n_anorg <- melt_sel_n[, .(
+  sum_n_anorg = sum(value, na.rm = TRUE),
+  n_parameters = .N
+), by = .(SlootID, Gebiedsnaam, compartiment, monsterdiepte)]
+# Sorteer gebieden op gemiddelde anorganische N waarde
+sort_order <- n_anorg[, .(mean_n = mean(sum_n_anorg, na.rm = TRUE)), 
+                      by = Gebiedsnaam][order(mean_n)]
+n_anorg[, Gebiedsnaam := factor(Gebiedsnaam, levels = sort_order$Gebiedsnaam)]
+
+ggplot(n_anorg, aes(x = Gebiedsnaam, y = sum_n_anorg, 
+                    fill = paste0(compartiment, ' ', monsterdiepte))) +
+  facet_grid(.~Gebiedsnaam, scales = "free") +
+    # stat_boxplot(geom = 'errorbar', width = 1.2) +  # Bredere errorbars
+    geom_boxplot(outliers = FALSE, width = 1.4) +   # Veel bredere boxplots
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black'),
+          axis.text.x = element_text(size = 14, angle = 45,hjust=1),
+          strip.text.y = element_text(size = 14),
+          strip.text.x = element_blank(),
+          # VERTICALE HULPLIJNEN
+          panel.grid.major.x = element_line(color = "grey80", size = 0.5),
+          panel.grid.minor.x = element_line(color = "grey90", size = 0.3),
+          panel.spacing.x = unit(0.2, "lines"),  # Minder ruimte tussen facets
+          legend.position = "bottom"
+    ) +
+  scale_y_sqrt()+
+    guides(fill = guide_legend(title = 'compartiment en monsterdiepte', title.vjust = 1))+
+    scale_fill_brewer(palette = "Set2") +
+  # Labels
+  labs(
+    title = "Som Anorganisch Stikstof (NH4 + NO2 + NO3) per gebied",
+    subtitle = "CaCl2 extractie",
+    x = "Gebied",
+    y = "Anorganisch N (mg/kg)"
+  ) +
+  
+  # Legenda aanpassingen
+  guides(fill = guide_legend(
+    nrow = 1,
+    title = "Compartiment en diepte:"
+  ))
+
+# Opslaan
+ggsave(file = 'output/AlleGebieden/Tussenrapportage/Anorganisch_N_som_boxplot.png', 
+       width = 35, height = 25, units = 'cm', dpi = 800)
+
+# Print statistieken
+cat("Samenvatting anorganische N per gebied:\n")
+print(n_anorg[, .(
+  mediaan = median(sum_n_anorg, na.rm = TRUE),
+  gemiddelde = round(mean(sum_n_anorg, na.rm = TRUE), 1),
+  n_obs = .N
+), by = .(Gebiedsnaam, compartiment)][order(Gebiedsnaam, compartiment)])
+
+### Metalen en mineralen in slib en porievocht------------------------
 sel <- c("SiO2","Al2O3","MgO","Zn","Pb","Cu","Ni","SO3", "CaO", "Fe2O3" )
 melt_sel_fp <- melt[(parameter%in%sel & methode == 'xrf')|parameter%in%'organisch stof'|par_eenheid%in%'pH_CC_calciumchloride',]
   ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
@@ -2747,14 +3126,14 @@ ammonium <- data.frame(xmin = -Inf,
 
 legend_colors <- setNames(c("green","yellow", "orange","red","purple"), ammonium$label)
 # Calculate summary statistics first
-ammonium_summary <- abio_proj[!is.na(Gebiedsnaam) & !is.na(`NH4_µmol/l_PW`), .(
-  mean_nh4 = mean(`NH4_µmol/l_PW`, na.rm = TRUE),
+ammonium_summary <- abio_proj[!is.na(Gebiedsnaam) & !is.na(abio_proj$`NH4_µmol/l_PW`), .(
+  mean_nh4 = median(`NH4_µmol/l_PW`, na.rm = TRUE),
   sd_nh4 = sd(`NH4_µmol/l_PW`, na.rm = TRUE)
 ), by = Gebiedsnaam]
 
 # Sorteer 
 sort_order <- ammonium_summary[order(mean_nh4)]
-ammonium_summary[, Gebiedsnaam := factor(Gebiedsnaam, levels = unique(sort_order$Gebiedsnaam))]
+abio_proj[, Gebiedsnaam := factor(Gebiedsnaam, levels = unique(sort_order$Gebiedsnaam))]
 
 ggplot() +
   geom_rect(data = ammonium, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill), 
@@ -2763,24 +3142,28 @@ ggplot() +
                      labels = c("niet", "voor gevoelige soorten", "voor veel soorten", 
                                "voor bijna alle soorten", "voor alle soorten"), 
                      guide = guide_legend(override.aes = list(alpha = 0.15))) +
-  geom_col(data = ammonium_summary,
-           aes(x = Gebiedsnaam, y = mean_nh4), 
-           fill = "#1B9E77", col = "#1B9E77",alpha = 0.2) +
-  geom_errorbar(data = ammonium_summary,
-                aes(x = Gebiedsnaam, 
-                    ymin = mean_nh4 - sd_nh4, 
-                    ymax = mean_nh4 + sd_nh4),
-                width = 0.2, color = "black") +
+  # geom_col(data = ammonium_summary,
+  #          aes(x = Gebiedsnaam, y = mean_nh4), 
+  #          fill = "#1B9E77", col = "#1B9E77",alpha = 0.2) +
+  # geom_errorbar(data = ammonium_summary,
+  #               aes(x = Gebiedsnaam, 
+  #                   ymin = mean_nh4 - sd_nh4, 
+  #                   ymax = mean_nh4 + sd_nh4),
+  #               width = 0.2, color = "black") +
+  geom_boxplot(data = abio_proj[!is.na(`NH4_µmol/l_PW`),],
+               aes(x = Gebiedsnaam, y = `NH4_µmol/l_PW`),
+               outlier.shape = NA, width=0.6, fill="#1B9E77", alpha=0.7) +
+  coord_flip() +
   scale_y_log10(
     name = "Ammonium concentratie (µmol/l)",
-    breaks = c(1,10,100,1000,10000),
-    labels = c(1,10,100,1000,10000)
+    breaks = c(1,10,100,250,500,1000,5000,10000),
+    labels = c(1,10,100,250,500,1000,5000,10000)
   ) +
   theme_minimal(base_size = 15) +
   theme(
     strip.background = element_blank(),
     strip.text.y = element_text(size = 12),
-    axis.text.x = element_text(size = 14, vjust = 0.5, hjust = 1, angle = 90),
+    axis.text.x = element_text(size = 14),
     axis.text.y = element_text(size = 14),
     axis.title = element_text(size = 14),
     axis.ticks = element_line(colour = "black"),
@@ -2819,9 +3202,6 @@ ggplot()+
   labs(y = 'Ammonium (µmol/l)', x = 'Totaal anorganische koolstof (µmol/l)')
 ggsave(file=paste0('output/AlleGebieden/Tussenrapportage/nh4_tic_relatie.png'), width = 25,height = 15,units='cm',dpi=800)
 
-### rel ammonium, pal en p et TIC (afbraak)
-library(patchwork)
-
 # Plot 1: Ammonium vs TIC met kleuren per gebied
 # R² berekenen voor ammonium vs TIC
 filter <- abio_proj[!is.na(`NH4_µmol/l_PW`) & !is.na(`TIC conc _µmol/l_PW`) & !gebied %in% c('KW'),]
@@ -2852,7 +3232,7 @@ p1 <- ggplot()+
     plot.background = element_blank(),
     legend.position = "bottom"
   ) +
-  ggtitle('Relatie ammonium en\ntotaal anorganische koolstof') +
+  ggtitle('Relatie ammonium en totaal anorganische koolstof\n in poriewater') +
   labs(y = 'Ammonium (µmol/l)', x = 'Totaal anorganische koolstof (µmol/l)')
 
 # Plot 2: P totaal vs TIC met kleuren per gebied
@@ -2884,7 +3264,7 @@ p2 <- ggplot()+
     plot.background = element_blank(),
     legend.position = "bottom"
   ) +
-  ggtitle('Relatie fosfor totaal en\ntotaal anorganische koolstof') +
+  ggtitle('Relatie P-totaal en totaal anorganische koolstof\n in poriewater') +
   labs(y = 'Fosfor totaal (µmol/l)', x = 'Totaal anorganische koolstof (µmol/l)')
 
 # Plot 3: P-AL in slib vs TIC met kleuren per gebied
@@ -2915,7 +3295,7 @@ p3 <- ggplot()+
     plot.background = element_blank(),
     legend.position = "bottom"
   ) +
-  ggtitle('Relatie P-AL slib en\ntotaal anorganische koolstof') +
+  ggtitle('Relatie P-AL slib en totaal anorganische koolstof\n in poriewater') +
   labs(y = 'P-AL slib (µmol/g)', x = 'Totaal anorganische koolstof (µmol/l)')
 
 # Combineer alle drie plots naast elkaar met gedeelde legenda
@@ -3034,7 +3414,7 @@ ggsave(file = 'output/AlleGebieden/Tussenrapportage/P_fracties_relaties.png',
 
 ### Relatie P-AL en P poriewater en P water------------------------------
 
-p1 <- ggplot(abio_proj, aes(x = `P-AL mg p2o5/100g_SB`, y = P_mg_l_OW)) +
+p1 <- ggplot(abio_proj, aes(x = `P-AL mg p2o5/100g_SB`, y = `P-AL mg p2o5/100g_OR_50`)) +
   geom_jitter(aes(color = Gebiedsnaam), alpha = 0.7, size = 2) +
   geom_smooth(method = "lm", color = "black", linewidth = 1.2) +
   stat_regline_equation(label.x = 0.7, label.y = 3, 
@@ -3096,7 +3476,6 @@ print(combined_p_plot)
 
 ### P nalevering uit slib naar water ------------------------
 
-
 # Bereken P-nalevering met beide formules
 abio_proj[, `:=`(
   # Formule 1: y = 0.00004807x^2 + 0.03344949x (waar x = P-AL in mg P2O5/100g)
@@ -3105,15 +3484,12 @@ abio_proj[, `:=`(
   P_nalevering_formule2 = 0.00012907 * (`P_µmol/l_PW`)^2 + 0.00055877 * (`P_µmol/l_PW`),
   P_nalevering_baggernut = 0.80951 * `P_mg_l_PW` - 0.2905
 )]
-
-
 # Categoriseer zuurstofgehalte water
 abio_proj[, O2_category := fifelse(
   water_O2_mgL > 2.5, 
   "Zuurstofrijk (>2.5 mg/l)", 
   "Zuurstofarm (≤2.5 mg/l)"
 )]
-
 # Bereken P-nalevering summary met whisker-range
 p_nalevering_summary <- abio_proj[!is.na(P_nalevering_formule1) & !is.na(P_nalevering_formule2) & !is.na(P_nalevering_baggernut) & !is.na(Gebiedsnaam), .(
   mean_f1 = mean(P_nalevering_formule1, na.rm = TRUE),
@@ -3262,16 +3638,13 @@ p1 <- ggplot(p_nalevering_long, aes(x = Gebiedsnaam_marked, y = mean, fill = for
   geom_errorbar(aes(ymin = whisker_lower, ymax = whisker_upper),
                 position = position_dodge(width = 0.8),
                 width = 0.2, color = "black", size = 0.5) +
-  
   # Kleuren voor DRIE formules
   scale_fill_manual(
     values = c("BWare - anaeroob" = "#D55E00", "BWare - aeroob" = "#0072B2", "BaggerNut - aeroob" = "#56B4E9"),
     name = "Nalevering"
   ) +
-  
   # Flip coordinates voor betere leesbaarheid
   coord_flip() +
-  
   # Styling met vetgedrukte labels voor zuurstofarm water
   theme_minimal(base_size = 14) +
   theme(
@@ -3327,10 +3700,10 @@ p2 <- ggplot(fe_ratio_long, aes(x = Gebiedsnaam_marked, y = median_capped, fill 
   geom_hline(yintercept = 1, color = "red", linetype = "dashed", size = 1) +     # Fe/P = 1
   
   # Tekst voor afgekapte waarden
-  geom_text(aes(x = Gebiedsnaam_marked, y = median_capped + 0.3, 
+  geom_text(aes(x = Gebiedsnaam_marked, y = median_capped - 0.5, 
                 label = median_text),
-            position = position_dodge(width = 0.8),
-            size = 5, color = "black", fontface = "bold") +
+            position = position_dodge(width = 1.5),
+            size = 4, color = "black", fontface = "bold") +
   
   # Kleuren die overeenkomen met de P-nalevering kleuren
   scale_fill_manual(
@@ -3380,7 +3753,7 @@ combined_plot <- p1 + p2 + plot_layout(ncol = 2, guides = 'keep')
 
 combined_plot <- combined_plot + 
   plot_annotation(
-    subtitle = "gebieden met * = Fe:P ≥ 3, gebieden vetgedrukt = zuurstofarm water (<2.5 mg/l)\nErrorbars = whisker-range",
+    subtitle = "Markering gebieden:\n * = Fe/P ≥ 3\nvetgedrukt = zuurstofarm water (<2.5 mg/l)",
     theme = theme(plot.subtitle = element_text(size = 14, hjust = 0.5))
   )
 
@@ -3690,7 +4063,7 @@ ggplot(tldk_long, aes(x = Gebiedsnaam, y = mean, fill = talud_label)) +
 ggsave(file = 'output/AlleGebieden/Tussenrapportage/taludhoeken_whisker_range.png', 
        width = 45, height = 25, units = 'cm', dpi = 800)
 
-### Vegetatie -----------------------
+### Vegetatie breedte zone-----------------------
 ggplot(melt[par_eenheid == "breedte_cm_vegetatieopname" & !is.na(Gebiedsnaam) & zone %in% c('2a','2b') & value < 10000,], aes(x = zone, y = value, fill = paste0(zone))) +
     stat_summary(fun = mean, geom = "col", na.rm = TRUE) +
     stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2, na.rm = TRUE) +
@@ -3708,24 +4081,109 @@ ggplot(melt[par_eenheid == "breedte_cm_vegetatieopname" & !is.na(Gebiedsnaam) & 
     ggtitle(paste0(unique('Breedte vegetatiezone')))
 ### relatie vegetatie waterbodemkwaliteit -----------------------
 # Bereken aantal submerse soorten per locatie
-submerse_soorten <- veg_srt[zone == "1" | grepl("water|submers", zone, ignore.case = TRUE), .(
+submerse_soorten <- veg_srt[zone == "1" & Submerse_groeivorm > 25, .(
   n_submerse_soorten = uniqueN(wetnaam)
 ), by = .(SlootID)]
 
 # Merge met abio data voor de relaties
 relatie_data <- merge(abio_proj, submerse_soorten, by = "SlootID", all.x = TRUE)
-
-# Replace NA with 0 (no submerse species found)
 relatie_data[is.na(n_submerse_soorten), n_submerse_soorten := 0]
 
-# Filter for complete cases for both analyses
-ammonium_data <- relatie_data[!is.na(`NH4_µmol/l_PW`) & !is.na(n_submerse_soorten)]
-p_nalevering_data <- relatie_data[!is.na(P_nalevering_formule2) & !is.na(n_submerse_soorten)]
+# Filter data voor P-AL en P poriewater
+pal_data <- relatie_data[!is.na(`P-AL mg p2o5/100g_SB`) & !is.na(n_submerse_soorten)]
+p_poriewater_data <- relatie_data[!is.na(`P_µmol/l_PW`) & !is.na(n_submerse_soorten)]
 
-# Plot 1: Ammonium vs number of submerse species
-p1 <- ggplot(ammonium_data, aes(x = `NH4_µmol/l_PW`, y = n_submerse_soorten)) +
+# Functie voor verschillende statistische modellen (hergebruik van eerder)
+fit_multiple_models <- function(data, x_var, y_var) {
+  x <- data[[x_var]]
+  y <- data[[y_var]]
+  
+  models <- list()
+  r_squared <- list()
+  
+  # 1. Negatieve exponentiële fit (L-curve): y = a * exp(-b * x) + c
+  tryCatch({
+    neg_exp <- nls(y ~ a * exp(-b * x) + c, 
+                   start = list(a = max(y), b = 0.01, c = min(y)),
+                   control = nls.control(maxiter = 100, warnOnly = TRUE))
+    models$neg_exp <- neg_exp
+    pred <- predict(neg_exp)
+    r_squared$neg_exp <- 1 - sum((y - pred)^2) / sum((y - mean(y))^2)
+  }, error = function(e) {
+    models$neg_exp <<- NULL
+    r_squared$neg_exp <<- NA
+  })
+  
+  # 2. Inverse relatie: y = a / (x + b) + c
+  tryCatch({
+    inverse <- nls(y ~ a / (x + b) + c,
+                   start = list(a = max(y) * 10, b = 1, c = min(y)),
+                   control = nls.control(maxiter = 100, warnOnly = TRUE))
+    models$inverse <- inverse
+    pred <- predict(inverse)
+    r_squared$inverse <- 1 - sum((y - pred)^2) / sum((y - mean(y))^2)
+  }, error = function(e) {
+    models$inverse <<- NULL
+    r_squared$inverse <<- NA
+  })
+  
+  # 3. Power law: y = a * x^(-b) + c
+  tryCatch({
+    x_adj <- pmax(x, 0.1)  # Voorkom x=0
+    power <- nls(y ~ a * x_adj^(-b) + c,
+                 start = list(a = max(y), b = 0.5, c = min(y)),
+                 control = nls.control(maxiter = 100, warnOnly = TRUE))
+    models$power <- power
+    pred <- predict(power)
+    r_squared$power <- 1 - sum((y - pred)^2) / sum((y - mean(y))^2)
+  }, error = function(e) {
+    models$power <<- NULL
+    r_squared$power <<- NA
+  })
+  
+  # 4. Logistische curve: y = a / (1 + exp(b * (x - c))) + d
+  tryCatch({
+    logistic <- nls(y ~ a / (1 + exp(b * (x - c))) + d,
+                    start = list(a = max(y) - min(y), b = 0.1, 
+                                c = median(x), d = min(y)),
+                    control = nls.control(maxiter = 100, warnOnly = TRUE))
+    models$logistic <- logistic
+    pred <- predict(logistic)
+    r_squared$logistic <- 1 - sum((y - pred)^2) / sum((y - mean(y))^2)
+  }, error = function(e) {
+    models$logistic <<- NULL
+    r_squared$logistic <<- NA
+  })
+  
+  # 5. GAM met smooth spline (voor L-curve)
+  library(mgcv)
+  gam_model <- gam(y ~ s(x, k = 6), data = data.frame(x = x, y = y))
+  models$gam <- gam_model
+  r_squared$gam <- summary(gam_model)$r.sq
+  
+  # Selecteer beste model op basis van R²
+  best_r2 <- which.max(unlist(r_squared))
+  best_model_name <- names(r_squared)[best_r2]
+  
+  return(list(
+    models = models,
+    r_squared = r_squared,
+    best_model = models[[best_model_name]],
+    best_model_name = best_model_name,
+    best_r2 = r_squared[[best_model_name]]
+  ))
+}
+
+# Fit modellen voor P-AL en P poriewater
+pal_models <- fit_multiple_models(pal_data, "P-AL mg p2o5/100g_SB", "n_submerse_soorten")
+p_poriewater_models <- fit_multiple_models(p_poriewater_data, "P_µmol/l_PW", "n_submerse_soorten")
+
+# Plot 1: ammonium slib met beste model
+p1 <- ggplot(pal_data, aes(x = `NH4_µmol/l_PW`, y = n_submerse_soorten)) +
   geom_point(alpha = 0.6, size = 2, color = "#0072B2") +
-  geom_smooth(method = "loess", se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
+  # Voeg beste model toe
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6), 
+              se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
   theme_minimal(base_size = 12) +
   theme(
     plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
@@ -3735,15 +4193,25 @@ p1 <- ggplot(ammonium_data, aes(x = `NH4_µmol/l_PW`, y = n_submerse_soorten)) +
     panel.grid.minor = element_blank()
   ) +
   labs(
-    title = "Ammonium vs. Submerse soorten",
-    x = "NH₄⁺ poriewater (µmol/l)",
+    title = "Ammonium slib",
+    x = "NH4 slib (µmol/l)",
     y = "Aantal submerse soorten"
-  )
+  ) +
+  
+  # Model informatie
+  annotate("text", x = Inf, y = Inf, 
+           label = paste0(pal_models$best_model_name, "\nR² = ", 
+                         round(pal_models$best_r2, 3)), 
+           hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold")
 
-# Plot 2: P-delivery aerobic vs number of submerse species  
-p2 <- ggplot(p_nalevering_data, aes(x = P_nalevering_formule2, y = n_submerse_soorten)) +
+# Plot 2: P-nalvering slib met beste model
+p2 <- ggplot(pal_data, aes(x = P_nalevering_formule2, y = n_submerse_soorten)) +
   geom_point(alpha = 0.6, size = 2, color = "#0072B2") +
-  geom_smooth(method = "loess", se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
+  
+  # Voeg beste model toe
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6), 
+              se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
+  
   theme_minimal(base_size = 12) +
   theme(
     plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
@@ -3754,45 +4222,309 @@ p2 <- ggplot(p_nalevering_data, aes(x = P_nalevering_formule2, y = n_submerse_so
   ) +
   
   labs(
-    title = "P-nalevering vs. Submerse soorten",
-    x = "P-nalevering aeroob (mg/l)",
+    title = "P-nalvering slib",
+    x = "P-nalevering slib (mg/m2/l)",
     y = "Aantal submerse soorten"
-  )
+  ) +
+  
+  # Model informatie
+  annotate("text", x = Inf, y = Inf, 
+           label = paste0(pal_models$best_model_name, "\nR² = ", 
+                         round(pal_models$best_r2, 3)), 
+           hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold")
 
-# Calculate correlations
-cor_ammonium <- cor(ammonium_data$`NH4_µmol/l_PW`, ammonium_data$n_submerse_soorten, use = "complete.obs")
-cor_p_nalevering <- cor(p_nalevering_data$P_nalevering_formule2, p_nalevering_data$n_submerse_soorten, use = "complete.obs")
+# Plot 3: P-AL slib met beste model
+p3 <- ggplot(pal_data, aes(x = `P-AL mg p2o5/100g_SB`, y = n_submerse_soorten)) +
+  geom_point(alpha = 0.6, size = 2, color = "#0072B2") +
+  
+  # Voeg beste model toe
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6), 
+              se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
+  
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
+    panel.grid.minor = element_blank()
+  ) +
+  
+  labs(
+    title = "P-AL slib",
+    x = "P-AL slib (mg P2O5/100g)",
+    y = "Aantal submerse soorten"
+  ) +
+  
+  # Model informatie
+  annotate("text", x = Inf, y = Inf, 
+           label = paste0(pal_models$best_model_name, "\nR² = ", 
+                         round(pal_models$best_r2, 3)), 
+           hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold")
 
-# Add correlation info to plots
-p1 <- p1 + annotate("text", x = Inf, y = Inf, 
-                   label = paste("r2 =", round(cor_ammonium, 3)), 
-                   hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold")
+# Plot 4: P poriewater met beste model  
+p4 <- ggplot(p_poriewater_data, aes(x = `P_µmol/l_PW`, y = n_submerse_soorten)) +
+  geom_point(alpha = 0.6, size = 2, color = "#0072B2") +
+  
+  # Voeg beste model toe
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6),
+              se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
+  
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
+    panel.grid.minor = element_blank()
+  ) +
+  
+  labs(
+    title = "P poriewater",
+    x = "P poriewater (µmol/l)",
+    y = "Aantal submerse soorten"
+  ) +
+  
+  # Model informatie
+  annotate("text", x = Inf, y = Inf, 
+           label = paste0(p_poriewater_models$best_model_name, "\nR² = ", 
+                         round(p_poriewater_models$best_r2, 3)), 
+           hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold")
 
-p2 <- p2 + annotate("text", x = Inf, y = Inf, 
-                   label = paste("r2 =", round(cor_p_nalevering, 3)), 
-                   hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold")
+# Combineer alle vier plots in een 2x2 grid
+combined_relatie_plot_extended <- (p1 + p2) / (p3 + p4)
 
-# Combine plots
-combined_relatie_plot <- p1 + p2
-
-combined_relatie_plot <- combined_relatie_plot + 
+combined_relatie_plot_extended <- combined_relatie_plot_extended + 
   plot_annotation(
-    title = "Relatie tussen waterchemie en submerse plantendiversiteit",
-    theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+    title = "Relaties slibchemie en submerse plantendiversiteit",
+    subtitle = "GAM smoothing met optimale model selectie",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 12, hjust = 0.5)
+    )
   )
 
-# Show plot
-print(combined_relatie_plot)
-# Print correlation statistics
-cat("Correlatie ammonium vs submerse soorten:", round(cor_ammonium, 3), "\n")
-cat("Correlatie P-nalevering vs submerse soorten:", round(cor_p_nalevering, 3), "\n")
-cat("Aantal observaties ammonium:", nrow(ammonium_data), "\n")
-cat("Aantal observaties P-nalevering:", nrow(p_nalevering_data), "\n")
+# Toon plot
+print(combined_relatie_plot_extended)
 
-# Save
-ggsave(file = 'output/AlleGebieden/Tussenrapportage/Relatie_waterchemie_submerse_soorten.png', 
-       plot = combined_relatie_plot,
-       width = 25, height = 12, units = 'cm', dpi = 800)
+# Print alle model resultaten
+cat("P-AL slib modellen:\n")
+for(i in names(pal_models$r_squared)) {
+  if(!is.na(pal_models$r_squared[[i]])) {
+    cat(paste0(i, ": R² = ", round(pal_models$r_squared[[i]], 3), "\n"))
+  }
+}
+
+cat("\nP poriewater modellen:\n")
+for(i in names(p_poriewater_models$r_squared)) {
+  if(!is.na(p_poriewater_models$r_squared[[i]])) {
+    cat(paste0(i, ": R² = ", round(p_poriewater_models$r_squared[[i]], 3), "\n"))
+  }
+}
+
+# Sla uitgebreide plot op
+ggsave(file = 'output/AlleGebieden/Tussenrapportage/Relatie_waterchemie_submerse_soorten_extended.png', 
+       plot = combined_relatie_plot_extended,
+       width = 30, height = 24, units = 'cm', dpi = 800)
+### relatie oeversoorten en chemie oever/bodem -----------------------
+# Data voorbereiden - filter voor beschikbare parameters
+p_n_data <- abio_proj[!is.na(`P-AL mg p2o5/100g_SB`) & 
+                      (!is.na(`N-NH4_CC_mg/kg_OR_25`) | 
+                       !is.na(`N-NO3_CC_mg/kg_SB`) | 
+                       !is.na(`A_N_RT_OR_25`) | 
+                       !is.na(`P-PO4_CC_mg/kg_SB`))]
+
+# Functie voor optimale modelselectie
+fit_optimal_model <- function(data, x_var, y_var) {
+  x <- data[[x_var]]
+  y <- data[[y_var]]
+  
+  # Test verschillende modellen
+  models <- list()
+  aic_scores <- list()
+  
+  # 1. Lineair model
+  tryCatch({
+    lm_model <- lm(y ~ x, data = data.frame(x = x, y = y))
+    models$linear <- lm_model
+    aic_scores$linear <- AIC(lm_model)
+  }, error = function(e) {
+    models$linear <<- NULL
+    aic_scores$linear <<- Inf
+  })
+  
+  # 2. GAM met verschillende smoothing parameters
+  library(mgcv)
+  for(k in c(3, 4, 5, 6, 8)) {
+    tryCatch({
+      gam_model <- gam(y ~ s(x, k = k), data = data.frame(x = x, y = y))
+      model_name <- paste0("gam_k", k)
+      models[[model_name]] <- gam_model
+      aic_scores[[model_name]] <- AIC(gam_model)
+    }, error = function(e) {
+      models[[model_name]] <<- NULL
+      aic_scores[[model_name]] <<- Inf
+    })
+  }
+  
+  # 3. Polynomial modellen (2de en 3de graad)
+  for(degree in 2:3) {
+    tryCatch({
+      poly_model <- lm(y ~ poly(x, degree), data = data.frame(x = x, y = y))
+      model_name <- paste0("poly_", degree)
+      models[[model_name]] <- poly_model
+      aic_scores[[model_name]] <- AIC(poly_model)
+    }, error = function(e) {
+      models[[model_name]] <<- NULL
+      aic_scores[[model_name]] <<- Inf
+    })
+  }
+  
+  # Selecteer beste model op basis van AIC
+  best_model_name <- names(which.min(unlist(aic_scores)))
+  best_model <- models[[best_model_name]]
+  
+  # Bereken R²
+  if(grepl("gam", best_model_name)) {
+    r_squared <- summary(best_model)$r.sq
+  } else {
+    r_squared <- summary(best_model)$r.squared
+  }
+  
+  return(list(
+    model = best_model,
+    model_name = best_model_name,
+    r_squared = r_squared,
+    aic = aic_scores[[best_model_name]],
+    all_aic = aic_scores
+  ))
+}
+
+# Plot 1: P-AL
+optimal_model_1 <- fit_optimal_model(p_n_data[!is.na(`P-AL mg p2o5/100g_SB`) & !is.na(`2`)], "2", "P-AL mg p2o5/100g_SB")
+
+p1 <- ggplot(p_n_data, aes(x = `2`, y = `P-AL mg p2o5/100g_SB`)) +
+  geom_point(alpha = 0.6, size = 2, color = "#0072B2") +
+  
+  # Voeg beste model toe met oranje kleur
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6), 
+              se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
+  
+  # Model informatie
+  annotate("text", x = Inf, y = Inf, 
+           label = paste0(optimal_model_1$model_name, "\nR² = ", 
+                         round(optimal_model_1$r_squared, 3)), 
+           hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold") +
+  
+  labs(x = "Aantal soorten zone 2b", 
+       y = "P-AL slib (mg P2O5/100g)",
+       title = "P-AL") +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
+    panel.grid.minor = element_blank()
+  )
+
+# Plot 2: P-CC
+optimal_model_2 <- fit_optimal_model(p_n_data[!is.na(`P-PO4_CC_mg/kg_SB`) & !is.na(`2`)], "2", "P-PO4_CC_mg/kg_SB")
+
+p2 <- ggplot(p_n_data, aes(x = `2`, y = `P-PO4_CC_mg/kg_SB`)) +
+  geom_point(alpha = 0.6, size = 2, color = "#0072B2") +
+  
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6), 
+              se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
+  
+  annotate("text", x = Inf, y = Inf, 
+           label = paste0(optimal_model_2$model_name, "\nR² = ", 
+                         round(optimal_model_2$r_squared, 3)), 
+           hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold") +
+  
+  labs(x = "Aantal soorten zone 2b", 
+       y = "P-CC slib (mg/kg)",
+       title = "P-CC") +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
+    panel.grid.minor = element_blank()
+  )
+
+# Plot 3: N totaal
+optimal_model_3 <- fit_optimal_model(p_n_data[!is.na(`A_N_RT_OR_25`) & !is.na(`2`)], "2", "A_N_RT_OR_25")
+
+p3 <- ggplot(p_n_data, aes(x = `2`, y = `A_N_RT_OR_25`)) +
+  geom_point(alpha = 0.6, size = 2, color = "#0072B2") +
+  
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6), 
+              se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
+  
+  annotate("text", x = Inf, y = Inf, 
+           label = paste0(optimal_model_3$model_name, "\nR² = ", 
+                         round(optimal_model_3$r_squared, 3)), 
+           hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold") +
+  
+  labs(x = "Aantal soorten zone 2b", 
+       y = "N totaal oever 25cm (g/kg)",
+       title = "N totaal") +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
+    panel.grid.minor = element_blank()
+  )
+
+# Plot 4: NH4-N
+optimal_model_4 <- fit_optimal_model(p_n_data[!is.na(`N-NH4_CC_mg/kg_OR_25`) & !is.na(`2`)], "2", "N-NH4_CC_mg/kg_OR_25")
+
+p4 <- ggplot(p_n_data, aes(x = `2`, y = `N-NH4_CC_mg/kg_OR_25`)) +
+  geom_point(alpha = 0.6, size = 2, color = "#0072B2") +
+  
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6), 
+              se = TRUE, color = "#D55E00", fill = "#D55E00", alpha = 0.2) +
+  
+  annotate("text", x = Inf, y = Inf, 
+           label = paste0(optimal_model_4$model_name, "\nR² = ", 
+                         round(optimal_model_4$r_squared, 3)), 
+           hjust = 1.1, vjust = 1.5, size = 4, fontface = "bold") +
+  
+  labs(x = "Aantal soorten zone 2b", 
+       y = "NH4-N oever 25cm (mg/kg)",
+       title = "NH4-N") +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
+    panel.grid.minor = element_blank()
+  )
+
+# Combineer alle vier plots in een 2x2 grid
+combined_p_n_plot <- (p1 + p2) / (p3 + p4)
+
+combined_p_n_plot <- combined_p_n_plot + 
+  plot_annotation(
+    title = "Relaties tussen soortenaantal zone 2b en bodemchemie",
+    subtitle = "GAM smoothing met optimale model selectie",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 12, hjust = 0.5)
+    )
+  )
+
+# Toon de plot
+print(combined_p_n_plot)
+
+# Opslaan
+ggsave(file = 'output/AlleGebieden/Tussenrapportage/Soortenaantal_bodemchemie_optimum.png', 
+       plot = combined_p_n_plot, width = 30, height = 24, units = 'cm', dpi = 800)
 
 ### Kaart gebieden-----------------------
 bbox <- st_bbox(gebiedkop)
