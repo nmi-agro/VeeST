@@ -35,7 +35,7 @@ require(plotly)
 
 nmi_data <- paste0(gsub('\\\\', '/', Sys.getenv('USERPROFILE')), '/SPRINGG/Sven Verweij - NMI-DATA/')
 nmi_site <- paste0(gsub('\\\\', '/', Sys.getenv('USERPROFILE')), '/SPRINGG/NMISite - Documents/')
-nmi_proj <- paste0(gsub('\\\\', '/', Sys.getenv('USERPROFILE')), '/SPRINGG/NMISite - Documents/Projecten/O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Deelproducten/Datainventarisatie/')
+nmi_proj <- paste0(gsub('\\\\', '/', Sys.getenv('USERPROFILE')), '/SPRINGG/NMISite - Documents/Projecten/O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/04. Verkenningsfase/Datainventarisatie/')
 
 setwd(nmi_proj)
 ```

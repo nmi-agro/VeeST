@@ -45,7 +45,7 @@ importPen <- function(inputdir = paste0(workspace,"./Penetrometer")){
   
   pen <- list.files(path= paste0(inputdir), pattern=".TXT", full.names =  T)
   
-  # incluse filesname
+  # include filesname
   names <- gsub(paste0(inputdir,'/'), "", pen)
   names <- gsub(paste0('.TXT'), "", names)
   dt.names <- data.table(ID = 1:length(names), name = names)
@@ -134,11 +134,12 @@ get_cardinal_direction <- function(profiel_nr) {
   #return
   return(transect_direction)
 }
+
 # calculate different slopes
 calc_taludhoek <- function(profiel_nr){
   #copy the trasnect of the oever
   dt1 <- setDT(profiel_nr)
-  
+
   #select first and last point first shore (3 meters from shoreline)
   min_dist <- min(dt1[Opmerking == "waterlijn",'dist']) - 3
   first_point <- dt1[sectie == 'oever' & dist > min_dist] 
@@ -188,9 +189,9 @@ calc_taludhoek <- function(profiel_nr){
   #select first and last point watersurface
   waterlijn <- dt1[sectie == 'water'] 
   waterlijn <- waterlijn[Puntnummer == min(Puntnummer)] # waterlijn sectie 1
-  last_point <- dt1[z > waterlijn$z -0.25 & sectie == 'water' & sectie_2 == 1]
+  last_point <- dt1[z > waterlijn$z - 0.35 & sectie == 'water' & sectie_2 == 1]
   last_point <- last_point[Puntnummer == max(Puntnummer)]
-  first_point <- dt1[z < waterlijn$z +0.25 & sectie == 'oever' & sectie_2 == 1]
+  first_point <- dt1[z < waterlijn$z +0.35 & sectie == 'oever' & sectie_2 == 1]
   first_point <- first_point[Puntnummer == min(Puntnummer)]
   # calc angle
   tldk_wtrwtr_perc_1 <-  100*(waterlijn$z-last_point$z) / (last_point$dist-waterlijn$dist) # hoek rond waterlijn, het water in 
@@ -199,14 +200,25 @@ calc_taludhoek <- function(profiel_nr){
   #select first and last point watersurface
   waterlijn <- dt1[sectie == 'water'] 
   waterlijn <- waterlijn[Puntnummer == max(Puntnummer)] # waterlijn sectie 1
-  last_point <- dt1[z > waterlijn$z -0.25 & sectie == 'water' & sectie_2 == 2]
+  last_point <- dt1[z > waterlijn$z -0.35 & sectie == 'water' & sectie_2 == 2]
   last_point <- last_point[Puntnummer == min(Puntnummer)]
-  first_point <- dt1[z < waterlijn$z +0.25 & sectie == 'oever' & sectie_2 == 2]
+  first_point <- dt1[z < waterlijn$z +0.35 & sectie == 'oever' & sectie_2 == 2]
   first_point <- first_point[Puntnummer == max(Puntnummer)]
   # calc angle
   tldk_wtrwtr_perc_2 <-  100*(waterlijn$z-last_point$z) / (waterlijn$dist-last_point$dist) # hoek rond waterlijn, het water in 
   tldk_oevrwtr_perc_2 <-  100*(first_point$z-waterlijn$z) / (first_point$dist-waterlijn$dist) # hoek rond waterlijn, oever op
   
+    # Check if any variables are zero-length and replace with NA_real_
+  if(length(tldk_bvwtr_perc_1) == 0) tldk_bvwtr_perc_1 <- NA_real_
+  if(length(tldk_bvwtr_perc_2) == 0) tldk_bvwtr_perc_2 <- NA_real_
+  if(length(tldk_ondwtr_perc_1) == 0) tldk_ondwtr_perc_1 <- NA_real_
+  if(length(tldk_ondwtr_perc_2) == 0) tldk_ondwtr_perc_2 <- NA_real_
+  if(length(tldk_wtrwtr_perc_1) == 0) tldk_wtrwtr_perc_1 <- NA_real_
+  if(length(tldk_wtrwtr_perc_2) == 0) tldk_wtrwtr_perc_2 <- NA_real_
+  if(length(tldk_oevrwtr_perc_1) == 0) tldk_oevrwtr_perc_1 <- NA_real_
+  if(length(tldk_oevrwtr_perc_2) == 0) tldk_oevrwtr_perc_2 <- NA_real_
+  if(length(tldk_vastbodem_perc_1) == 0) tldk_vastbodem_perc_1 <- NA_real_
+  if(length(tldk_vastbodem_perc_2) == 0) tldk_vastbodem_perc_2 <- NA_real_
   
   talud <- data.table(tldk_bvwtr_perc_1,tldk_bvwtr_perc_2,
              tldk_ondwtr_perc_1,tldk_ondwtr_perc_2,
@@ -219,9 +231,28 @@ calc_taludhoek <- function(profiel_nr){
 
 }
 
+# Utility: compute R-squared between two variables in a data.frame / data.table
+# returns NA_real_ if columns are missing or insufficient observations
+get_r_squared <- function(dt, x_col, y_col) {
+  # accept data.frame or data.table
+  if (!is.data.frame(dt)) return(NA_real_)
+  if (!(x_col %in% names(dt) && y_col %in% names(dt))) return(NA_real_)
+  x <- dt[[x_col]]
+  y <- dt[[y_col]]
+  ok <- !is.na(x) & !is.na(y)
+  if (sum(ok) < 3) return(NA_real_)
+  # fit simple linear model on the vectors
+  fit <- try(stats::lm(y ~ x), silent = TRUE)
+  if (inherits(fit, "try-error")) return(NA_real_)
+  s <- summary(fit)$r.squared
+  return(as.numeric(s))
+}
+
 # Visualise profielen-------------------------------------------------------------
 visualise_profiel<- function(proftest){
+  # i <- unique(profiel$ID)[181]
   proftest <- profiel[ID == i,]
+  # proftest <- proftest[!is.na(SlootID),]
   setDT(proftest)
   proftest <- proftest[sectie %in% c('oever','water')]
   
@@ -239,18 +270,19 @@ visualise_profiel<- function(proftest){
     theme_minimal()+
     theme(
       strip.background = element_blank(),
-      strip.text.x = element_text(size=10), 
-      strip.text.y = element_text(size = 10), 
-      axis.text.x = element_text(size = 10),
-      axis.text.y = element_text(size= 10),
+      strip.text.x = element_text(size=15), 
+      strip.text.y = element_text(size = 15), 
+      axis.text.x = element_text(size = 15),
+      axis.text.y = element_text(size= 15),
       axis.ticks =  element_line(colour = "black"),
-      plot.title = element_text(size =12, face="bold", hjust = 0.5),
+      plot.title = element_text(size =15, face="bold", hjust = 0.5),
       panel.background = element_blank(),
       plot.background = element_blank(),
     )+
     ggtitle(paste0("Dwarsprofiel oever en sloot op locatie ",proftest$name)) +
     labs(x= "afstand in meters",y="diepte in mNAP")
-  ggsave(file=paste0('output/',unique(proftest$gebied[!is.na(proftest$gebied)]),'/profielen/profiel_',unique(proftest$SlootID),"_",proftest$ID,'.png'),width = 40,height = 15,units='cm',dpi=1000)
+  
+  ggsave(file=paste0('/output/',unique(proftest$gebied[!is.na(proftest$gebied)]),'/profielen/profiel_',unique(proftest$SlootID[!is.na(proftest$gebied)]),"_",unique(proftest$ID[!is.na(proftest$gebied)]),'.png'),width = 25,height = 10,units='cm',dpi=800)
   
 }
 

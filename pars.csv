@@ -1,0 +1,570 @@
+variable;monsterdiepte;compartiment;zone;parameter;eenheid;methode
+slib_conductiviteit_uS_cm;0-25;SB;;conductiviteit;µ/S;
+slib_pH;0-25;SB;;pH;;
+slib_O2_mgL;0-25;SB;;O2;mg/l;
+slib_redox_mgL;0-25;SB;;redox;mg/l;
+holleoever;0-25;SB;;holleoever;;
+watertemp_C;0-15;OW;;T;C;
+water_conductiviteit_uS_cm;0-15;OW;;conductiviteit;µ/S;
+water_redox;0-15;OW;;redox;;
+water_pH;0-15;OW;;pH;;
+water_O2_mgL;0-15;OW;;O2;mg/l;
+doorzicht2_mid_cm;0-15;OW;;doorzicht;cm;
+sectie_2;;;;;;
+max_slib;;;;slibdikte;m;
+max_wtd;;;;waterdiepte;m;
+watbte;;;;waterbreedte;m;
+drglg;;;;drooglegging;m;
+tldk_wtrwtr_perc;;;;tldk_onderwater;%;berekend
+tldk_oevrwtr_perc;;;;tldk_bovenwater;%;berekend
+tldk_vastbodem_perc;;;;tldk_vastebodem;%;berekend
+Start_traject_long;;;;Start_traject_long;;
+Start_traject_lat;;;;Start_traject_lat;;
+End_traject_long;;;;End_traject_long;;
+End_traject_lat;;;;End_traject_lat;;
+Complete.data;;;;;;
+insteek_[0,10];;;;indringingsweerstand;mPa;penetrometer
+insteek_(10,20];;;;indringingsweerstand;mPa;penetrometer
+insteek_(20,30];;;;indringingsweerstand;mPa;penetrometer
+insteek_(30,40];;;;indringingsweerstand;mPa;penetrometer
+insteek_(40,50];;;;indringingsweerstand;mPa;penetrometer
+insteek_(50,85];;;;indringingsweerstand;mPa;penetrometer
+oever_[0,10];;;;indringingsweerstand;mPa;penetrometer
+oever_(10,20];;;;indringingsweerstand;mPa;penetrometer
+oever_(20,30];;;;indringingsweerstand;mPa;penetrometer
+oever_(30,40];;;;indringingsweerstand;mPa;penetrometer
+oever_(40,50];;;;indringingsweerstand;mPa;penetrometer
+oever_(50,85];;;;indringingsweerstand;mPa;penetrometer
+perceel_[0,10];;;;indringingsweerstand;mPa;penetrometer
+perceel_(10,20];;;;indringingsweerstand;mPa;penetrometer
+perceel_(20,30];;;;indringingsweerstand;mPa;penetrometer
+perceel_(30,40];;;;indringingsweerstand;mPa;penetrometer
+perceel_(40,50];;;;indringingsweerstand;mPa;penetrometer
+perceel_(50,85];;;;indringingsweerstand;mPa;penetrometer
+clusters;;;;clusters;;geodata
+trofie;;;;trofie;;geodata
+afwatopp;;;;afwatopp;;geodata
+drlg;;;;drlg;;geodata
+breedtewl;;;;breedtewl;;geodata
+A_SOM_LOI;;;;A_SOM_LOI;%;bodemschat
+A_CLAY_MI;;;;A_CLAY_MI;%;bodemschat
+AAN_id;;;;;;
+Shape_Area;;;;;;
+Waterzone_1_breedte_cm;;OW;1;breedte;cm;vegetatieopname
+Oeverzone_2a_breedte_cm;;OR;2a;breedte;cm;vegetatieopname
+Oeverzone_2b_breedte_cm;;OR;2b;breedte;cm;vegetatieopname
+Terzone_3_breedte_cm;;;3;breedte;cm;vegetatieopname
+Waterzone_1_kaal_perc;;OW;1;kaal;%;vegetatieopname
+Waterzone_1_subm_tot_perc;;OW;1;subm;%;vegetatieopname
+Waterzone_1_natans_perc;;OW;1;natans;%;vegetatieopname
+Waterzone_1_kroos_perc;;OW;1;kroos;%;vegetatieopname
+Waterzone_1_FLAB_perc;;OW;1;FLAB;%;vegetatieopname
+Waterzone_1_emers_perc;;OW;1;emers;%;vegetatieopname
+Oeverzone_2a_kaal_perc;;OR;2a;kaal;%;vegetatieopname
+Oeverzone_2a_subm_tot_perc;;OR;2a;subm;%;vegetatieopname
+Oeverzone_2a_natans_perc;;OR;2a;natans;%;vegetatieopname
+Oeverzone_2a_emers_perc;;OR;2a;emers;%;vegetatieopname
+Oeverzone_2a_kraggen_perc;;OR;2a;kraggen;%;vegetatieopname
+Oeverzone_2a_ter_gras_kruid_perc;;OR;2a;graskruiden;%;vegetatieopname
+Oeverzone_2a_hout_perc;;OR;2a;hout;%;vegetatieopname
+Oeverzone_2b_kaal_perc;;OR;2b;kaal;%;vegetatieopname
+Oeverzone_2b_emers_perc;;OR;2b;emers;%;vegetatieopname
+Oeverzone_2b_kraggen_perc;;OR;2b;kraggen;%;vegetatieopname
+Oeverzone_2b_ter_gras_kruid_perc;;OR;2b;graskruiden;%;vegetatieopname
+Oeverzone_2b_ter_prodgras_perc;;OR;2b;prodgras;%;vegetatieopname
+Oeverzone_2b_hout_perc;;OR;2b;hout;%;vegetatieopname
+Terzone_3_kaal_perc;;;3;kaal;%;vegetatieopname
+Terzone_3_ter_gras_kruid_perc;;;3;graskruiden;%;vegetatieopname
+Terzone_3_emers_perc;;;3;emers;%;vegetatieopname
+Terzone_3_ter_prodgras_perc;;;3;prodgras;%;vegetatieopname
+Terzone_3_hout_perc;;;3;hout;%;vegetatieopname
+Perceel_4_kaal_perc;;;4;kaal;%;vegetatieopname
+Perceel_4_ter_gras_kruid_perc;;;4;graskruiden;%;vegetatieopname
+Perceel_4_ter_prodgras_perc;;;4;prodgras;%;vegetatieopname
+Perceel_4_hout_perc;;;4;hout;%;vegetatieopname
+Waterzone_1_gem_veg_diepte_cm;;OW;1;gemvegdiepte;cm;vegetatieopname
+Waterzone_1_min_veg_diepte_cm;;OW;1;minvegdiepte;cm;vegetatieopname
+Oeverzone_2a_gem_veg_hoogte_cm;;OR;2a;gemveghoogte;cm;vegetatieopname
+Oeverzone_2b_gem_veg_hoogte_cm;;OR;2b;gemveghoogte;cm;vegetatieopname
+Terzone_3_gem_veg_hoogte_cm;;;3;gemveghoogte;cm;vegetatieopname
+Oeverzone_2b_Vertrapping_schade;;OR;2b;Vertrappingschade;;vegetatieopname
+Oeverzone_2b_Vertrapping_lengte_perc;;OR;2b;Vertrappinglengte;%;vegetatieopname
+Terzone_3_Vertrapping_schade;;;3;Vertrappingschade;;vegetatieopname
+Terzone_3_Vertrapping_lengte_perc;;;3;Vertrappinglengte;%;vegetatieopname
+Oeverzone_2_veg_vorigjaar;;OR;2;vegvorigjaar;;vegetatieopname
+Karper_brasem;;;;Karper_brasem;;vegetatieopname
+Afstand_startpunt_eindpunt_m;;;;;;vegetatieopname
+Start_traject_accur_m;;;;;;vegetatieopname
+prenul_meting;;;;;;vegetatieopname
+oukoop_locatie;;;;;;vegetatieopname
+lengte_m;;;;;;vegetatieopname
+nr_SB;0-25;SB;;;;
+vochtgeh_%_SB;0-25;SB;;vochtgeh;%;Bware
+bulk density_kg DW/L FW_SB;0-25;SB;;bulk density;kg DW/L FW;Bware
+OS gehalte_%_SB;0-25;SB;;OS gehalte;%;Bware
+Al_mmol/kg DW_SB;0-25;SB;;Al;mmol/kg DW;icp Bware
+Ca_mmol/kg DW_SB;0-25;SB;;Ca;mmol/kg DW;icp Bware
+Cl _mmol/kg DW_SB;0-25;SB;;Cl ;mmol/kg DW;icp Bware
+Fe_mmol/kg DW_SB;0-25;SB;;Fe;mmol/kg DW;icp Bware
+K_mmol/kg DW_SB;0-25;SB;;K;mmol/kg DW;icp Bware
+Mg_mmol/kg DW_SB;0-25;SB;;Mg;mmol/kg DW;icp Bware
+Mn_mmol/kg DW_SB;0-25;SB;;Mn;mmol/kg DW;icp Bware
+Na_mmol/kg DW_SB;0-25;SB;;Na;mmol/kg DW;icp Bware
+P_mmol/kg DW_SB;0-25;SB;;P;mmol/kg DW;icp Bware
+S_mmol/kg DW_SB;0-25;SB;;S;mmol/kg DW;icp Bware
+Si_mmol/kg DW_SB;0-25;SB;;Si;mmol/kg DW;icp Bware
+Zn_mmol/kg DW_SB;0-25;SB;;Zn;mmol/kg DW;icp Bware
+Fe/S_DW_SB;0-25;SB;;Fe/S;DW;icp Bware
+Fe/P_DW_SB;0-25;SB;;Fe/P;DW;icp Bware
+Al_mmol/l FW_SB;0-25;SB;;Al;mmol/l FW;icp Bware
+Ca_mmol/l FW_SB;0-25;SB;;Ca;mmol/l FW;icp Bware
+Cl_mmol/l FW_SB;0-25;SB;;Cl;mmol/l FW;icp Bware
+Fe_mmol/l FW_SB;0-25;SB;;Fe;mmol/l FW;icp Bware
+K_mmol/l FW_SB;0-25;SB;;K;mmol/l FW;icp Bware
+Mg_mmol/l FW_SB;0-25;SB;;Mg;mmol/l FW;icp Bware
+Mn_mmol/l FW_SB;0-25;SB;;Mn;mmol/l FW;icp Bware
+Na_mmol/l FW_SB;0-25;SB;;Na;mmol/l FW;icp Bware
+P_mmol/l FW_SB;0-25;SB;;P;mmol/l FW;icp Bware
+S_mmol/l FW_SB;0-25;SB;;S;mmol/l FW;icp Bware
+Si_mmol/l FW_SB;0-25;SB;;Si;mmol/l FW;icp Bware
+Zn_mmol/l FW_SB;0-25;SB;;Zn;mmol/l FW;icp Bware
+nr lab_PW;0-25;PW;;nr lab;PW;Bware
+pH_PW;0-25;PW;;pH;PW;Bware
+alk_meq/l_PW;0-25;PW;;alk;meq/l;Bware
+ext__PW;0-25;PW;;ext;;Bware
+EGV_µs/cm_PW;0-25;PW;;EGV;µs/cm;Bware
+TIC conc _µmol/l_PW;0-25;PW;;TIC conc ;µmol/l;infrarood Bware
+CO2_µmol/l_PW;0-25;PW;;CO2;µmol/l;infrarood Bware
+HCO3_µmol/l_PW;0-25;PW;;HCO3;µmol/l;infrarood Bware
+NO3_µmol/l_PW;0-25;PW;;NO3;µmol/l;icp Bware
+NH4_µmol/l_PW;0-25;PW;;NH4;µmol/l;icp Bware
+Na_µmol/l_PW;0-25;PW;;Na;µmol/l;icp Bware
+K_µmol/l_PW;0-25;PW;;K;µmol/l;icp Bware
+Cl_µmol/l_PW;0-25;PW;;Cl;µmol/l;icp Bware
+Al_µmol/l_PW;0-25;PW;;Al;µmol/l;icp Bware
+Ca_µmol/l_PW;0-25;PW;;Ca;µmol/l;icp Bware
+Cl_2_µmol/l_PW;0-25;PW;;Cl2;µmol/l;icp Bware
+Fe_µmol/l_PW;0-25;PW;;Fe;µmol/l;icp Bware
+K_2_µmol/l_PW;0-25;PW;;K2;µmol/l;icp Bware
+Mg_µmol/l_PW;0-25;PW;;Mg;µmol/l;icp Bware
+Mn_µmol/l_PW;0-25;PW;;Mn;µmol/l;icp Bware
+Na_2_µmol/l_PW;0-25;PW;;Na2;µmol/l;icp Bware
+P_µmol/l_PW;0-25;PW;;P;µmol/l;icp Bware
+S_µmol/l_PW;0-25;PW;;S;µmol/l;icp Bware
+Si_µmol/l_PW;0-25;PW;;Si;µmol/l;icp Bware
+Zn_µmol/l_PW;0-25;PW;;Zn;µmol/l;icp Bware
+Fe/P_PW;0-25;PW;;Fe/P;PW;icp Bware
+nr lab_OW;42278;OW;;nr lab;OW;icp Bware
+pH_OW;42278;OW;;pH;OW;icp Bware
+alk_meq/l_OW;42278;OW;;alk;meq/l;icp Bware
+ext.__OW;42278;OW;;extinctie;;icp Bware
+turb. _NTU_OW;42278;OW;;turbiditeit;NTU;icp Bware
+EGV_µs/cm_OW;42278;OW;;EGV;µs/cm;icp Bware
+TIC conc _µmol/l_OW;42278;OW;;TIC conc ;µmol/l;icp Bware
+CO2_µmol/l_OW;42278;OW;;CO2;µmol/l;icp Bware
+HCO3_µmol/l_OW;42278;OW;;HCO3;µmol/l;icp Bware
+NO3_µmol/l_OW;42278;OW;;NO3;µmol/l;icp Bware
+NH4_µmol/l_OW;42278;OW;;NH4;µmol/l;icp Bware
+Anorg N_OW;42278;OW;;Anorg N;OW;icp Bware
+PO4_µmol/l_OW;42278;OW;;PO4;µmol/l;icp Bware
+Na_µmol/l_OW;42278;OW;;Na;µmol/l;icp Bware
+K_µmol/l_OW;42278;OW;;K;µmol/l;icp Bware
+Cl_µmol/l_OW;42278;OW;;Cl;µmol/l;icp Bware
+Al_µmol/l_OW;42278;OW;;Al;µmol/l;icp Bware
+Ca_µmol/l_OW;42278;OW;;Ca;µmol/l;icp Bware
+Cl_2_µmol/l_OW;42278;OW;;Cl2;µmol/l;icp Bware
+Fe_µmol/l_OW;42278;OW;;Fe;µmol/l;icp Bware
+K_2_µmol/l_OW;42278;OW;;K2;µmol/l;icp Bware
+Mg_µmol/l_OW;42278;OW;;Mg;µmol/l;icp Bware
+Mn_µmol/l_OW;42278;OW;;Mn;µmol/l;icp Bware
+Na_2_µmol/l_OW;42278;OW;;Na2;µmol/l;icp Bware
+P_µmol/l_OW;42278;OW;;P;µmol/l;icp Bware
+S_µmol/l_OW;42278;OW;;S;µmol/l;icp Bware
+Si_µmol/l_OW;42278;OW;;Si;µmol/l;icp Bware
+Zn_µmol/l_OW;42278;OW;;Zn;µmol/l;icp Bware
+TOC_µmol/l_OW;42278;OW;;TOC;µmol/l;icp Bware
+TN_µmol/l_OW;42278;OW;;TN;µmol/l;icp Bware
+DOC_µmol/l_OW;42278;OW;;DOC;µmol/l;icp Bware
+DN_µmol/l_OW;42278;OW;;DN;µmol/l;icp Bware
+blauwalg_ug/l_OW;42278;OW;;blauwalg;ug/l;icp Bware
+groenalg_ug/l_OW;42278;OW;;groenalg;ug/l;icp Bware
+bruinalg_ug/l_OW;42278;OW;;bruinalg;ug/l;icp Bware
+Chl-a totaal_ug/l_OW;42278;OW;;Chl-a totaal;ug/l;icp Bware
+feP_DW_SB;0-25;SB;;feP;DW;icp Bware
+feS_DW_SB;0-25;SB;;feS;DW;icp Bware
+feP_PW;0-25;PW;;feP;;icp Bware
+feS_PW;0-25;PW;;feS;;icp Bware
+P-AL mg/kg_SB;0-25;SB;;P-AL;mg/kg;pal
+B_CC_µg/kg_SB;0-25;SB;;B;µg/kg;CC
+Na_CC_mg/kg_SB;0-25;SB;;Na;mg/kg;CC
+Mg_CC_mg/kg_SB;0-25;SB;;Mg;mg/kg;CC
+Al_CC_µg/kg_SB;0-25;SB;;Al;µg/kg;CC
+P_CC_mg/kg_SB;0-25;SB;;P;mg/kg;CC
+S_CC_mg/kg_SB;0-25;SB;;S;mg/kg;CC
+K_CC_mg/kg_SB;0-25;SB;;K;mg/kg;CC
+Mn_CC_mg/kg_SB;0-25;SB;;Mn;mg/kg;CC
+Fe_CC_mg/kg_SB;0-25;SB;;Fe;mg/kg;CC
+Co_CC_µg/kg_SB;0-25;SB;;Co;µg/kg;CC
+Ni_CC_µg/kg_SB;0-25;SB;;Ni;µg/kg;CC
+Cu_CC_µg/kg_SB;0-25;SB;;Cu;µg/kg;CC
+Zn_CC_µg/kg_SB;0-25;SB;;Zn;µg/kg;CC
+Mo_CC_mg/kg_SB;0-25;SB;;Mo;mg/kg;CC
+N-NH4_CC_mg/kg_SB;0-25;SB;;N-NH4;mg/kg;CC
+N-NO3_CC_mg/kg_SB;0-25;SB;;N-NO3;mg/kg;CC
+N-NO2_CC_mg/kg_SB;0-25;SB;;N-NO2;mg/kg;CC
+P-PO4_CC_mg/kg_SB;0-25;SB;;P-PO4;mg/kg;CC
+pH_CC_SB;0-25;SB;;pH;;CC
+SiO2_xrf_g/kg_SB;0-25;SB;;SiO2;g/kg;xrf
+TiO2_xrf_g/kg_SB;0-25;SB;;TiO2;g/kg;xrf
+Al2O3_xrf_g/kg_SB;0-25;SB;;Al2O3;g/kg;xrf
+Fe2O3_xrf_g/kg_SB;0-25;SB;;Fe2O3;g/kg;xrf
+MnO_xrf_mg/kg_SB;0-25;SB;;MnO;mg/kg;xrf
+MgO_xrf_g/kg_SB;0-25;SB;;MgO;g/kg;xrf
+CaO_xrf_g/kg_SB;0-25;SB;;CaO;g/kg;xrf
+Na2O_xrf_g/kg_SB;0-25;SB;;Na2O;g/kg;xrf
+K2O_xrf_g/kg_SB;0-25;SB;;K2O;g/kg;xrf
+P2O5_xrf_g/kg_SB;0-25;SB;;P2O5;g/kg;xrf
+SO3_xrf_g/kg_SB;0-25;SB;;SO3;g/kg;xrf
+Cr_xrf_mg/kg_SB;0-25;SB;;Cr;mg/kg;xrf
+Sr_xrf_mg/kg_SB;0-25;SB;;Sr;mg/kg;xrf
+Ni_xrf_mg/kg_SB;0-25;SB;;Ni;mg/kg;xrf
+Ba_xrf_mg/kg_SB;0-25;SB;;Ba;mg/kg;xrf
+Cu_xrf_mg/kg_SB;0-25;SB;;Cu;mg/kg;xrf
+Zn_xrf_mg/kg_SB;0-25;SB;;Zn;mg/kg;xrf
+Pb_xrf_mg/kg_SB;0-25;SB;;Pb;mg/kg;xrf
+V_xrf_mg/kg_SB;0-25;SB;;V;mg/kg;xrf
+Co_xrf_mg/kg_SB;0-25;SB;;Co;mg/kg;xrf
+Br_xrf_mg/kg_SB;0-25;SB;;Br;mg/kg;xrf
+Ga_xrf_mg/kg_SB;0-25;SB;;Ga;mg/kg;xrf
+Nb_xrf_mg/kg_SB;0-25;SB;;Nb;mg/kg;xrf
+feP_CC_SB_SB;0-25;SB;;feP;;CC
+feP_XRF_SB_SB;0-25;SB;;feP;;xrf
+feS_CC_SB_SB;0-25;SB;;feS;;CC
+feS_XRF_SB_SB;0-25;SB;;feS;;xrf
+P_CC_org_mg/kg_SB;0-25;SB;;P;mg/kg;CC
+monsterdiepte_OR_25;0-25;OR;;;;
+...14_OR_25;0-25;OR;;;;
+CEC_CO_mmol+/kg_OR_25;0-25;OR;;CEC;mmol+/kg;CO
+AL_CO_mmol+/kg_OR_25;0-25;OR;;AL;mmol+/kg;CO
+CA_CO_mmol+/kg_OR_25;0-25;OR;;CA;mmol+/kg;CO
+FE_CO_mmol+/kg_OR_25;0-25;OR;;FE;mmol+/kg;CO
+K_CO_mmol+/kg_OR_25;0-25;OR;;K;mmol+/kg;CO
+MG_CO_mmol+/kg_OR_25;0-25;OR;;MG;mmol+/kg;CO
+MN_CO_mmol+/kg_OR_25;0-25;OR;;MN;mmol+/kg;CO
+NA_CO_mmol+/kg_OR_25;0-25;OR;;NA;mmol+/kg;CO
+P_CO_mmol-/kg_OR_25;0-25;OR;;P;mmol-/kg;CO
+S_CO_mmol-/kg_OR_25;0-25;OR;;S;mmol-/kg;CO
+B_CO_mmol+/kg_OR_25;0-25;OR;;B;mmol+/kg;CO
+CU_CO_mmol+/kg_OR_25;0-25;OR;;CU;mmol+/kg;CO
+MO_CO_mmol+/kg_OR_25;0-25;OR;;MO;mmol+/kg;CO
+NI_CO_mmol+/kg_OR_25;0-25;OR;;NI;mmol+/kg;CO
+ZN_CO_mmol+/kg_OR_25;0-25;OR;;ZN;mmol+/kg;CO
+V_CO_mmol+/kg_OR_25;0-25;OR;;V;mmol+/kg;CO
+TOC [%]_OR_25;0-25;OR;;TOC;%;agroCares
+TOC [g/kg]_OR_25;0-25;OR;;TOC;g-kg;agroCares
+A_AL_CO_OR_25;0-25;OR;;Aluminium (exch)  ;mmol +/ kg;liab
+A_AL_M3_OR_25;0-25;OR;;Aluminium (M3);mg / kg;liab
+A_AL_RT_OR_25;0-25;OR;;Aluminium total;g / kg;liab
+A_AS_RT_OR_25;0-25;OR;;Arsenic total;mg /kg;liab
+A_B_CO_OR_25;0-25;OR;;Boron (Exch);mmol- / kg;liab
+A_B_M3_OR_25;0-25;OR;;Boron (M3) ;mg / kg;liab
+A_BR_RT_OR_25;0-25;OR;;Boron total ;mg/kg;liab
+A_C_OF_OR_25;0-25;OR;;Carbon organic;g/kg;liab
+A_C_RT_OR_25;0-25;OR;;Carbon total  g / kg;g/kg;liab
+A_CA_CO_OR_25;0-25;OR;;Calcium (Exch) ;mmol +/ kg;liab
+A_CA_M3_OR_25;0-25;OR;;Calcium (M3) ;mg /kg;liab
+A_CA_RT_OR_25;0-25;OR;;Calcium total; g /kg;liab
+A_CEC_CO_OR_25;0-25;OR;;Cation Exhange Capacity;mmol+ / kg;liab
+A_CN_OF_OR_25;0-25;OR;;ratio C / N;;liab
+A_CO_M3_OR_25;0-25;OR;;Cobalt (M3) ;mg/kg;liab
+A_CO_RT_OR_25;0-25;OR;;Cobalt ;mg/kg;liab
+A_CR_RT_OR_25;0-25;OR;;Chromium Total ;mg/kg;liab
+A_CU_M3_OR_25;0-25;OR;;Copper (M3) ;mg/kg;liab
+A_CU_RT_OR_25;0-25;OR;;Copper Total;mg/kg;liab
+A_DENSITY_SA_OR_25;0-25;OR;;Density;g / cm ^ 3;liab
+A_EC_WA_OR_25;0-25;OR;;Electrical  conductivity;mS/m;liab
+A_FE_CO_OR_25;0-25;OR;;Iron (Exch) + mmol / kg;mmol +/kg;liab
+A_FE_M3_OR_25;0-25;OR;;Iron (M3) ;mg/kg;liab
+A_FE_RT_OR_25;0-25;OR;;Iron total ;g/kg;liab
+A_K_CO_OR_25;0-25;OR;;Potassium (Exch) ;mmol +/kg;liab
+A_K_M3_OR_25;0-25;OR;;Potassium (M3);mg/kg;liab
+A_K_RT_OR_25;0-25;OR;;Potassium total;g/kg;liab
+A_MG_CO_OR_25;0-25;OR;;Magnesium (Exch);mmol+/kg;liab
+A_MG_M3_OR_25;0-25;OR;;Magnesium (M3) ;mg/kg;liab
+A_MG_RT_OR_25;0-25;OR;;Magnesium Total;g/kg;liab
+A_MN_CO_OR_25;0-25;OR;;Manganese (Exch) ;mmol+/kg;liab
+A_MN_M3_OR_25;0-25;OR;;Manganese (M3) ;mg/kg;liab
+A_MN_RT_OR_25;0-25;OR;;Manganese total;mg/kg;liab
+A_MO_CO_OR_25;0-25;OR;;Molybdenium (Exch);mmol+/kg;liab
+A_MO_M3_OR_25;0-25;OR;;Molybdenium (M3) ;mg/kg;liab
+A_N_RT_OR_25;0-25;OR;;Nitrogen total;g/kg;liab
+A_NA_CO_OR_25;0-25;OR;;Sodium (Exch) ;mmol+/kg;liab
+A_NA_RT_OR_25;0-25;OR;;Sodium total;g/kg;liab
+A_NB_RT_OR_25;0-25;OR;;Niobium Total ;mg/kg;liab
+A_NI_RT_OR_25;0-25;OR;;Nickel total;mg/kg;liab
+A_P_M3_OR_25;0-25;OR;; Phosphorus(M3) ;mg/kg;liab
+A_P_RT_OR_25;0-25;OR;; Phosphorustotal;g/kg;liab
+A_PB_RT_OR_25;0-25;OR;;Lead total;mg/kg;liab
+A_PH_KCL_OR_25;0-25;OR;;pH (KCl) ;-log (H +);liab
+A_RB_RT_OR_25;0-25;OR;;Rubidium Total ;mg/kg;liab
+A_S_RT_OR_25;0-25;OR;;Sulphur total;g/kg;liab
+A_SC_RT_OR_25;0-25;OR;;Scandium Total ;mg/kg;liab
+A_SI_RT_OR_25;0-25;OR;; Silicium total;g/kg;liab
+A_SR_RT_OR_25;0-25;OR;;Strontium Total;mg/kg;liab
+A_TI_RT_OR_25;0-25;OR;;Titanium total;g/kg;liab
+A_V_RT_OR_25;0-25;OR;;Vanadium Total;mg/kg;liab
+A_Y_RT_OR_25;0-25;OR;;Yttrium Total ;mg/kg;liab
+A_ZN_CO_OR_25;0-25;OR;;Zinc  (Exch);mmol+/kg;liab
+A_ZN_M3_OR_25;0-25;OR;;Zinc (M3) ;mg/kg;liab
+A_ZN_RT_OR_25;0-25;OR;;Zinc total;mg/kg;liab
+Z_AFSLIB_SA_OR_25;0-25;OR;;Afslibbaar;%;liab
+Z_B_CACL2_OR_25;0-25;OR;;Boron (CaCl2) ;µg/kg;liab
+Z_CACO3_IF_OR_25;0-25;OR;;inorganic carbon; %;liab
+Z_CLAY_SA_OR_25;0-25;OR;;kleigehalte;%;liab
+Z_CO_CACL2_OR_25;0-25;OR;;Cobalt (CaCl2);µg/kg;liab
+Z_CU_CACL2_OR_25;0-25;OR;;Copper (CaCl2) ;µg/kg;liab
+Z_FE_CACL2_OR_25;0-25;OR;;Iron (CaCl2);µg/kg;liab
+Z_K_CACL2_OR_25;0-25;OR;;Potassium (CaCl2) ;mg K / kg;liab
+Z_K_HCL_OR_25;0-25;OR;;K-HCl ;mg K2O / kg;liab
+Z_MG_CACL2_OR_25;0-25;OR;;Magnesium (CaCl2) ;mg / kg;liab
+Z_MN_CACL2_OR_25;0-25;OR;;Manganese (CaCl2);µg/kg;liab
+Z_NA_CACL2_OR_25;0-25;OR;;Sodium (CaCl2) ;mg/kg;liab
+Z_OM1_OF_OR_25;0-25;OR;;Bodem organische stof ;%;liab
+Z_P_AL_OR_25;0-25;OR;;P-AL ;mg P2O5 / 100g;liab
+Z_P_CACL2_OR_25;0-25;OR;;P (CaCl2) ;mg/kg;liab
+Z_P_WA1_OR_25;0-25;OR;;P (water);mg P2O5 / l;liab
+Z_SAND_SA_OR_25;0-25;OR;;zandgehalte;%;liab
+Z_SE_CACL2_OR_25;0-25;OR;;Selenium (CaCl2);µg/kg;liab
+Z_SI_CACL2_OR_25;0-25;OR;;Silicium (CaCl2);µg/kg;liab
+Z_SILT_SA_OR_25;0-25;OR;;slibgehalte (monster) ;%;liab
+Z_SSUPPLY_RT_OR_25;0-25;OR;;SLV ;;liab
+Z_ZN_CACL2_OR_25;0-25;OR;;Zinc (CaCl2) ug / kg;µg/kg;liab
+Ca_M3_mg/kg_OR_25;0-25;OR;;Ca;mg/kg;M3
+K _M3_mg/kg_OR_25;0-25;OR;;K ;mg/kg;M3
+Mg_M3_mg/kg_OR_25;0-25;OR;;Mg;mg/kg;M3
+P _M3_mg/kg_OR_25;0-25;OR;;P ;mg/kg;M3
+S _M3_mg/kg_OR_25;0-25;OR;;S ;mg/kg;M3
+Al_M3_mg/kg_OR_25;0-25;OR;;Al;mg/kg;M3
+B _M3_mg/kg_OR_25;0-25;OR;;B ;mg/kg;M3
+Cu_M3_mg/kg_OR_25;0-25;OR;;Cu;mg/kg;M3
+Fe_M3_mg/kg_OR_25;0-25;OR;;Fe;mg/kg;M3
+Mn_M3_mg/kg_OR_25;0-25;OR;;Mn;mg/kg;M3
+Mo_M3_mg/kg_OR_25;0-25;OR;;Mo;mg/kg;M3
+Ni_M3_mg/kg_OR_25;0-25;OR;;Ni;mg/kg;M3
+Zn_M3_mg/kg_OR_25;0-25;OR;;Zn;mg/kg;M3
+Na_M3_mg/kg_OR_25;0-25;OR;;Na;mg/kg;M3
+V _M3_mg/kg_OR_25;0-25;OR;;V ;mg/kg;M3
+Co_M3_mg/kg_OR_25;0-25;OR;;Co;mg/kg;M3
+P-AL mg/kg_OR_25;0-25;OR;;P-AL;mg/kg;OR
+B_CC_µg/kg_OR_25;0-25;OR;;B;µg/kg;CC
+Na_CC_mg/kg_OR_25;0-25;OR;;Na;mg/kg;CC
+Mg_CC_mg/kg_OR_25;0-25;OR;;Mg;mg/kg;CC
+Al_CC_µg/kg_OR_25;0-25;OR;;Al;µg/kg;CC
+P_CC_mg/kg_OR_25;0-25;OR;;P;mg/kg;CC
+S_CC_mg/kg_OR_25;0-25;OR;;S;mg/kg;CC
+K_CC_mg/kg_OR_25;0-25;OR;;K;mg/kg;CC
+Mn_CC_mg/kg_OR_25;0-25;OR;;Mn;mg/kg;CC
+Fe_CC_mg/kg_OR_25;0-25;OR;;Fe;mg/kg;CC
+Co_CC_µg/kg_OR_25;0-25;OR;;Co;µg/kg;CC
+Ni_CC_µg/kg_OR_25;0-25;OR;;Ni;µg/kg;CC
+Cu_CC_µg/kg_OR_25;0-25;OR;;Cu;µg/kg;CC
+Zn_CC_µg/kg_OR_25;0-25;OR;;Zn;µg/kg;CC
+Mo_CC_mg/kg_OR_25;0-25;OR;;Mo;mg/kg;CC
+N-NH4_CC_mg/kg_OR_25;0-25;OR;;N-NH4;mg/kg;CC
+N-NO3_CC_mg/kg_OR_25;0-25;OR;;N-NO3;mg/kg;CC
+N-NO2_CC_mg/kg_OR_25;0-25;OR;;N-NO2;mg/kg;CC
+P-PO4_CC_mg/kg_OR_25;0-25;OR;;P-PO4;mg/kg;CC
+pH_CC_OR_25;0-25;OR;;pH;OR;CC
+SiO2_xrf_g/kg_OR_25;0-25;OR;;SiO2;g/kg;xrf
+TiO2_xrf_g/kg_OR_25;0-25;OR;;TiO2;g/kg;xrf
+Al2O3_xrf_g/kg_OR_25;0-25;OR;;Al2O3;g/kg;xrf
+Fe2O3_xrf_g/kg_OR_25;0-25;OR;;Fe2O3;g/kg;xrf
+MnO_xrf_mg/kg_OR_25;0-25;OR;;MnO;mg/kg;xrf
+MgO_xrf_g/kg_OR_25;0-25;OR;;MgO;g/kg;xrf
+CaO_xrf_g/kg_OR_25;0-25;OR;;CaO;g/kg;xrf
+Na2O_xrf_g/kg_OR_25;0-25;OR;;Na2O;g/kg;xrf
+K2O_xrf_g/kg_OR_25;0-25;OR;;K2O;g/kg;xrf
+P2O5_xrf_g/kg_OR_25;0-25;OR;;P2O5;g/kg;xrf
+SO3_xrf_g/kg_OR_25;0-25;OR;;SO3;g/kg;xrf
+Cr_xrf_mg/kg_OR_25;0-25;OR;;Cr;mg/kg;xrf
+Sr_xrf_mg/kg_OR_25;0-25;OR;;Sr;mg/kg;xrf
+Ni_xrf_mg/kg_OR_25;0-25;OR;;Ni;mg/kg;xrf
+Ba_xrf_mg/kg_OR_25;0-25;OR;;Ba;mg/kg;xrf
+Cu_xrf_mg/kg_OR_25;0-25;OR;;Cu;mg/kg;xrf
+Zn_xrf_mg/kg_OR_25;0-25;OR;;Zn;mg/kg;xrf
+Pb_xrf_mg/kg_OR_25;0-25;OR;;Pb;mg/kg;xrf
+V_xrf_mg/kg_OR_25;0-25;OR;;V;mg/kg;xrf
+Co_xrf_mg/kg_OR_25;0-25;OR;;Co;mg/kg;xrf
+Br_xrf_mg/kg_OR_25;0-25;OR;;Br;mg/kg;xrf
+Ga_xrf_mg/kg_OR_25;0-25;OR;;Ga;mg/kg;xrf
+Nb_xrf_mg/kg_OR_25;0-25;OR;;Nb;mg/kg;xrf
+feP_OR_CC_OR_25;0-25;OR;;feP;CC;OR
+feP_OR_XRF_OR_25;0-25;OR;;feP;XRF;OR
+feS_OR_CC_OR_25;0-25;OR;;feS;CC;OR
+feS_OR_XRF_OR_25;0-25;OR;;feS;XRF;OR
+P_CC_org_mg/kg_OR_25;0-25;OR;;P;org;CC
+basen_bez_OR_25;0-25;OR;;basen;OR;bez
+monsterdiepte_OR_50;25-50;OR;;;;
+...14_OR_50;25-50;OR;;;;
+CEC_CO_mmol+/kg_OR_50;25-50;OR;;CEC;mmol+/kg;CO
+AL_CO_mmol+/kg_OR_50;25-50;OR;;AL;mmol+/kg;CO
+CA_CO_mmol+/kg_OR_50;25-50;OR;;CA;mmol+/kg;CO
+FE_CO_mmol+/kg_OR_50;25-50;OR;;FE;mmol+/kg;CO
+K_CO_mmol+/kg_OR_50;25-50;OR;;K;mmol+/kg;CO
+MG_CO_mmol+/kg_OR_50;25-50;OR;;MG;mmol+/kg;CO
+MN_CO_mmol+/kg_OR_50;25-50;OR;;MN;mmol+/kg;CO
+NA_CO_mmol+/kg_OR_50;25-50;OR;;NA;mmol+/kg;CO
+P_CO_mmol-/kg_OR_50;25-50;OR;;P;mmol-/kg;CO
+S_CO_mmol-/kg_OR_50;25-50;OR;;S;mmol-/kg;CO
+B_CO_mmol+/kg_OR_50;25-50;OR;;B;mmol+/kg;CO
+CU_CO_mmol+/kg_OR_50;25-50;OR;;CU;mmol+/kg;CO
+MO_CO_mmol+/kg_OR_50;25-50;OR;;MO;mmol+/kg;CO
+NI_CO_mmol+/kg_OR_50;25-50;OR;;NI;mmol+/kg;CO
+ZN_CO_mmol+/kg_OR_50;25-50;OR;;ZN;mmol+/kg;CO
+V_CO_mmol+/kg_OR_50;25-50;OR;;V;mmol+/kg;CO
+TOC [%]_OR_50;25-50;OR;;TOC;%;
+TOC [g/kg]_OR_50;25-50;OR;;TOC;g/kg;
+A_AL_CO_OR_50;25-50;OR;;Aluminium (exch)  ;mmol +/ kg;liab
+A_AL_M3_OR_50;25-50;OR;;Aluminium (M3);mg / kg;liab
+A_AL_RT_OR_50;25-50;OR;;Aluminium total;g / kg;liab
+A_AS_RT_OR_50;25-50;OR;;Arsenic total;mg /kg;liab
+A_B_CO_OR_50;25-50;OR;;Boron (Exch);mmol- / kg;liab
+A_B_M3_OR_50;25-50;OR;;Boron (M3) ;mg / kg;liab
+A_BR_RT_OR_50;25-50;OR;;Boron total ;mg/kg;liab
+A_C_OF_OR_50;25-50;OR;;Carbon organic;g/kg;liab
+A_C_RT_OR_50;25-50;OR;;Carbon total  g / kg;g/kg;liab
+A_CA_CO_OR_50;25-50;OR;;Calcium (Exch) ;mmol +/ kg;liab
+A_CA_M3_OR_50;25-50;OR;;Calcium (M3) ;mg /kg;liab
+A_CA_RT_OR_50;25-50;OR;;Calcium total; g /kg;liab
+A_CEC_CO_OR_50;25-50;OR;;Cation Exhange Capacity;mmol+ / kg;liab
+A_CN_OF_OR_50;25-50;OR;;ratio C / N;;liab
+A_CO_M3_OR_50;25-50;OR;;Cobalt (M3) ;mg/kg;liab
+A_CO_RT_OR_50;25-50;OR;;Cobalt ;mg/kg;liab
+A_CR_RT_OR_50;25-50;OR;;Chromium Total ;mg/kg;liab
+A_CU_M3_OR_50;25-50;OR;;Copper (M3) ;mg/kg;liab
+A_CU_RT_OR_50;25-50;OR;;Copper Total;mg/kg;liab
+A_DENSITY_SA_OR_50;25-50;OR;;Density;g / cm ^ 3;liab
+A_EC_WA_OR_50;25-50;OR;;Electrical  conductivity;mS/m;liab
+A_FE_CO_OR_50;25-50;OR;;Iron (Exch) + mmol / kg;mmol +/kg;liab
+A_FE_M3_OR_50;25-50;OR;;Iron (M3) ;mg/kg;liab
+A_FE_RT_OR_50;25-50;OR;;Iron total ;g/kg;liab
+A_K_CO_OR_50;25-50;OR;;Potassium (Exch) ;mmol +/kg;liab
+A_K_M3_OR_50;25-50;OR;;Potassium (M3);mg/kg;liab
+A_K_RT_OR_50;25-50;OR;;Potassium total;g/kg;liab
+A_MG_CO_OR_50;25-50;OR;;Magnesium (Exch);mmol+/kg;liab
+A_MG_M3_OR_50;25-50;OR;;Magnesium (M3) ;mg/kg;liab
+A_MG_RT_OR_50;25-50;OR;;Magnesium Total;g/kg;liab
+A_MN_CO_OR_50;25-50;OR;;Manganese (Exch) ;mmol+/kg;liab
+A_MN_M3_OR_50;25-50;OR;;Manganese (M3) ;mg/kg;liab
+A_MN_RT_OR_50;25-50;OR;;Manganese total;mg/kg;liab
+A_MO_CO_OR_50;25-50;OR;;Molybdenium (Exch);mmol+/kg;liab
+A_MO_M3_OR_50;25-50;OR;;Molybdenium (M3) ;mg/kg;liab
+A_N_RT_OR_50;25-50;OR;;Nitrogen total;g/kg;liab
+A_NA_CO_OR_50;25-50;OR;;Sodium (Exch) ;mmol+/kg;liab
+A_NA_RT_OR_50;25-50;OR;;Sodium total;g/kg;liab
+A_NB_RT_OR_50;25-50;OR;;Niobium Total ;mg/kg;liab
+A_NI_RT_OR_50;25-50;OR;;Nickel total;mg/kg;liab
+A_P_M3_OR_50;25-50;OR;; Phosphorus(M3) ;mg/kg;liab
+A_P_RT_OR_50;25-50;OR;; Phosphorustotal;g/kg;liab
+A_PB_RT_OR_50;25-50;OR;;Lead total;mg/kg;liab
+A_PH_KCL_OR_50;25-50;OR;;pH (KCl) ;-log (H +);liab
+A_RB_RT_OR_50;25-50;OR;;Rubidium Total ;mg/kg;liab
+A_S_RT_OR_50;25-50;OR;;Sulphur total;g/kg;liab
+A_SC_RT_OR_50;25-50;OR;;Scandium Total ;mg/kg;liab
+A_SI_RT_OR_50;25-50;OR;; Silicium total;g/kg;liab
+A_SR_RT_OR_50;25-50;OR;;Strontium Total;mg/kg;liab
+A_TI_RT_OR_50;25-50;OR;;Titanium total;g/kg;liab
+A_V_RT_OR_50;25-50;OR;;Vanadium Total;mg/kg;liab
+A_Y_RT_OR_50;25-50;OR;;Yttrium Total ;mg/kg;liab
+A_ZN_CO_OR_50;25-50;OR;;Zinc  (Exch);mmol+/kg;liab
+A_ZN_M3_OR_50;25-50;OR;;Zinc (M3) ;mg/kg;liab
+A_ZN_RT_OR_50;25-50;OR;;Zinc total;mg/kg;liab
+Z_AFSLIB_SA_OR_50;25-50;OR;;Afslibbaar;%;liab
+Z_B_CACL2_OR_50;25-50;OR;;Boron (CaCl2) ;µg/kg;liab
+Z_CACO3_IF_OR_50;25-50;OR;;inorganic carbon; %;liab
+Z_CLAY_SA_OR_50;25-50;OR;;kleigehalte;%;liab
+Z_CO_CACL2_OR_50;25-50;OR;;Cobalt (CaCl2);µg/kg;liab
+Z_CU_CACL2_OR_50;25-50;OR;;Copper (CaCl2) ;µg/kg;liab
+Z_FE_CACL2_OR_50;25-50;OR;;Iron (CaCl2);µg/kg;liab
+Z_K_CACL2_OR_50;25-50;OR;;Potassium (CaCl2) ;mg K / kg;liab
+Z_K_HCL_OR_50;25-50;OR;;K-HCl ;mg K2O / kg;liab
+Z_MG_CACL2_OR_50;25-50;OR;;Magnesium (CaCl2) ;mg / kg;liab
+Z_MN_CACL2_OR_50;25-50;OR;;Manganese (CaCl2);µg/kg;liab
+Z_NA_CACL2_OR_50;25-50;OR;;Sodium (CaCl2) ;mg/kg;liab
+Z_OM1_OF_OR_50;25-50;OR;;Bodem organische stof ;%;liab
+Z_P_AL_OR_50;25-50;OR;;P-AL ;mg P2O5 / 100g;liab
+Z_P_CACL2_OR_50;25-50;OR;;P (CaCl2) ;mg/kg;liab
+Z_P_WA1_OR_50;25-50;OR;;P (water);mg P2O5 / l;liab
+Z_SAND_SA_OR_50;25-50;OR;;zandgehalte;%;liab
+Z_SE_CACL2_OR_50;25-50;OR;;Selenium (CaCl2);µg/kg;liab
+Z_SI_CACL2_OR_50;25-50;OR;;Silicium (CaCl2);µg/kg;liab
+Z_SILT_SA_OR_50;25-50;OR;;slibgehalte (monster) ;%;liab
+Z_SSUPPLY_RT_OR_50;25-50;OR;;SLV ;;liab
+Z_ZN_CACL2_OR_50;25-50;OR;;Zinc (CaCl2) ug / kg;µg/kg;liab
+Ca_M3_mg/kg_OR_50;25-50;OR;;Ca;mg/kg;M3
+K _M3_mg/kg_OR_50;25-50;OR;;K ;mg/kg;M3
+Mg_M3_mg/kg_OR_50;25-50;OR;;Mg;mg/kg;M3
+P _M3_mg/kg_OR_50;25-50;OR;;P ;mg/kg;M3
+S _M3_mg/kg_OR_50;25-50;OR;;S ;mg/kg;M3
+Al_M3_mg/kg_OR_50;25-50;OR;;Al;mg/kg;M3
+B _M3_mg/kg_OR_50;25-50;OR;;B ;mg/kg;M3
+Cu_M3_mg/kg_OR_50;25-50;OR;;Cu;mg/kg;M3
+Fe_M3_mg/kg_OR_50;25-50;OR;;Fe;mg/kg;M3
+Mn_M3_mg/kg_OR_50;25-50;OR;;Mn;mg/kg;M3
+Mo_M3_mg/kg_OR_50;25-50;OR;;Mo;mg/kg;M3
+Ni_M3_mg/kg_OR_50;25-50;OR;;Ni;mg/kg;M3
+Zn_M3_mg/kg_OR_50;25-50;OR;;Zn;mg/kg;M3
+Na_M3_mg/kg_OR_50;25-50;OR;;Na;mg/kg;M3
+V _M3_mg/kg_OR_50;25-50;OR;;V ;mg/kg;M3
+Co_M3_mg/kg_OR_50;25-50;OR;;Co;mg/kg;M3
+P-AL mg/kg_OR_50;25-50;OR;;P-AL;mg/kg;OR
+B_CC_µg/kg_OR_50;25-50;OR;;B;µg/kg;CC
+Na_CC_mg/kg_OR_50;25-50;OR;;Na;mg/kg;CC
+Mg_CC_mg/kg_OR_50;25-50;OR;;Mg;mg/kg;CC
+Al_CC_µg/kg_OR_50;25-50;OR;;Al;µg/kg;CC
+P_CC_mg/kg_OR_50;25-50;OR;;P;mg/kg;CC
+S_CC_mg/kg_OR_50;25-50;OR;;S;mg/kg;CC
+K_CC_mg/kg_OR_50;25-50;OR;;K;mg/kg;CC
+Mn_CC_mg/kg_OR_50;25-50;OR;;Mn;mg/kg;CC
+Fe_CC_mg/kg_OR_50;25-50;OR;;Fe;mg/kg;CC
+Co_CC_µg/kg_OR_50;25-50;OR;;Co;µg/kg;CC
+Ni_CC_µg/kg_OR_50;25-50;OR;;Ni;µg/kg;CC
+Cu_CC_µg/kg_OR_50;25-50;OR;;Cu;µg/kg;CC
+Zn_CC_µg/kg_OR_50;25-50;OR;;Zn;µg/kg;CC
+Mo_CC_mg/kg_OR_50;25-50;OR;;Mo;mg/kg;CC
+N-NH4_CC_mg/kg_OR_50;25-50;OR;;N-NH4;mg/kg;CC
+N-NO3_CC_mg/kg_OR_50;25-50;OR;;N-NO3;mg/kg;CC
+N-NO2_CC_mg/kg_OR_50;25-50;OR;;N-NO2;mg/kg;CC
+P-PO4_CC_mg/kg_OR_50;25-50;OR;;P-PO4;mg/kg;CC
+pH_CC_OR_50;25-50;OR;;pH;OR;CC
+SiO2_xrf_g/kg_OR_50;25-50;OR;;SiO2;g/kg;xrf
+TiO2_xrf_g/kg_OR_50;25-50;OR;;TiO2;g/kg;xrf
+Al2O3_xrf_g/kg_OR_50;25-50;OR;;Al2O3;g/kg;xrf
+Fe2O3_xrf_g/kg_OR_50;25-50;OR;;Fe2O3;g/kg;xrf
+MnO_xrf_mg/kg_OR_50;25-50;OR;;MnO;mg/kg;xrf
+MgO_xrf_g/kg_OR_50;25-50;OR;;MgO;g/kg;xrf
+CaO_xrf_g/kg_OR_50;25-50;OR;;CaO;g/kg;xrf
+Na2O_xrf_g/kg_OR_50;25-50;OR;;Na2O;g/kg;xrf
+K2O_xrf_g/kg_OR_50;25-50;OR;;K2O;g/kg;xrf
+P2O5_xrf_g/kg_OR_50;25-50;OR;;P2O5;g/kg;xrf
+SO3_xrf_g/kg_OR_50;25-50;OR;;SO3;g/kg;xrf
+Cr_xrf_mg/kg_OR_50;25-50;OR;;Cr;mg/kg;xrf
+Sr_xrf_mg/kg_OR_50;25-50;OR;;Sr;mg/kg;xrf
+Ni_xrf_mg/kg_OR_50;25-50;OR;;Ni;mg/kg;xrf
+Ba_xrf_mg/kg_OR_50;25-50;OR;;Ba;mg/kg;xrf
+Cu_xrf_mg/kg_OR_50;25-50;OR;;Cu;mg/kg;xrf
+Zn_xrf_mg/kg_OR_50;25-50;OR;;Zn;mg/kg;xrf
+Pb_xrf_mg/kg_OR_50;25-50;OR;;Pb;mg/kg;xrf
+V_xrf_mg/kg_OR_50;25-50;OR;;V;mg/kg;xrf
+Co_xrf_mg/kg_OR_50;25-50;OR;;Co;mg/kg;xrf
+Br_xrf_mg/kg_OR_50;25-50;OR;;Br;mg/kg;xrf
+Ga_xrf_mg/kg_OR_50;25-50;OR;;Ga;mg/kg;xrf
+Nb_xrf_mg/kg_OR_50;25-50;OR;;Nb;mg/kg;xrf
+feP_OR_CC_OR_50;25-50;OR;;feP;CC;OR
+feP_OR_XRF_OR_50;25-50;OR;;feP;XRF;OR
+feS_OR_CC_OR_50;25-50;OR;;feS;CC;OR
+feS_OR_XRF_OR_50;25-50;OR;;feS;XRF;OR
+P_CC_org_mg/kg_OR_50;25-50;OR;;P;org;CC
+basen_bez_OR_50;25-50;OR;;basenbezetting;OR;bez
+clusters_clustber;;;;clusters;;
+sloot_nr;;;;sloot;;
