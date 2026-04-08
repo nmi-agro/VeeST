@@ -85,6 +85,64 @@ importPen <- function(inputdir = paste0(workspace,"./Penetrometer")){
   return(pen)
 }
 
+importPen2 <- function(inputdir = paste0(workspace,"./Penetrometer")){
+  
+  pen <- list.files(path= paste0(inputdir), pattern=".txt", full.names =  T)
+  
+  # include filesname
+  names <- gsub(paste0(inputdir,'/'), "", pen)
+  names <- gsub(paste0('.txt'), "", names)
+  dt.names <- data.table(ID = 1:length(names), name = names)
+  # include metadata
+  penheader <- lapply(pen, fread, sep=';', nrows = 13)
+  penheader <- rbindlist(penheader, fill =F, use.names = F, idcol = "ID")
+  penheader <- penheader[,metadata:= sapply(strsplit(`Eijkelkamp Penetro Viewer Vs. 6.08`,':'), `[`,2)]
+  penheader <- penheader[,header:= sapply(strsplit(`Eijkelkamp Penetro Viewer Vs. 6.08`,':'), `[`,1)]
+  penheader <- penheader[!is.na(metadata),]
+  # trim spaces
+  penheader <- penheader[,metadata := gsub(' $','',metadata)]
+  penheader <- penheader[,header := gsub(' $','',header)]
+  # Trim character columns from starting and ending space
+  cols <- colnames(penheader)[sapply(penheader, is.character)]
+  penheader <- penheader[, (cols) := lapply(.SD, function(x) gsub("^\\s+|\\s+$", "", x)), .SDcols = cols]
+  penheader <- data.table(ID = penheader$ID, header = rep(penheader$header[penheader$ID == 1], uniqueN(penheader$ID)), metadata = penheader$metadata)
+  penheader <- dcast(penheader, ID ~ header, value.var = 'metadata')
+  penheader <- merge(penheader, dt.names, by = 'ID')
+  # import data
+  pen <- list.files(path= paste0(inputdir), pattern=".txt", full.names =  T)
+  pen <- lapply(pen, fread, skip = 13, na.strings = c("", "NA", -1, "NaN"))
+  pen <- rbindlist(pen, fill =F, use.names = F, idcol = "ID")
+  rename_pen_columns <- function(pen_data) {
+    # Kolommen hernoemen
+    # Eerste 4 kolommen: ID, penplot, coords, start = 0
+    # Rest: 00, 01, 02, ..., 80
+    
+    n_depth_cols <- ncol(pen_data) - 4
+    new_names <- c("ID", "penplot", "coords", "start", 
+                   sprintf("%02d", 0:(n_depth_cols - 1)))
+    
+    setnames(pen_data, new_names)
+    pen_data
+  }
+  pen <- rename_pen_columns(pen)
+  pen <-pen[,-  c('coords','start')]
+  # Melt: zet alle dieptekolommen in 1 kolom zoals eerder format
+  pen_long <- melt(pen, 
+                   id.vars = c("ID", "penplot"),
+                   measure.vars = sprintf("%02d", 0:80),
+                   variable.name = "Diept",
+                   value.name = "waarde")
+
+  # merge with metadata
+  pen <- merge(pen_long, penheader, by = 'ID')
+  
+  # change format
+  pen <- pen[, c("Plotnaam", "Pen") := tstrsplit(penplot, "\\.", type.convert = TRUE)]
+  pen <- pen[, indringingsweerstand:= as.numeric(waarde)]
+  
+  return(pen)
+}
+
 # Proces funs-----------------------
 # get wind direction
 get_cardinal_direction <- function(profiel_nr) {
@@ -286,4 +344,42 @@ visualise_profiel<- function(proftest){
   
 }
 
+# Function to calculate RMSE as percentage of mean
+calculate_rmse_percentage <- function(data, target_var, predictors) {
+  # Select variables for model
+  model_vars <- c("SlootID", target_var, predictors)
+  model_data <- data[complete.cases(data[, ..model_vars]), ..model_vars]
+  
+  # Convert factors to numeric
+  factor_cols <- names(model_data)[sapply(model_data, is.character)]
+  factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
+  factor_cols <- c(factor_cols, factor_cols_2)
+  if(length(factor_cols) > 0) {
+    model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
+    model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
+  }
+  
+  # Get model
+  model <- xgb_models[[target_var]]
+  
+  # Prepare X data
+  predictors_clean <- predictors[predictors %in% colnames(model_data)]
+  X_data <- as.matrix(model_data[, ..predictors_clean])
+  y_actual <- model_data[, get(target_var)]
+  
+  # Get predictions and calculate RMSE
+  y_pred <- predict(model, X_data)
+  rmse <- sqrt(mean((y_actual - y_pred)^2, na.rm = TRUE))
+  
+  # Calculate as percentage of mean
+  mean_val <- mean(y_actual, na.rm = TRUE)
+  rmse_pct <- (rmse / mean_val) * 100
+  
+  rmse_pct
+}
 
+# Function to get correlation direction between predictor and target
+get_correlation_direction <- function(target_var, predictor_var, data) {
+  corr <- cor(data[[target_var]], data[[predictor_var]], use = "complete.obs")
+  ifelse(corr > 0, "+", "-")
+}

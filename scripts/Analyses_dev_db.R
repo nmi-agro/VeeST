@@ -138,7 +138,8 @@ target_names_dutch <- c(
 cols_corr <- c("drglg", "max_wtd", "zichtdiepte", "max_slib", "watbte","oeverzone_2b_breedte_cm", "oeverzone_2b_kaal_perc", 
                "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc", "slib_redox_pH7","slib_pH",
                "oevbte", "veentype_num", "Z_CLAY_SA_OR_50",
-               "draagkracht_oever", "draagkracht_perceel", "water_pH", "NH4_µmol/l_PW","P-AL mg p2o5/100g_SB")
+               "draagkracht_oever", "draagkracht_perceel", "water_pH", "NH4_µmol/l_PW","P-AL mg p2o5/100g_SB",
+              "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar","Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag")
 # Create readable Dutch names mapping
 nederlandse_namen <- c(
   "drglg" = "Drooglegging (m)",
@@ -160,11 +161,14 @@ nederlandse_namen <- c(
   "draagkracht_perceel" = "Draagkracht perceel (MPa)",
   "water_pH" = "Water pH",
   "NH4_µmol/l_PW" = "Ammonium (µmol/l)",
-  "P-AL mg p2o5/100g_SB" = "P-AL slib (mg P2O5/100g)"
-
+  "P-AL mg p2o5/100g_SB" = "P-AL slib (mg P2O5/100g)",
+  "Baggerfrequentie_per_jaar" = "Baggerfrequentie per jaar",
+  "Maaifrequentie_oever_per_jaar"= "Maaifrequentie oever per jaar",
+  "Aantal_Koedagen_per_jaar"= "Aantal koedagen per jaar",
+  "Aantal_koeien_vee_perceel_dag"= "Aantal koeien per perceel per dag"
 )
 
-## versie redox en poriewaterconcentraties erbij
+## versie redox en poriewaterconcentraties erbij-----------------------------------
 target_vars <- c("slib_redox_pH7")
 # Selecteer alleen poriewater µmol concentraties
 # Selecteer alle kolommen die µmol bevatten
@@ -189,6 +193,17 @@ target_names_dutch <- c(
 
 ## Preparation------------------------------------------------
 library(xgboost)
+# alle parameters naar nummeriek
+abio_proj <- abio_proj[MeenemenDataAnalyse_totaal == 'ja',]
+abio_proj <- abio_proj[!(jaar == 2025 & WP == 'WP2'),] # remove 2025 WP2
+# Create correlation matrix and p-value matrix with the SAME variables
+abio_proj[,trofie := as.numeric(trofie)]
+abio_proj[,draagkracht_perceel := as.numeric(draagkracht_perceel)]
+# Handle non-numeric columns
+abio_proj[,Maaifrequentie_oever_per_jaar := as.numeric(Maaifrequentie_oever_per_jaar)]
+abio_proj[,Baggerfrequentie_per_jaar := as.numeric(Baggerfrequentie_per_jaar)]
+abio_proj[,Aantal_koeien_vee_perceel_dag := as.numeric(Aantal_koeien_vee_perceel_dag)]
+abio_proj[,Aantal_Koedagen_per_jaar := as.numeric(Aantal_Koedagen_per_jaar)]
 
 ## Function to create XGBoost model for single target ---------------------------------
 create_xgb_model <- function(target_var, predictors, data) {
@@ -237,7 +252,7 @@ create_xgb_model <- function(target_var, predictors, data) {
     nrounds = 100,
     watchlist = list(train = dtrain, test = dtest),
     early_stopping_rounds = 10,
-    verbose = 0
+    verbose = 2
   )
   
   # Feature importance
@@ -279,6 +294,7 @@ create_xgb_model <- function(target_var, predictors, data) {
     )
   ))
 }
+
 # Train models for all target variables
 xgb_models <- list()
 model_performance <- list()
@@ -309,8 +325,6 @@ print(performance_summary)
 
 # Combine and visualize feature importance
 all_importance <- rbindlist(feature_importance_all)
-
-
 
 # Add Dutch target names and performance metrics to importance data
 all_importance[, target_dutch := target_names_dutch[target_var]]
@@ -380,10 +394,25 @@ if(!"target_dutch_multiline" %in% colnames(all_importance)) {
 
 if(!"correlation_direction" %in% colnames(all_importance)) {
   all_importance[, correlation_direction := mapply(
-    get_correlation_direction, 
+    function(target_var, predictor_var) {
+      tryCatch({
+        if(!target_var %in% colnames(abio_proj) || !predictor_var %in% colnames(abio_proj)) {
+          return(NA_character_)
+        }
+        
+        target_col <- abio_proj[[target_var]]
+        pred_col <- abio_proj[[predictor_var]]
+        
+        if(is.numeric(target_col) && is.numeric(pred_col)) {
+          corr <- cor(target_col, pred_col, use = "complete.obs")
+          ifelse(corr > 0, "+", "-")
+        } else {
+          NA_character_
+        }
+      }, error = function(e) NA_character_)
+    },
     target_var = target_var, 
     predictor_var = Feature,
-    MoreArgs = list(data = abio_proj),
     USE.NAMES = FALSE
   )]
 }
@@ -617,8 +646,6 @@ create_combined_ale_plots <- function() {
   
   return(combined_plots)
 }
-
-# Rest van de code blijft hetzelfde
 cat("Creating combined ALE + data plots...\n")
 combined_ale_plots <- create_combined_ale_plots()
 
@@ -637,9 +664,7 @@ for(var in names(combined_ale_plots)) {
     width = 40, height = 25, units = 'cm', dpi = 300
   )
 }
-
 cat("\nAlle gecombineerde ALE plots zijn voltooid en opgeslagen!\n")
-
 
 
 ## Manual ALE calculation function (without ALEPlot package)---------------------------------------------
@@ -993,9 +1018,9 @@ create_redox_ale_grid <- function() {
   return(redox_ale_plots)
 }
 
-# Maak de redox ALE plots
-redox_ale_plots <- create_redox_ale_grid()
+## Maak de redox ALE plots voor redoxmodel-------------------------------------------------
 
+redox_ale_plots <- create_redox_ale_grid()
 # Combineer in een grid
 library(gridExtra)
 if(length(redox_ale_plots) > 0) {
@@ -1028,3 +1053,208 @@ for(var_name in names(redox_ale_plots)) {
 }
 
 cat("Alle individuele redox ALE plots opgeslagen!\n")
+
+## Functie voor XGBoost model diagnostiek en validatie ------------------------------------------
+# Functie voor XGBoost model diagnostiek
+create_xgb_diagnostics <- function(xgb_models, abio_proj, target_vars, target_names_dutch, nederlandse_namen) {
+  
+  library(ggplot2)
+  library(data.table)
+  library(patchwork)
+  
+  diagnostic_plots <- list()
+  
+  for(target in target_vars) {
+    if(target %in% colnames(abio_proj) && target %in% names(xgb_models)) {
+      
+      cat("Creating diagnostics for:", target, "\n")
+      
+      # Verzamel model data
+      model_vars <- c("SlootID", target, cols_corr)
+      model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
+      model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
+      
+      # Convert factors
+      factor_cols <- names(model_data)[sapply(model_data, is.character)]
+      factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
+      factor_cols <- c(factor_cols, factor_cols_2)
+      if(length(factor_cols) > 0) {
+        model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
+        model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
+      }
+      
+      # Prepare data FIRST
+      predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
+      X_data <- as.matrix(model_data[, ..predictors_clean])
+      y_actual <- model_data[[target]]
+      
+      # CHECK if numeric AFTER preparing data
+      if(!is.numeric(y_actual)) {
+        cat("Skipping", target, "- target is not numeric\n")
+        next
+      }
+      
+      # Predictions
+      y_pred <- predict(xgb_models[[target]], X_data)
+      
+      # Calculate residuals
+      residuals <- y_actual - y_pred
+      
+      # Create diagnostics data
+      diag_data <- data.table(
+        actual = y_actual,
+        predicted = y_pred,
+        residuals = residuals,
+        standardized_residuals = residuals / sd(residuals, na.rm = TRUE)
+      )
+      
+      # Calculate statistics
+      rmse <- sqrt(mean(residuals^2, na.rm = TRUE))
+      mae <- mean(abs(residuals), na.rm = TRUE)
+      r2 <- cor(y_actual, y_pred, use = "complete.obs")^2
+      skewness <- (mean(residuals^3, na.rm = TRUE)) / (sd(residuals, na.rm = TRUE)^3)
+      
+      target_dutch <- target_names_dutch[target]
+      
+      # 1. Scatter plot
+      p1 <- ggplot(diag_data, aes(x = actual, y = predicted)) +
+        geom_point(alpha = 0.6, size = 2.5, color = "#0072B2") +
+        geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red", linewidth = 1) +
+        labs(
+          title = paste0("Gemeten vs Voorspeld: ", target_dutch),
+          subtitle = paste0("RMSE: ", round(rmse, 2), " | MAE: ", round(mae, 2), " | R²: ", round(r2, 3)),
+          x = paste("Gemeten", target_dutch),
+          y = paste("Voorspeld", target_dutch)
+        ) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(size = 12, face = "bold"),
+          plot.subtitle = element_text(size = 10),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8)
+        )
+      
+      # 2. Residuals vs Fitted
+      p2 <- ggplot(diag_data, aes(x = predicted, y = residuals)) +
+        geom_point(alpha = 0.6, size = 2.5, color = "#009E73") +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
+        geom_hline(yintercept = c(-2*sd(residuals, na.rm = TRUE), 2*sd(residuals, na.rm = TRUE)), 
+                   linetype = "dotted", color = "orange", linewidth = 0.8) +
+        labs(
+          title = "Residuals vs Fitted Values",
+          x = "Voorspelde waarden",
+          y = "Residuals"
+        ) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(size = 12, face = "bold"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8)
+        )
+      
+      # 3. Histogram
+      p3 <- ggplot(diag_data, aes(x = residuals)) +
+        geom_histogram(aes(y = after_stat(density)), bins = 15, 
+                       fill = "#E69F00", alpha = 0.7, color = "black", linewidth = 0.5) +
+        stat_function(fun = dnorm, 
+                      args = list(mean = mean(diag_data$residuals, na.rm = TRUE), 
+                                 sd = sd(diag_data$residuals, na.rm = TRUE)),
+                      color = "red", linewidth = 1.2, linetype = "dashed") +
+        labs(
+          title = "Verdeling van Residuals",
+          subtitle = paste0("Skewness: ", round(skewness, 3)),
+          x = "Residuals",
+          y = "Density"
+        ) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(size = 12, face = "bold"),
+          plot.subtitle = element_text(size = 10),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8)
+        )
+      
+      # 4. Q-Q plot
+      p4 <- ggplot(diag_data, aes(sample = standardized_residuals)) +
+        stat_qq(color = "#56B4E9", size = 2.5, alpha = 0.7) +
+        stat_qq_line(color = "red", linewidth = 1, linetype = "dashed") +
+        labs(
+          title = "Q-Q Plot (Normaalverdeling Check)",
+          x = "Theoretische Quantiles",
+          y = "Sample Quantiles"
+        ) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(size = 12, face = "bold"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8)
+        )
+      
+      # 5. Density plot
+      p5 <- ggplot(diag_data, aes(x = residuals)) +
+        geom_density(fill = "#D55E00", alpha = 0.6, color = "black", linewidth = 1) +
+        stat_function(fun = dnorm,
+                      args = list(mean = mean(diag_data$residuals, na.rm = TRUE),
+                                 sd = sd(diag_data$residuals, na.rm = TRUE)),
+                      color = "blue", linewidth = 1.2, linetype = "dashed") +
+        labs(
+          title = "Dichtheidsverdeling Residuals",
+          x = "Residuals",
+          y = "Density"
+        ) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(size = 12, face = "bold"),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8)
+        )
+      
+      # Combine plots
+      diagnostic_plots[[target]] <- list(
+        scatter = p1,
+        residuals_fitted = p2,
+        histogram = p3,
+        qq_plot = p4,
+        density = p5,
+        statistics = data.table(
+          Target = target_dutch,
+          RMSE = rmse,
+          MAE = mae,
+          R2 = r2,
+          Skewness = skewness,
+          N = nrow(diag_data)
+        )
+      )
+    }
+  }
+  
+  return(diagnostic_plots)
+}
+
+# Maak diagnostics voor alle targets
+xgb_diagnostics <- create_xgb_diagnostics(xgb_models, abio_proj, target_vars, 
+                                          target_names_dutch, nederlandse_namen)
+
+# Display en save de diagnostische plots
+for(target in names(xgb_diagnostics)) {
+  
+  cat("\n=== Diagnostics voor", target_names_dutch[target], "===\n")
+  
+  # Print statistics
+  print(xgb_diagnostics[[target]]$statistics)
+  
+  # Maak combined plot met patchwork
+  combined_diag <- (xgb_diagnostics[[target]]$scatter + xgb_diagnostics[[target]]$residuals_fitted) /
+                   (xgb_diagnostics[[target]]$histogram + xgb_diagnostics[[target]]$qq_plot) /
+                   (xgb_diagnostics[[target]]$density)
+  
+  print(combined_diag)
+  
+  # Save
+  ggsave(
+    filename = paste0('output/AlleGebieden/Tussenrapportage/XGBoost_diagnostics_', 
+                     gsub("[^A-Za-z0-9]", "_", target), '.png'),
+    plot = combined_diag,
+    width = 40, height = 45, units = 'cm', dpi = 300
+  )
+}
+
+# Samenvatting statistieken
+diagnostics_summary <- rbindlist(lapply(xgb_diagnostics, function(x) x$statistics))
+print("=== Samenvattende Diagnostische Statistieken ===")
+print(diagnostics_summary)
