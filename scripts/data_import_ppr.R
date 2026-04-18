@@ -1,5 +1,4 @@
 # Data import and processing
-# overzichtstabel per parametergroep: aantal unieke metingen per gebied/ locatie
 
 # 0. Load packages -----------------------------------------------------------
 library(data.table)
@@ -48,10 +47,10 @@ locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
 clusters_locs <- st_join(locaties, cluster, st_nearest_feature, left = TRUE)
 # sel verschillende indicatoren
 # afwatopp: oppvl/ (omtrek_nat/ 2) brede percelen met weinig sloten is een hoog getal, smalle percelen met veel sloten is laag
-clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort','WP','clusters','trofie','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text','jaar')])
+clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort',"Sloot_nr","sloot","Behandeling","Oeverzijde","jaar",'Slibmonster_Bware','Oevermonster_AgroCares','WP','MeenemenDataAnalyse_totaal','clusters','trofie','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text')])
 clusters_locs <- st_join(clusters_locs, aan, st_nearest_feature, left = TRUE)
 setDT(clusters_locs)
-clusters_locs <- clusters_locs[WP %in% c('WP1','WP2','WP3'),]
+# clusters_locs <- clusters_locs[WP %in% c('WP1','WP2','WP3'),]
 duplicate_clust <- clusters_locs[duplicated(clusters_locs, incomparables=FALSE, fromLast=TRUE, by=c("SlootID","jaar"))|duplicated(clusters_locs,  by=c("SlootID","jaar")),]
 ## 1.4 load afvoergebieden------------------------------
 afvoer <- st_read(paste0(workspace,'GIS/afvoergebiedaanvoergebied.gpkg'))
@@ -404,17 +403,18 @@ gps25[name == 'SW_4_M_o',oever:= 'ZO']
 gps25[name == 'SW_4_M-AF_o',oever:= 'ZO']
 gps25[name == 'SW_4_M-NVO_w',oever:= 'NW']
 gps25[name == 'SW_4_M-AF-NVO_w',oever:= 'NW']
-# extragebied toevoegen voor ronde hoep
+# extragebied toevoegen 
+gps25[gebied %in% c('ad','bd','de','dp','dt','eem','ep','hw','ig','lg','lw','mb',
+'ok','sn','sv','up','wjv','wl','wz','zvp','zw') , extragebied:= '']
+gps25[,sloot := as.numeric(sloot)]
 gps25[gebied == 'rh' & sloot %in% c(1,2,3,4,5), extragebied:= 'RH_1tm5'] #gps bevat alleen data van sloot 1 zuid, die hoort bij sloot6tm10
 gps25[gebied == 'rh' & sloot %in% c(7,8,9,10,11), extragebied:= 'RH_7 tm RH_11']
 gps25[gebied == 'sw' & sloot %in% c(1), extragebied:= 'SW_1_4']
 gps25[gebied == 'sw' & sloot %in% c(2,3,5), extragebied:= 'SW_2_3_5']
 gps25[gebied == 'sw' & sloot %in% c(4), extragebied:= 'SW_1_4']
-gps25[gebied == 'zg' & sloot %in% c(1,3), extragebied:= 'ZG_1_3']
+gps25[gebied == 'zg' & sloot %in% c(1,2,3), extragebied:= 'ZG_1_3']
 gps25[gebied == 'zg' & sloot %in% c(10,11,12,13), extragebied:= 'ZG_10_WP1 tm ZG_13_WP1']
 gps25[gebied == 'zg' & sloot %in% c(6,7,8,9), extragebied:= 'ZG_6_WP1 tm ZG_9_WP1']
-gps25[gebied %in% c('ad','bd','de','dp','dt','eem','ep','hw','ig','lg','lw','mb',
-'ok','sn','sv','up','wjv','wl','wz','zvp','zw') , extragebied:= '']
 gps25[gebied == 'kw' & sloot %in% c(1), extragebied:= 'KW_1_2_M_R']
 gps25[gebied == 'kw' & sloot %in% c(2) & ID %in% c(207,208), extragebied:= 'KW_1_2_M_R']
 gps25[gebied == 'kw' & sloot %in% c(13,14,15,16), extragebied:= 'KW_13_WP1 tm KW_16_WP1']
@@ -555,24 +555,21 @@ setDT(locaties)
 # abio_loc_instanceidcheck <- unique(abio[!instanceID %in% unique(locaties$instanceID_abio),c("SlootID",'instanceID')])
 # loc_abio_instanceidcheck <- unique(locaties[!instanceID_abio %in% unique(abio$instanceID),c("SlootID",'instanceID_abio')])
 abio <- merge(abio, locaties, by.x ='instanceID', by.y ='instanceID_abio', all.x = TRUE, all.y = FALSE, suffixes = c('_abio',''))
+#check if slootID_old_abio == SlootID_abio
+check_abio <- unique(abio[!SlootID_old_abio == SlootID_abio, c('SlootID_old_abio','SlootID_abio')])
 abio[, SlootID_old_abio := SlootID_abio]
-abio[, SlootID := SlootID]
-abio[, jaar:=jaar]
+abio[, instanceID_abio := instanceID]
+abio[, instanceID := NULL]
 # 1. Begin met de meest specifieke aggregatie
 # Alleen numerieke kolommen + join keys meenemen in aggregatie
 cols_num <- colnames(abio)[sapply(abio, is.numeric)]
-for (dt in list(abio_slib_agg1, abio_slib_agg2, abio_slib_agg3)) {
-  for (col in names(dt)[sapply(dt, is.numeric)]) {
-    dt[is.nan(get(col)), (col) := NA]
-  }
-}
 # Verwijder join keys uit cols_num om duplicaten te voorkomen
 cols_num <- setdiff(cols_num, c("SlootID", "jaar", "gebied", "sloot", "Behandeling"))
 abio_slib_agg1 <- abio[, lapply(.SD, mean, na.rm = TRUE), .SDcols = cols_num, by = .(SlootID, jaar)]
 abio_slib_agg2 <- abio[, lapply(.SD, mean, na.rm = TRUE), .SDcols = cols_num, by = .(gebied, sloot, Behandeling, jaar)]
 abio_slib_agg3 <- abio[, lapply(.SD, mean, na.rm = TRUE), .SDcols = cols_num, by = .(gebied, sloot, jaar)]
 # 2. Voeg de hiërarchische info toe aan abio
-abio_hier <- unique(abio[, .(SlootID, SlootID_kort, gebied, Gebiedsnaam, sloot, Behandeling, jaar, instanceID,datum,
+abio_hier <- unique(abio[, .(SlootID, SlootID_kort, gebied, Gebiedsnaam, sloot, Behandeling, jaar, instanceID_abio,instanceID_veg,datum,
 uitraster_perc,uitraster_afstand_sloot_m,afscheur_veg_lengte_perc,afscheur_veg_breedte_cm,
 landgebruik_traject,landgebruik_overkant,
 beheersporen_water1_2a_hoeveel,beheersporen_water1_2a_welke,beheersporen_water1_2a_overig,
@@ -593,8 +590,8 @@ abio_hier[,behandeling_1 := sapply(strsplit(Behandeling, '-'), `[`, 1)]
 abio_hier[,behandeling_2 := ifelse(grepl('AF', Behandeling),"AF",NA)]
 ## 3.3 validatie abiotiek -------------------------------
 ## check dubbele codes
-abio_hier[, ndatum := uniqueN(datum), by = c('SlootID','instanceID')]
-checkabioloc <- unique(abio_hier[, c('SlootID','instanceID','ndatum')])
+abio_hier[, ndatum := uniqueN(datum), by = c('SlootID','instanceID_abio')]
+checkabioloc <- unique(abio_hier[, c('SlootID','instanceID_abio','ndatum')])
 ### make matrix wq by ditch ID
 loc.wq <- unique(abio[,c('SlootID','gebied','sloot',"Oevermonster_AgroCares","bodemmonster_oeverzone2b3","bodemmonster_oeverzone2b3_subsamples", "bodemmonster_oever2b3_boven",  
                          "bodemmonster_oever2b3_boven_subsamples"  ,"bodemmonster_oeverzone2b3_diep", "bodemmonster_oeverzone2b3_diep_subsamples", "slibmonster","slibmonster_subsamples","bodemmonster_water","porievochtmonster",                        
@@ -631,6 +628,7 @@ profiel[Puntnummer > numwl_max | Puntnummer < numwl_min, wl := NA]
 #extract slibdikte
 profiel[, slib := as.numeric(Opmerking)/100]
 profiel[is.na(slib), slib:= 0]
+
 # afstand in meters toevoegen
 profiel[, dist := sqrt((x[Puntnummer == 1]-x)^2+(y[Puntnummer == 1]-y)^2), by ='ID'] 
 profiel[, rel_dist := dist - shift(dist,-1), by ='ID'] 
@@ -666,6 +664,7 @@ for(i in unique(profiel$ID)){
 profiel[, wtd := wl - z]
 profiel[wtd < 0, wtd := 0]
 profiel[,max_wtd := max(wtd, na.rm = T), by = 'ID']
+profiel[,slib := slib - wtd]
 # max slibdikte
 profiel[,max_slib := max(slib, na.rm = T), by = 'ID']
 # breedte water
@@ -734,7 +733,7 @@ profiel_wide <- profiel_wide[,c('name','sectie_2','jaar','max_slib','max_wtd','w
 
 ### 6.3.1 intersect locations with profiel_wide ---------------------
 locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
-locs_prof <- st_intersection(profiel_wide, locaties[!is.na(locaties$SlootID_old_profiel),])
+locs_prof <- st_intersection(profiel_wide, locaties[!is.na(locaties$SlootID_old_profiel),c('SlootID','jaar','SlootID_old_profiel','oever')])
 # Difference check: deze profielen missen in locs_prof dus doorkruizen geen geometrie van locaties
 locs_prof_diff <- profiel_wide[!profiel_wide$name %in% locs_prof$name,]
 # Check double values, when present an error in veseq is given when profiel en prof_locs are merged
@@ -780,10 +779,12 @@ write.table(locs_veg, paste0(workspace,"/hulp_tabellen/locs_veg_instanceidcheck.
 ## 5.2 import vegetatiesoortdata ------------------------------------------------
 library(readxl)
 veg_srt <- read_xlsx(paste0(inputdir,'/vegetatieopnames_vera_odk.xlsx'))
+setDT(veg_srt)
+veg_srt[SlootID == 'AD_3_WP1_Z' & jaar == 2025, SlootID := 'AD_3_WP1_Z'] # fout in naamgeving
+veg_srt[SlootID == 'OK_4_WP1' & jaar == 2025, SlootID := 'OK_4_WP1_N'] # fout in naamgeving
 check_db <- locaties[!SlootID %in% unique(veg_srt$SlootID),]
 biotaxon <- read_xlsx(paste0(workspace,'/hulp_tabellen/veest_unieke_soorten_Groeivormen toegevoegd.xlsx'))
 veg_srt<- merge(veg_srt, biotaxon, by = 'wetnaam', all.x = TRUE, suffixes = c('','_biotaxon'))
-setDT(veg_srt)
 ### 5.2.1 unieke soorten per monster ------------------------------------------------
 veg_srt[, Submerse_groeivorm := as.numeric(Submerse_groeivorm)]
 veg_sub_srt <- unique(veg_srt[Submerse_groeivorm > 20, c('wetnaam','nednaam')])
@@ -792,7 +793,7 @@ veg_nsoorten_sub <- dcast(veg_srt[Submerse_groeivorm > 20,], SlootID+jaar~zone, 
 veg_nsoorten_oev <- dcast(veg_srt[Emerse_groeivorm > 20,], SlootID+jaar~zone, value.var = 'wetnaam', fun.aggregate = uniqueN)
 veg_nsoorten_oev[`2` == 0, `2`:= `2a`+`2b`]
 veg_nsoorten <- merge(veg_nsoorten_sub[,c('SlootID','jaar','1')], veg_nsoorten_oev[,c('SlootID','jaar','2','2a','2b')], by = c('SlootID','jaar'), all = TRUE)
-
+setnames(veg_nsoorten, c('1','2','2a','2b'), c('n_soorten_sub_zone1','n_soorten_oev_zone2','n_soorten_oev_zone2a','n_soorten_oev_zone2b'))
 # 6. Waterbodemdata en waterkwaliteit---------------------------------------------------
 ## Bware 2024
 inputdir <- paste0(workspace,"./Bodemanalyses/data VeeST_data_2024_aangepast_27-02-2025.csv")
@@ -805,7 +806,7 @@ inputdir <- paste0(workspace,"./Bodemanalyses/Data VEEST 2025_2.csv")
 watbod_25 <- fread(inputdir, dec = '.', na.strings = c(-999,'Niet gedaan','niet gedaan','foutmeting'), encoding = "Latin-1")
 watbod_25[, datum := as.POSIXct(datum, format = "%d-%m-%Y")]
 watbod_25 <- watbod_25[,jaar:= year(datum)]
-watbod_25<- watbod_25[!is.na(SlootID) & !is.na(`Fe_mmol/kg DW_SB`) & !is.na(`P_mmol/kg DW_SB`), ]
+watbod_25 <- watbod_25[!is.na(SlootID) & !is.na(`Fe_mmol/kg DW_SB`) & !is.na(`P_mmol/kg DW_SB`), ]
 # merge 2024 and 2025 data
 watbod <- rbind(watbod, watbod_25, fill = TRUE)
 # watbod[is.na(Waterkwaliteitmonster), Waterkwaliteitmonster := waterkwaliteitsmonster]
@@ -816,8 +817,10 @@ watbod[, feP_DW_SB := `Fe_mmol/kg DW_SB`/`P_mmol/kg DW_SB`]
 watbod[, feS_DW_SB := `Fe_mmol/kg DW_SB`/`S_mmol/kg DW_SB`]
 watbod[, feP_PW := `Fe_µmol/l_PW`/`P_µmol/l_PW`]
 watbod[, feS_PW := `Fe_µmol/l_PW`/`S_µmol/l_PW`]
-watbod[,jaar:= year(datum)]
-
+watbod[, jaar:= year(datum)]
+watbod_proj <- watbod[SlootID %in% c('RH_4_R_N','RH_4_M-AF_N'), ]
+watbod_proj[, SlootID := gsub("_N$", "_Z", SlootID)]
+watbod <- rbind(watbod, watbod_proj, fill = TRUE)
 ## ArgoCares 2024
 inputdir <- paste0(workspace,"./Bodemanalyses/AgroCares_CustomPackage_Slib_1922.N.23_27-02-2025 COMPLETE.xlsx")
 tabbladen <- excel_sheets(inputdir)

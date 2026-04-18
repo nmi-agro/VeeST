@@ -194,8 +194,6 @@ target_names_dutch <- c(
 ## Preparation------------------------------------------------
 library(xgboost)
 # alle parameters naar nummeriek
-abio_proj <- abio_proj[MeenemenDataAnalyse_totaal == 'ja',]
-abio_proj <- abio_proj[!(jaar == 2025 & WP == 'WP2'),] # remove 2025 WP2
 # Create correlation matrix and p-value matrix with the SAME variables
 abio_proj[,trofie := as.numeric(trofie)]
 abio_proj[,draagkracht_perceel := as.numeric(draagkracht_perceel)]
@@ -648,7 +646,6 @@ create_combined_ale_plots <- function() {
 }
 cat("Creating combined ALE + data plots...\n")
 combined_ale_plots <- create_combined_ale_plots()
-
 # Display en save de plots
 for(var in names(combined_ale_plots)) {
   var_name_dutch <- nederlandse_namen[var]
@@ -1053,6 +1050,7 @@ for(var_name in names(redox_ale_plots)) {
 }
 
 cat("Alle individuele redox ALE plots opgeslagen!\n")
+
 
 ## Functie voor XGBoost model diagnostiek en validatie ------------------------------------------
 # Functie voor XGBoost model diagnostiek
