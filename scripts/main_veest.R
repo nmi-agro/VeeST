@@ -1,4 +1,5 @@
 # 1. Load packages -----------------------------------------------------------
+
 library(data.table)
 library(sf)
 library(R.utils)
@@ -51,6 +52,16 @@ check_db <- locaties[!SlootID %in% unique(veg$SlootID),]
 ## vegetatie aantal soorten------------------
 veg_nsoorten[, jaar := as.integer(jaar)]
 abio_proj <- merge(abio_proj, veg_nsoorten, by = c('SlootID','jaar'), all.x = T, suffixes = c('','_vegsrt'))
+## vegetatie ekr en oeverindex------------------
+# dit gaat niet goed nog
+veg_ekr[, jaar := as.integer(sub(".*-(\\d{4})$", "\\1", Begindatum))]
+veg_ekr[, jaar := as.integer(format(as.Date(Begindatum, "%d-%m-%Y"), "%Y"))]
+abio_proj <- merge(abio_proj, veg_ekr[,-c('Meetpunt','Begindatum','Eindatum','SlootID_veg_srt')], by.x = c('SlootID','jaar'), by.y = c('SlootID','jaar'), all.x = T, suffixes = c('','_veg_ekr'))
+# merge met soorten om meetjaar toe te voegen aan oeverindex
+veg_oeverindex <- as.data.table(veg_oeverindex)
+veg_oeverindex <- merge(veg_oeverindex, unique(veg_srt[, c('SlootID', 'BronID', 'jaar')]), by = c('BronID'), all.x = T, suffixes = c('','_veg_srt'))
+veg_oeverindex[, c('...12', 'SlootID_veg_srt', 'jaar_veg_srt') := NULL]
+abio_proj <- merge(abio_proj, unique(veg_oeverindex, by = c('SlootID', 'jaar')), by = c('SlootID','jaar'), all.x = T, suffixes = c('','_oeverindex'))
 ## clusters en locatiedata ---------------
 #!!! check slootID jaar combinatie uniek (is nu niet het geval in clusters_locs)
 abio_proj <- merge(abio_proj, clusters_locs[,-c('geom')], by = c('SlootID','jaar'), all.x = T, suffixes = c('','_clust'))
@@ -93,6 +104,12 @@ abio_proj[text == "Hoogheemraadschap van Rijnland",waterschap := 'Rijnland']
 abio_proj[text == "Wetterskip Fryslân",waterschap := 'Fryslân']
 abio_proj[text == "Waterschap Drents Overijsselse Delta",waterschap := 'WDOD']
 abio_proj[text == "Hoogheemraadschap van Schieland en de Krimpenerwaard",waterschap := 'HHSK']
+abio_proj[text == "Waterschap Vallei en Veluwe",waterschap := 'WVV']
+abio_proj[text == "Waterschap Zuiderzeeland",waterschap := 'ZZL']
+abio_proj[text == "Hoogheemraadschap van Delfland",waterschap := 'HDL']
+abio_proj[gebied == 'EEM',waterschap := 'WVV']
+abio_proj[gebied == 'BD',waterschap := 'Fryslân']
+
 # veentype
 abio_proj[grepl('b$',BODEMCODE), veentype:= 'broekveen']
 abio_proj[grepl('k$',BODEMCODE), veentype:= 'kleiig veen']
@@ -111,7 +128,7 @@ abio_proj[grepl('M-AF', Behandeling),beheer := 'minimaal + afrastering']
 abio_proj[grepl('R-AF', Behandeling),beheer := 'regulier + afrastering']
 abio_proj[grepl('AF', Behandeling),beheer := 'afrastering']
 abio_proj[grepl('NVO', Behandeling), beheer := 'NVO']
- ## adjust colnames----------------------------------
+## adjust colnames----------------------------------
 #  abio_proj[,Sloot_nr := Sloot_nr.x]
 
 
@@ -187,6 +204,8 @@ abio_proj[, Cl_mg_l_OW := `Cl_µmol/l_OW` * 35.45 / 1000]
 abio_proj[, Cl_mg_l_PW := `Cl_µmol/l_PW` * 35.45 / 1000]
 ## reformat data for plot loop-------------------------
 cols_num <- colnames(abio_proj)[sapply(abio_proj, is.numeric)]
+dup_cols <- names(abio_proj)[duplicated(names(abio_proj))]
+if (length(dup_cols) > 0) abio_proj[, (dup_cols) := NULL]
 
 melt <- melt(setDT(abio_proj), id.vars = c("SlootID","Sloot_nr","WP","instanceID_abio","instanceID_veg","Gebiedsnaam","MeenemenDataAnalyse_totaal","gebied","sloot","Behandeling","beheer","jaar"), 
              measure.vars = cols_num, na.rm = TRUE)
@@ -253,7 +272,6 @@ melt[is.na(WP) | WP == "", .N, by = .(Gebiedsnaam, jaar)]
 abio_proj[is.na(WP) | WP == "", .N, by = .(Gebiedsnaam, jaar)]
 
 # Visualisaties ---------------------------------------------------------
-## figs tussenrapportage plots -------------------
 ### Kleuren voor veentypen (Okabe-Ito palette)-------------------------------------------
 okabe_ito_colors <- c(
   "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999",
@@ -276,8 +294,8 @@ melt <- melt[WP %in% c('WP1','WP2'),]
 abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
 
 ### Filter data voor ronde hoep----------------------------------------------------
-melt <- melt[Gebiedsnaam == "Ronde Hoep",]
-abio_proj <- abio_proj[Gebiedsnaam == "Ronde Hoep",]
+# melt <- melt[Gebiedsnaam == "Ronde Hoep",]
+# abio_proj <- abio_proj[Gebiedsnaam == "Ronde Hoep",]
 # add clusters
 abio_proj[, sloot_cluster := fcase(
   Sloot_nr == 1,        "1",
@@ -313,152 +331,8 @@ abio_proj[, SlootID := factor(SlootID, levels = mixedsort(unique(SlootID)))]
 # Natural sort van SlootID in melt
 melt[, SlootID := factor(SlootID, levels = mixedsort(unique(SlootID)))]
 
-### Correlatie matrix abiotische parameters----------------
-# Select the variables for correlation analysis
-cols_corr <- c("drglg", "max_wtd", "doorzicht2_mid_cm", "max_slib", "watbte",
-               "oeverzone_2a_breedte_cm", "oeverzone_2b_breedte_cm", 
-               "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc",
-              "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar","Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag")  # voorbeeldparameters, pas aan op basis van beschikbaarheid
-nederlandse_namen <- c(
-  "Drooglegging (m)",
-  "Maximale waterdiepte (m)", 
-  "Doorzicht (cm)",
-  "Maximale slibdikte (m)",
-  "Waterbreedte (m)",
-  "Breedte oeverzone 2a (cm)",
-  "Breedte oeverzone 2b (cm)",
-  "Onderholling (cm)",
-  "Taludhoek waterlijn (%)",
-  "Taludhoek oever (%)",
-  "Baggerfrequentie per jaar",
-  "Maaifrequentie oever per jaar",
-  "Aantal koedagen per jaar",
-  "Aantal koeien per perceel per dag"
-)
-# toevoeging oeverbreedte en veentype
-cols_corr <- c("drglg", "watbte","oevbte",
-               "oeverzone_2a_breedte_cm", "oeverzone_2b_breedte_cm", 
-               "holleoever", "veentype_num", "Z_CLAY_SA_OR_50","draagkracht_oever","draagkracht_perceel",
-               "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar","Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag")  # voorbeeldparameters, pas aan op basis van beschikbaarheid)  # nieuwe parameters toegevoegd
-nederlandse_namen <- c(
-  "Drooglegging (m)",
-  "Waterbreedte (m)",
-  "Oeverbreedte (m)",
-  "Breedte oevervegetatiezone 2a (cm)",
-  "Breedte oevervegetatiezone 2b (cm)",
-  "Onderholling (cm)",
-  "Veentype",
-  "Kleigehalte veen (%)",
-  "Draagkracht oever (mPa)",
-  "Draagkracht perceel (mPa)",
-  "Baggerfrequentie per jaar",
-  "Maaifrequentie oever per jaar",
-  "Aantal koedagen per jaar",
-  "Aantal koeien per perceel per dag"
-)
-# alle xgboost parameters
-cols_corr <- c("waterzone_1_subm_tot_perc","2","draagkracht_oever", 
-                 "slib_redox_pH7","max_slib",
-                 "drglg", "max_wtd", "zichtdiepte", "max_slib", "watbte","oeverzone_2b_breedte_cm", "oeverzone_2b_kaal_perc",
-                 "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc", "slib_redox_pH7","slib_pH",
-                 "oevbte", "Z_CLAY_SA_OR_50",
-                 "draagkracht_oever", "draagkracht_perceel", "water_pH", "NH4_µmol/l_PW","P-AL mg p2o5/100g_SB",
-                "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar","Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag")
-# Create readable Dutch names mapping
-nederlandse_namen <- c(
-  "waterzone_1_subm_tot_perc" = "Bedekking submerse vegetatie in water (%)",
-  "2" = "Aantal oeversoorten",
-  "draagkracht_oever" = "Draagkracht oever (MPa)",
-  "slib_redox_pH7" = "Redox slib bij pH7 (mV)",
-  "max_slib" = "Slibdikte (m)",
-  "drglg" = "Drooglegging (m)",
-  "max_wtd" = "Maximale waterdiepte (m)", 
-  "zichtdiepte" = "Doorzicht/waterdiepte",
-  "max_slib" = "Maximale slibdikte (m)",
-  "watbte" = "Waterbreedte (m)",
-  "oeverzone_2b_breedte_cm" = "Breedte oevervegetatiezone 2b (cm)",
-  "oeverzone_2b_kaal_perc" = "Bedekking kale oever zone 2b (%)",
-  "holleoever" = "Onderholling (cm)",
-  "tldk_wtrwtr_perc" = "Taludhoek waterlijn (%)",
-  "tldk_oevrwtr_perc" = "Taludhoek oever (%)",
-  "slib_redox_pH7" = "Redox slib bij pH7 (mV)",
-  "slib_pH" = "pH slib",
-  "oevbte" = "Oeverbreedte (m)",
-  "veentype_num" = "Veentype (numeriek)",
-  "Z_CLAY_SA_OR_50" = "Kleigehalte 50cm (%)",
-  "draagkracht_oever" = "Draagkracht oever (MPa)",
-  "draagkracht_perceel" = "Draagkracht perceel (MPa)",
-  "water_pH" = "Water pH",
-  "NH4_µmol/l_PW" = "Ammonium (µmol/l)",
-  "P-AL mg p2o5/100g_SB" = "P-AL slib (mg P2O5/100g)",
-   "Baggerfrequentie_per_jaar" = "Baggerfrequentie per jaar",
-   "Maaifrequentie_oever_per_jaar"= "Maaifrequentie oever per jaar",
-   "Aantal_Koedagen_per_jaar"= "Aantal koedagen per jaar",
-   "Aantal_koeien_vee_perceel_dag"= "Aantal koeien per perceel per dag")  
-
-# Check which variables actually exist in the dataset
-available_cols <- cols_corr[cols_corr %in% colnames(abio_proj)]
-print("Available variables:")
-print(available_cols)
-
-# Create correlation matrix and p-value matrix with the SAME variables
-abio_proj[,trofie := as.numeric(trofie)]
-abio_proj[,draagkracht_perceel := as.numeric(draagkracht_perceel)]
-
-# Handle non-numeric columns
-abio_proj[Maaifrequentie_oever_per_jaar %in% c('0,5'), Maaifrequentie_oever_per_jaar := 0.5]
-abio_proj[is.na(Maaifrequentie_oever_per_jaar), Maaifrequentie_oever_per_jaar := 0]
-abio_proj[,Maaifrequentie_oever_per_jaar := as.numeric(Maaifrequentie_oever_per_jaar)]
-abio_proj[,Baggerfrequentie_per_jaar := as.numeric(Baggerfrequentie_per_jaar)]
-abio_proj[is.na(Baggerfrequentie_per_jaar), Baggerfrequentie_per_jaar := 0]
-abio_proj[, Aantal_koeien_vee_perceel_dag := as.numeric(Aantal_koeien_vee_perceel_dag)]
-
-# Create correlation matrix with available columns only
-cormatrix <- abio_proj[, available_cols, with = FALSE]
-cormatrix <- na.omit(cormatrix)
-# Zorg dat alle kolommen numeric zijn
-cormatrix <- cormatrix[, lapply(.SD, as.numeric)]
-is_bad <- function(x) all(is.na(x)) || all(is.infinite(x)) || sd(x, na.rm = TRUE) == 0
-good_cols <- !apply(cormatrix, 2, is_bad)
-cormatrix_clean <- cormatrix[, good_cols, with = FALSE]
-
-M <- cor(cormatrix_clean, use = "complete.obs")
-rownames(M) <- colnames(cormatrix_clean)
-colnames(M) <- colnames(cormatrix_clean)
-# Create both matrices with the same data
-M <- cor(cormatrix)
-p.mat <- cor_pmat(cormatrix, use = "complete.obs")
-
-# Apply Dutch names to the same matrix
-rownames(M) <- colnames(cormatrix)
-colnames(M) <- colnames(cormatrix)
-# Nu kunt u de namen vervangen
-rownames(M) <- nederlandse_namen[rownames(M)]
-colnames(M) <- nederlandse_namen[colnames(M)]
-
-# Now use M (not M_clean) with matching p.mat
-ggcorrplot(M, 
-           type = "lower",
-           hc.order = TRUE,
-           outline.color = "white",
-           colors = c("#D55E00", "#FFFFFF", "#0072B2"),
-           lab = TRUE,
-           lab_size = 4,
-           digits = 1,
-           tl.cex = 12,
-           title = "Correlatiematrix: Slootprofiel en vegetatiezones",
-           p.mat = p.mat,
-           insig = "blank",
-          show.diag = TRUE,
-          legend.title = "") +
-  theme(
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-    axis.text = element_text(size = 12),
-    legend.text = element_text(size = 12)
-  )+
-  labs(legend.title ='')
-
-
+## 5.1 figs tussenrapportage plots -------------------
+abio_proj <- abio_proj[MeenemenDataAnalyse_totaal == 'ja',]
 ### Slootprofiel (drooglegging, waterdiepte midden sloot en langs de oever, slibdikte, doorzicht, breedte zones, talud oevers, onderholling)--------------------------
 ##### Plot relatie breedtes vegetatie en profiel ---------------------------
 # geom_jitter(data = abio_proj, aes(x = watbte, max_wtd, drglg, oeverzone_2a_breedte_cm)) 
@@ -546,16 +420,16 @@ median_slibdiepte <- median(abio_proj$slibdiepte, na.rm = TRUE)
 median_max_wtd <- median(abio_proj$max_wtd, na.rm = TRUE)  
 median_doorzicht <- median(abio_proj$doorzicht2_mid_m, na.rm = TRUE)
 median_slib <- median(abio_proj$max_slib, na.rm = TRUE)
-abio_proj_view <- abio_proj[, c('SlootID','slibdiepte','max_slib','max_wtd','doorzicht2_mid_m','waterzone_1_subm_tot_perc')]
-abio_proj_cast <- dcast(abio_proj, Gebiedsnaam ~ ., value.var = c('slibdiepte','max_slib','max_wtd','doorzicht2_mid_m','waterzone_1_subm_tot_perc'), fun.aggregate = mean, na.rm=TRUE)
+abio_proj_view <- abio_proj[, c('SlootID','slibdiepte','max_slib','max_wtd','doorzicht2_mid_m','zichtdiepte','waterzone_1_subm_tot_perc')]
+abio_proj_cast <- dcast(abio_proj, Gebiedsnaam+waterschap ~ ., value.var = c('slibdiepte','max_slib','max_wtd','doorzicht2_mid_m','waterzone_1_subm_tot_perc'), fun.aggregate = mean, na.rm=TRUE)
 abio_proj_cast[,zichtdiepte:= doorzicht2_mid_m/max_wtd]
-pairs(abio_proj_cast[,c('slibdiepte','max_wtd','doorzicht2_mid_m','zichtdiepte')])
+pairs(abio_proj_cast[,c('slibdiepte','max_wtd','doorzicht2_mid_m','zichtdiepte')], col = as.integer(factor(abio_proj_cast$Gebiedsnaam)), pch = 16)
  
 # Sorteer de data op slibdiepte en zet Gebiedsnaam om naar een factor met de juiste volgorde
 plot_data <- abio_proj_cast[!is.na(Gebiedsnaam), ]
 plot_data <- plot_data[order(slibdiepte)]
 plot_data[, Gebiedsnaam := factor(Gebiedsnaam, levels = unique(Gebiedsnaam))]
- 
+
 ggplot(data = plot_data) +
     geom_col(aes(x= Gebiedsnaam, y = -1*slibdiepte, fill = 'slibdikte (m)'),alpha = 0.7) +
     geom_col(aes(x= Gebiedsnaam, y = -1*max_wtd, fill = 'maximale waterdiepte (m)'),alpha = 0.8) +
@@ -565,7 +439,8 @@ ggplot(data = plot_data) +
     geom_hline(yintercept = -1*median_max_wtd, color = "skyblue", linetype = "dashed", size = 1) +
     geom_hline(yintercept = -1*median_doorzicht, color = "darkblue", linetype = "dashed", size = 1) +
     scale_fill_manual(values = c("darkblue","skyblue","brown"), na.value = "#A6761D")+
-    # facet_grid(.~ jaar, space = 'free_x', scales = 'free_x', switch = 'x')+
+    facet_grid(. ~ waterschap, space = 'free_x', scales = 'free_x', switch = 'x',
+               labeller = labeller(waterschap = label_wrap_gen(width = 15)))+
     theme_minimal(base_size = 15)+
     theme(
       strip.background = element_blank(),
@@ -658,6 +533,35 @@ print(p1)
 ggsave(file=paste0('output/AlleGebieden/Tussenrapportage/slibdrooglegging_relatie.png'), width = 25,height = 15,units='cm',dpi=800)
 
 
+#### relatie waterdiepte en redox slib bij pH7 ---------------------------
+# R² berekenen voor waterzone vs waterbreedte (in meters)
+r2_waterzone_watbte <- get_r_squared(abio_proj[!is.na(max_wtd) & !is.na(slib_redox_pH7)], 
+                                     "max_wtd", "slib_redox_pH7")
+p1 <- ggplot()+
+  geom_jitter(data=abio_proj[!is.na(max_wtd) & !is.na(slib_redox_pH7),],
+              aes(y=slib_redox_pH7, x=max_wtd), alpha=0.3, size=2)+
+  geom_smooth(data=abio_proj[!is.na(max_wtd) & !is.na(slib_redox_pH7),],
+              aes(y=slib_redox_pH7, x=max_wtd), method='lm', color='#1B9E77', size=1.5)+
+  # R² annotatie  
+  annotate("text", x=Inf, y=Inf, 
+           label=paste0("R² = ", round(r2_waterzone_watbte, 3)), 
+           hjust=1.1, vjust=1.5, size=4, fontface="bold") +
+  theme_minimal(base_size = 15) +
+  theme(
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = 'black'),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    panel.background = element_blank(),
+    panel.border = element_rect(colour = 'black', fill = NA),
+    plot.background = element_blank()
+  ) +
+  ggtitle('Relatie waterdiepte en redox slib bij pH7') +
+  labs(y = 'Redox slib bij pH7 (mV)', x = 'Maximale waterdiepte (m)')
+# Toon de gecombineerde plot
+print(p1)
 ### Bodemopbouw (type veen, bodemstructuur en diepte veraarding)-------------------
 #### Plot van dikte veraarde toplaag-------------------------------
 # Bereken gemiddelde drooglegging per gebied voor de bars
@@ -2424,6 +2328,7 @@ ggplot(clay_long[!is.na(value)],
 
 ### Samenstelling water-----------------------
 #### pH ------------------------------
+
 # Data voorbereiden - filter alle pH data inclusief poriewater
 ph_data <- abio_proj[!is.na(`pH_CC_OR_25`) | !is.na(`pH_CC_OR_50`) | !is.na(`pH_CC_SB`) | !is.na(`pH_PW`)]
 # Herstructureer de data voor alle pH metingen met correctie voor pH CC
@@ -4377,10 +4282,12 @@ print(combined_p_plot)
 
 # Bereken P-nalevering met beide formules
 abio_proj[, `:=`(
-  # Formule 1: y = 0.00004807x^2 + 0.03344949x (waar x = P-AL in mg P2O5/100g)
   P_nalevering_formule1 = 0.00004807 * (`P_µmol/l_PW`)^2 + 0.03344949 * (`P_µmol/l_PW`),
-  # Formule 2: y = 0.00012907x^2 + 0.58280442(waar x = P-AL in mg P2O5/100g)  
-  P_nalevering_formule2 = 0.00012907 * (`P_µmol/l_PW`)^2 + 0.00055877 * (`P_µmol/l_PW`),
+  P_nalevering_formule2 = fifelse(
+    feP_PW < 3,
+    0.00012907 * (`P_µmol/l_PW`)^2 + 0.00055877 * (`P_µmol/l_PW`),
+    -0.00002   * (`P_µmol/l_PW`)^2 + 0.004       * (`P_µmol/l_PW`)
+  ),
   P_nalevering_baggernut = 0.80951 * `P_mg_l_PW` - 0.2905
 )]
 # Categoriseer zuurstofgehalte water
@@ -6160,7 +6067,9 @@ ggplot(data = profiel_wide, aes(x= tldk_vastbodem_perc, y=drglg ))+
   labs(x= "drooglegging (cm)",y="taludhoek onderkant slib (%)")
 
 ### loop profielplaatjes ------------------
-profiel <- merge(profiel, locaties, by = c("SlootID","jaar"), all.x = TRUE)
+setDT(locaties)
+profiel <- merge(profiel, unique(locaties[,c("SlootID","jaar","gebied","Gebiedsnaam")]), by = c("SlootID","jaar"), all.x = TRUE)
+profiel1 <- profiel[gebied =='RH',] #werkt niet omdat SlootID en gebied alleen is gekoppeld aan de bemonsterd oever
 for(i in unique(profiel$ID)){
   setDT(profiel)
   visualise_profiel(profiel[ID == i,])
@@ -6324,186 +6233,6 @@ ggplot() +
   )+
   ggtitle("Relatie veensloottypen en gemeten veensloottypen") +
   labs(x= "organisch stof obv BodemSchat",y="organisch stof obv meting")
-
-## 5.4 plot relaties database --------------------
-### pairs ---------------------------
-pairs(abio_proj[,c("holleoever","water_conductiviteit_uS_cm","water_redox","water_pH","max_slib","max_wtd","slib_pH","oever_[0,10]" ,"oever_(30,40]" ) ,with=FALSE])
-pairs(abio_proj[,c("holleoever","water_pH","max_slib","max_wtd","oever_(30,40]", "slib_redox_mgL"),with=FALSE], col = abio_proj$clusters_clustber)
-pairs(abio_proj[,c("holleoever","oever_(30,40]","Oeverzone_2b_emers_perc","max_slib","max_wtd","Waterzone_1_subm_tot_perc"),with=FALSE], col = abio_proj$clusters_clustber)
-pairs(abio_proj[,c("drglg","Oeverzone_2b_breedte_cm","Oeverzone_2a_breedte_cm"),with=FALSE], col = abio_proj$clusters_clustber)
-pairs(abio_proj[,c("holleoever","drglg","slib_redox_mgL","water_pH","max_wtd") ,with=FALSE])
-
-# slib en redox, onderholling en waterdiepte
-qplot(slib_redox_mgL, Waterzone_1_subm_tot_perc, data = abio_proj)
-
-### correlation plot--------------------
-library(corrplot)
-cols_num <- colnames(abio_proj)[sapply(abio_proj, is.numeric)]
-cols_num <-cols_num[10:100]
-cols_num <- c("watertemp_C","water_conductiviteit_uS_cm","water_redox","water_pH","water_O2_mgL","doorzicht2_mid_cm",
-              "slib_conductiviteit_uS_cm","slib_pH","slib_O2_mgL","slib_redox_mgL",
-              "max_slib" ,"max_wtd","watbte","drglg",
-              "tldk_wtrwtr_perc","tldk_oevrwtr_perc","tldk_vastbodem_perc",
-              "oever_[0,10]","oever_(10,20]" ,"oever_(20,30]","oever_(30,40]","oever_(40,50]",
-              "perceel_[0,10]","perceel_(10,20]","perceel_(20,30]","perceel_(30,40]",
-              "Waterzone_1_breedte_cm", "Oeverzone_2a_breedte_cm","Oeverzone_2b_breedte_cm","Terzone_3_breedte_cm",
-              "Waterzone_1_kaal_perc","Waterzone_1_subm_tot_perc", "Waterzone_1_natans_perc","Waterzone_1_kroos_perc",
-              "Oeverzone_2a_kaal_perc","Oeverzone_2a_subm_tot_perc" ,"Oeverzone_2a_natans_perc","Oeverzone_2a_emers_perc","Oeverzone_2a_ter_gras_kruid_perc", 
-              "Oeverzone_2b_kaal_perc","Oeverzone_2b_emers_perc","Oeverzone_2b_ter_gras_kruid_perc", 
-              "Terzone_3_kaal_perc", "Terzone_3_ter_gras_kruid_perc","Terzone_3_emers_perc"       
-              )
-cols_num <- c("doorzicht2_mid_cm",
-              "slib_redox_mgL",
-              "max_slib" ,"max_wtd","watbte","drglg",
-              "oever_[0,10]","oever_(10,20]" ,"oever_(30,40]","oever_(40,50]",
-              "perceel_[0,10]","perceel_(10,20]","perceel_(30,40]",
-              "Oeverzone_2a_breedte_cm","Oeverzone_2b_breedte_cm","Terzone_3_breedte_cm",
-              "Waterzone_1_subm_tot_perc", "Waterzone_1_kroos_perc",
-              "Oeverzone_2a_kaal_perc","Oeverzone_2a_emers_perc","Oeverzone_2a_ter_gras_kruid_perc", 
-              "Oeverzone_2b_kaal_perc","Oeverzone_2b_emers_perc","Oeverzone_2b_ter_gras_kruid_perc", 
-              "Terzone_3_kaal_perc", "Terzone_3_ter_gras_kruid_perc","Terzone_3_emers_perc"       
-)
-M <-cor(abio_proj[,cols_num,with=FALSE],use = "complete.obs")
-corrplot(M, type="full", order="hclust",
-         col=brewer.pal(n=8, name="RdYlBu"), tl.col = "black",tl.cex =0.8)
-
-### specifieke relaties-------------------------------
-# poriewater P en kroos
-p <- ggplot(data = abio_proj, aes(x= `P_µmol/l_PW` , y= Waterzone_1_kroos_perc))+
-  geom_jitter(aes(col= gebied, text = SlootID))+
-  geom_smooth(method="gam") +
-  # stat_regline_equation(label.x=200, label.y=470)+
-  stat_cor(aes(label=after_stat(rr.label)), label.x=200, label.y=20)+
-  # ylim(0,150)+
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 10, angle = 90),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("profiel") +
-  labs(x= "P poriewater (µmol/l)",y="kroos (%)")
-ggplotly(p, tooltip = c('text'))
-
-# poriewater P en algen
-p <- ggplot(data = abio_proj, aes(x= `P_µmol/l_PW` , y= `Chl-a totaal_ug/l_OW`))+
-  geom_jitter(aes(col= gebied, text = SlootID))+
-  geom_smooth(method="gam") +
-  # stat_regline_equation(label.x=200, label.y=470)+
-  stat_cor(aes(label=after_stat(rr.label)), label.x=200, label.y=100)+
-  ylim(0,150)+
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 10, angle = 90),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("profiel") +
-  labs(x= "P poriewater (µmol/l)",y="algen (µmol/l)")
-ggplotly(p, tooltip = c('text'))
-
-# poriewater P en redox
-p <- ggplot(data = abio_proj, aes(x= `P_µmol/l_PW` , y= slib_redox_mgL))+
-  geom_jitter(aes(col= gebied, text = SlootID))+
-  geom_smooth(method="gam") +
-  # stat_regline_equation(label.x=200, label.y=470)+
-  stat_cor(aes(label=after_stat(rr.label)), label.x=200, label.y=20)+
-  # ylim(0,150)+
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 10, angle = 90),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("profiel") +
-  labs(x= "P poriewater (µmol/l)",y="redox")
-ggplotly(p, tooltip = c('text'))
-
-#waterdiepte drooglegging
-ggplot() +
-  geom_jitter(data = abio_proj[max_wtd < 0.8,], aes(x = max_wtd, y = drglg, col = clusters)) + 
-  geom_smooth(data = abio_proj[max_wtd < 0.8,], aes(x = max_wtd, y = drglg)) +
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 12),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("Relatie waterdiepte - drooglegging") +
-  labs(x= "waterdiepte (m)",y="drooglegging (m)")
-ggsave(file=paste0('output/clusters/watdte_drglg.png'),width = 15,height = 15,units='cm',dpi=1000)
-
-# drooglegging 
-# breedte oever watbte, max diepte max_wtd
-# breedte aquatische oever (cm) Oeverzone_2a_breedte_cm
-# tldk_vastbodem_perc tldk_oevrwtr_perc
-p <- ggplot(data = abio_proj, aes(x= drglg , y= max_wtd))+
-  geom_jitter(aes(col= gebied, text = SlootID))+
-  geom_smooth(method="gam") +
-  # stat_regline_equation(label.x=200, label.y=470)+
-  stat_cor(aes(label=after_stat(rr.label)), label.x=0.5, label.y=0.5)+
-  # ylim(0,150)+
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 10, angle = 90),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("profiel") +
-  labs(x= "drooglegging (m)",y="waterdiepte (m)")
-ggplotly(p, tooltip = c('text'))
-
-p <- ggplot(data = abio_proj, aes(x= drglg , y= holleoever))+
-  geom_jitter(aes(col= gebied, text = SlootID))+
-  geom_smooth(method="gam") +
-  # stat_regline_equation(label.x=200, label.y=470)+
-  stat_cor(aes(label=after_stat(rr.label)), label.x=0.5, label.y=0.5)+
-  # ylim(0,150)+
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=10), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 10, angle = 90),
-    axis.text.y = element_text(size= 12),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =12, face="bold", hjust = 0.5),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("profiel") +
-  labs(x= "drooglegging (m)",y="onderholling (m)")
-ggplotly(p, tooltip = c('text'))
 
 ## 5.4a abio per gebied en per parameter -----------------------
 # fingerprint per par, eenheid en methode alle gebieden
@@ -6905,6 +6634,7 @@ for(i in unique(melt$gebied)){
     ggtitle(paste0("Doorzicht, waterdiepte & slibdikte")) +
     labs(x= 'Slootnummer' , y= 'meter')
   
+  dir.create(paste0('output/', i, '/abiotiek'), recursive = TRUE, showWarnings = FALSE)
   ggsave(file=paste0('output/',i,'/abiotiek/',i, '_watdte_zicht','.png'), width = 25,height = 15,units='cm',dpi=800)
   
   ## redox------------------------
@@ -6921,36 +6651,38 @@ for(i in unique(melt$gebied)){
   
   legend_colors <- setNames(c("red", "darkorange","orange", "yellow","blue"), rects$label)
  
-  ggplot() +
-    geom_col(data = melt_sel[variable %in% c("slib_redox_mgL"),], aes(x= Sloot_nr, y = value, fill = beheer), position = "dodge") +
-    geom_point(data = melt_sel[variable %in% c("slib_redox_mgL"),], aes(x= Sloot_nr, y = `gemiddelde VeeST`, col = '* gemiddelde VeeST'),
+  
+melt_sel$variable
+ggplot(data = melt_sel[variable %in% c("slib_redox_ph7"),]) +
+    geom_col(aes(x = Sloot_nr, y = value, fill = beheer), position = "dodge") +
+    geom_point(aes(x = Sloot_nr, y = `gemiddelde VeeST`, col = '* gemiddelde VeeST'),
                shape = 95, size = 10) +
-    scale_fill_manual(values =c("#1B9E77","#7570B3","#E6AB02","#D95F02","#E7298A"))+
-    scale_colour_manual(values =c('grey2'))+
-    new_scale_fill()+
-    geom_rect(data= rects, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill), 
+    scale_fill_manual(values = c("#1B9E77","#7570B3","#E6AB02","#D95F02","#E7298A")) +
+    scale_colour_manual(values = c('grey2')) +
+    new_scale_fill() +
+    geom_rect(data = rects_gebiedsnaam, 
+              aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill),
               inherit.aes = FALSE, alpha = 0.15) +
-    scale_fill_identity('Redoxtoestand:',breaks = legend_colors, labels = c("methonogenese", "sulfaatreductie","ijzeroxidereductie","nitraatreductie","oxisch"), guide = guide_legend(override.aes = list(alpha = 0.15)))+
-    facet_grid(. ~ Gebiedsnaam, space = 'free_x', scales = 'free_x', switch = 'x')+
-    theme_minimal(base_size = 15)+
+    scale_fill_identity('Redoxtoestand:', breaks = legend_colors,
+                        labels = c("methonogenese","sulfaatreductie","ijzeroxidereductie","nitraatreductie","oxisch"),
+                        guide = guide_legend(override.aes = list(alpha = 0.15))) +
+    facet_grid(. ~ Gebiedsnaam, space = 'free_x', scales = 'free_x', switch = 'x') +
+    theme_minimal(base_size = 15) +
     theme(
       strip.background = element_blank(),
-      strip.text.y = element_text(size = 12),
       axis.text.x = element_text(size = 14, vjust = 0.5, hjust = 1, angle = 90),
       axis.text.y = element_text(size = 14),
-      axis.title = element_text(size = 14),
       axis.ticks = element_line(colour = "black"),
       axis.line = element_line(colour = 'black'),
       plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
       panel.background = element_blank(),
       panel.border = element_rect(colour = 'black', fill = NA),
-      plot.background = element_blank(),
-      legend.position = "right",
-      legend.box.just = "center"
-    )+
-    guides(col = guide_legend(title = ''), fill = guide_legend(title = 'Redoxtoestand'))+
-    ggtitle(paste0("Redoxpotentiaal in slib in ",unique(melt_sel$Gebiedsnaam))) +
-    labs(x= 'Slootnummer' , y='mV', fill = 'Type beheer' )
+      legend.position = "right"
+    ) +
+    guides(col = guide_legend(title = ''), fill = guide_legend(title = 'Redoxtoestand')) +
+    ggtitle(paste0("Redoxpotentiaal (pH7)in slib in ", unique(melt_sel$Gebiedsnaam))) +
+    labs(x = 'Slootnummer', y = 'mV', fill = 'Type beheer')
+
   ggsave(file=paste0('output/',i,'/abiotiek/',i, '_redox','.png'), width = 25,height = 15,units='cm',dpi=800)
   
   
@@ -7188,7 +6920,7 @@ for(i in unique(melt$gebied)){
            fill = 'Type beheer' )
     ggsave(file=paste0('output/',i,'/abiotiek/',i, '_hist_',var_folder,unique(melt_sel_v$methode),'.png'), width = 35,height = 15,units='cm',dpi=800)
   }
-  } 
+} 
 
 ## 5.5 plot penetrometer-------------------------
 # calc draagkracht per diepte
@@ -7361,6 +7093,26 @@ for(gb in unique(penmerge$gebied_locs)){
 
 ## 5.6 overig----------------------
 ### waterbodem ----------------
+p<- ggplot(data = abio_proj[], aes(x= `P_µmol/l_PW`, y=`P-AL mg/kg_SB`))+
+  geom_jitter(aes(col= gebied))+
+  geom_smooth(method="lm") +
+  # stat_regline_equation(label.x=200, label.y=220)+
+  stat_cor(aes(label=..rr.label..), label.x=200, label.y=200)+
+  theme_minimal()+
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size=10), 
+    strip.text.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size= 12),
+    axis.ticks =  element_line(colour = "black"),
+    plot.title = element_text(size =12, face="bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  )+
+  ggtitle("waterbodem") +
+  labs(x= "P_nalevering_formule2",y="P-AL slib (mg/kg)")
+ggplotly(p, tooltip = c('SlootID','gebied'))
 
 p<- ggplot(data = abio_proj[], aes(x= `P_µmol/l_PW`, y=`P-AL mg/kg_SB`))+
   geom_jitter(aes(col= gebied))+
@@ -7822,4 +7574,4 @@ write.table(gebiedsanalyse, file = paste(workspace,"/output/Database/gebiedsanal
 setDT(locaties)
 abio_proj_loc <- merge(locaties[,c('SlootID','geom')], gebiedsanalyse, by = 'SlootID', all.x= TRUE, suffixes =  c('_locs','_db'))
 abio_proj_loc <- st_as_sf(abio_proj_loc) %>% st_transform(crs = 28992)
-st_write(abio_proj_loc, paste0(workspace,  "output/GIS/gebiedsanalyse.gpkg"), append = FALSE)
+  st_write(abio_proj_loc, paste0(workspace,  "output/GIS/gebiedsanalyse.gpkg"), append = FALSE)

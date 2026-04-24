@@ -627,8 +627,6 @@ profiel[, numwl_max := max(numwl, na.rm = TRUE), by = "ID"]
 profiel[Puntnummer > numwl_max | Puntnummer < numwl_min, wl := NA]
 #extract slibdikte
 profiel[, slib := as.numeric(Opmerking)/100]
-profiel[is.na(slib), slib:= 0]
-
 # afstand in meters toevoegen
 profiel[, dist := sqrt((x[Puntnummer == 1]-x)^2+(y[Puntnummer == 1]-y)^2), by ='ID'] 
 profiel[, rel_dist := dist - shift(dist,-1), by ='ID'] 
@@ -664,7 +662,8 @@ for(i in unique(profiel$ID)){
 profiel[, wtd := wl - z]
 profiel[wtd < 0, wtd := 0]
 profiel[,max_wtd := max(wtd, na.rm = T), by = 'ID']
-profiel[,slib := slib - wtd]
+profiel[!is.na(slib) & !slib == 0,slib := slib - wtd]
+profiel[is.na(slib), slib:= 0]
 # max slibdikte
 profiel[,max_slib := max(slib, na.rm = T), by = 'ID']
 # breedte water
@@ -672,7 +671,7 @@ profiel[, watbte := dist[Puntnummer == numwl_max]-dist[Puntnummer == numwl_min],
 # breedte oever
 profiel[, oevbte := dist[Puntnummer == numwl_min]-dist[Puntnummer == min(Puntnummer[sectie == 'oever'])], by =c ('ID','sectie_2')]
 
-### 6.2.2a correct Idzegeap -------------------------------------
+### 6.2.2a correct Idzegea -------------------------------------
 profiel[name == 'IG_10_WP1' & Puntnummer > 31 & jaar == 2025, sectie := 'perceel']
 profiel[name == 'WZ_1_WP1' & Puntnummer > 45 & jaar == 2025, sectie := 'perceel']
 
@@ -785,6 +784,10 @@ veg_srt[SlootID == 'OK_4_WP1' & jaar == 2025, SlootID := 'OK_4_WP1_N'] # fout in
 check_db <- locaties[!SlootID %in% unique(veg_srt$SlootID),]
 biotaxon <- read_xlsx(paste0(workspace,'/hulp_tabellen/veest_unieke_soorten_Groeivormen toegevoegd.xlsx'))
 veg_srt<- merge(veg_srt, biotaxon, by = 'wetnaam', all.x = TRUE, suffixes = c('','_biotaxon'))
+## import vegetatie ekr en oeverindex
+veg_ekr <- fread(paste0(workspace2,'/ekr_scores.csv'))
+veg_ekr[, SlootID := sub("^NL14_", "", Meetpunt)]
+veg_oeverindex <- read_xlsx(paste0(workspace2,'/251210_oeverindex_per_sloot.xlsx'))
 ### 5.2.1 unieke soorten per monster ------------------------------------------------
 veg_srt[, Submerse_groeivorm := as.numeric(Submerse_groeivorm)]
 veg_sub_srt <- unique(veg_srt[Submerse_groeivorm > 20, c('wetnaam','nednaam')])

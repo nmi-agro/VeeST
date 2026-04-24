@@ -309,12 +309,11 @@ get_r_squared <- function(dt, x_col, y_col) {
 # Visualise profielen-------------------------------------------------------------
 visualise_profiel<- function(proftest){
   # i <- unique(profiel$ID)[181]
-  proftest <- profiel[ID == i,]
+  # proftest <- profiel[ID == i,]  # <-- verwijderd: overschreef het argument
   # proftest <- proftest[!is.na(SlootID),]
   setDT(proftest)
   proftest <- proftest[sectie %in% c('oever','water')]
-  
-  zmin <- min(proftest$z-proftest$slib)
+  zmin <- min(proftest$z-proftest$slib, na.rm = TRUE)
 
   ggplot() +
     geom_line(data = proftest, aes(x = midpoint_dist, y = z)) +
@@ -323,7 +322,7 @@ visualise_profiel<- function(proftest){
     geom_ribbon(data=proftest, aes(x= midpoint_dist,ymin=z-slib, ymax=z), fill = 'brown', alpha =0.5)+
     geom_line(data = proftest[!is.na(wl),], aes(x = midpoint_dist, y = wl)) + 
     geom_ribbon(data=proftest[!is.na(wl),], aes(x= midpoint_dist, ymin=z, ymax=wl), fill = 'lightblue', alpha =0.5)+
-    coord_fixed(ratio = 1)+
+    coord_fixed(ratio = 1, expand = TRUE)+
     # annotate('text', x = -4, y = -0.3,label = proftest$azimuth) +
     theme_minimal()+
     theme(
@@ -340,7 +339,7 @@ visualise_profiel<- function(proftest){
     ggtitle(paste0("Dwarsprofiel oever en sloot op locatie ",proftest$name)) +
     labs(x= "afstand in meters",y="diepte in mNAP")
   
-  ggsave(file=paste0('/output/',unique(proftest$gebied[!is.na(proftest$gebied)]),'/profielen/profiel_',unique(proftest$SlootID[!is.na(proftest$gebied)]),"_",unique(proftest$ID[!is.na(proftest$gebied)]),'.png'),width = 25,height = 10,units='cm',dpi=800)
+  ggsave(file=paste0('output/',unique(proftest$gebied[!is.na(proftest$gebied)]),'/profielen/profiel_',unique(proftest$SlootID[!is.na(proftest$gebied)]),"_",unique(proftest$ID[!is.na(proftest$gebied)]),'.png'),width = 25,height = 10,units='cm',dpi=800)
   
 }
 
