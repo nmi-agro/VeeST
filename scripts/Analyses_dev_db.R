@@ -123,23 +123,28 @@ partialPlot(rf_res, loc_t[set == "training", ..cols], water_O2_mgL)
 # 3. XGBoost model --------------------------------------------------------
 
 ## versie met meerdere target variabelen tegelijk ---------------------------------
-target_vars <- c("waterzone_1_subm_tot_perc","2","1","draagkracht_oever", 
+
+target_vars <- c("n_soorten_oev_zone2","oeverindex","Soortensamenstelling Helofyten","waterzone_1_subm_tot_perc","n_soorten_sub_zone1","Soortensamenstelling Hydrofyten","draagkracht_oever", 
                  "slib_redox_pH7","max_slib")
 # redox, draagkracht oever, aantal soorten, slibdikte
 # Create Dutch translation mapping for target variables
 target_names_dutch <- c(
   "waterzone_1_subm_tot_perc" = "Bedekking ondergedoken planten (%)",
-  "2" = "Aantal oeversoorten",
-  "1" = "Aantal waterplantensoorten",
+  "n_soorten_oev_zone2" = "Aantal oeversoorten",
+  "oeverindex" = "oeverindex",
+  "n_soorten_sub_zone1" = "Aantal waterplantensoorten",
+  "Soortensamenstelling Helofyten" = "Soortensamenstelling Helofyten",
+  "Soortensamenstelling Hydrofyten" = "Soortensamenstelling Hydrofyten",
   "draagkracht_oever" = "Draagkracht oever (MPa)",
   "slib_redox_pH7" = "Redox slib bij pH7 (mV)",
   "max_slib" = "Slibdikte (m)")
 # Define predictor variables with readable Dutch names
+# baggermoment toevoegen?
 cols_corr <- c("drglg", "max_wtd", "zichtdiepte", "max_slib", "watbte","oeverzone_2b_breedte_cm", "oeverzone_2b_kaal_perc", 
                "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc", "slib_redox_pH7","slib_pH",
-               "oevbte", "veentype_num", "Z_CLAY_SA_OR_50",
+               "oevbte", "veentype_num", "Z_CLAY_SA_OR_25",
                "draagkracht_oever", "draagkracht_perceel", "water_pH", "NH4_µmol/l_PW","P-AL mg p2o5/100g_SB",
-              "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar","Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag")
+              "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar","Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag", "Koeien_drinken_sloot")
 # Create readable Dutch names mapping
 nederlandse_namen <- c(
   "drglg" = "Drooglegging (m)",
@@ -165,30 +170,8 @@ nederlandse_namen <- c(
   "Baggerfrequentie_per_jaar" = "Baggerfrequentie per jaar",
   "Maaifrequentie_oever_per_jaar"= "Maaifrequentie oever per jaar",
   "Aantal_Koedagen_per_jaar"= "Aantal koedagen per jaar",
-  "Aantal_koeien_vee_perceel_dag"= "Aantal koeien per perceel per dag"
-)
-
-## versie redox en poriewaterconcentraties erbij-----------------------------------
-target_vars <- c("slib_redox_pH7")
-# Selecteer alleen poriewater µmol concentraties
-# Selecteer alle kolommen die µmol bevatten
-cols_umol_pw <- colnames(abio_proj)[grepl('µmol/l_PW', colnames(abio_proj), fixed = TRUE)]
-# Verwijder specifieke kolommen
-cols_umol_pw <- cols_umol_pw[!cols_umol_pw %in% c("Cl_2_µmol/l_PW", "Na_2_µmol/l_PW", "K_2_µmol/l_PW")]
-# Update cols_corr met de gefilterde kolommen
-cols_corr <- c(cols_umol_pw, "P-AL mg p2o5/100g_SB", "pH_CC_SB", "bulk density_kg DW/L FW_SB")
-
-# Update nederlandse_namen mapping
-nederlandse_namen <- c(
-  setNames(paste0(cols_umol_pw, " (µmol/l)"), cols_umol_pw),
-  "P-AL mg p2o5/100g_SB" = "P-AL slib (mg P2O5/100g)",
-  "pH_CC_SB" = "pH slib",
-  "bulk density_kg DW/L FW_SB" = "Bulk density (kg DW/L FW)"
-)
-# Update target_names_dutch mapping
-target_names_dutch <- c(
-  target_names_dutch,
-  "slib_redox_pH7" = "Redox slib bij pH7 (mV)"
+  "Aantal_koeien_vee_perceel_dag"= "Aantal koeien per perceel per dag",
+  "Koeien_drinken_sloot" = "Koeien drinken uit sloot (ja/nee)"
 )
 
 ## Preparation------------------------------------------------
@@ -323,36 +306,26 @@ print(performance_summary)
 
 # Combine and visualize feature importance
 all_importance <- rbindlist(feature_importance_all)
-
 # Add Dutch target names and performance metrics to importance data
 all_importance[, target_dutch := target_names_dutch[target_var]]
-
 # Merge with performance summary to get RMSE and R² values
 all_importance <- merge(all_importance, performance_summary[, .(target, rmse_test, r2_test)], 
                        by.x = "target_var", by.y = "target", all.x = TRUE)
 
-# Create enhanced plot titles with RMSE and R² values
-all_importance[, plot_title := paste0(target_dutch, "\nRMSE: ", round(rmse_test, 2), 
-                                      " | R²: ", round(r2_test * 100, 1), "%")]
 
-## Plot feature importance with enhanced titles----------------------------------------------
-ggplot(all_importance, aes(x = reorder(Nederlandse_naam, Gain), y = Gain, fill = target_var)) +
-  geom_col() +
-  facet_wrap(~plot_title, scales = "free") +
-  coord_flip() +
-  labs(
-    title = "Belangrijste verklarende variabelen (XGBoost)",
-    x = "Voorspellende variabelen",
-    y = "Informatiewinst (Gain)",
-    fill = "Doelvariable"
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text = element_text(size = 10),
-    strip.text = element_text(size = 10),
-    legend.position = "none"
-  )
-
+# Voeg rmse_unit direct toe zodat deze altijd beschikbaar is na aanmaken all_importance
+rmse_units <- c(
+  "waterzone_1_subm_tot_perc"       = "%",
+  "n_soorten_oev_zone2"             = "soorten",
+  "n_soorten_sub_zone1"             = "soorten",
+  "draagkracht_oever"               = "MPa",
+  "slib_redox_pH7"                  = "mV",
+  "max_slib"                        = "m",
+  "oeverindex"                      = "-",
+  "Soortensamenstelling Helofyten"  = "-",
+  "Soortensamenstelling Hydrofyten" = "-"
+)
+all_importance[, rmse_unit := rmse_units[target_var]]
 ## VIP plots-------------------------------------------------------
 # Bereken RMSE percentage PER TARGET en sla direct op in all_importance
 for(target in unique(all_importance$target_var)) {
@@ -369,7 +342,6 @@ for(target in unique(all_importance$target_var)) {
     }
   }
 }
-
 # Check of het werkt
 print("RMSE percentages per target in all_importance:")
 for(target in unique(all_importance$target_var)) {
@@ -378,17 +350,19 @@ for(target in unique(all_importance$target_var)) {
 }
 
 # Voeg ontbrekende kolommen toe als ze niet bestaan
-if(!"target_dutch_multiline" %in% colnames(all_importance)) {
-   target_names_dutch_multiline <- c(
-    "waterzone_1_subm_tot_perc" = "Bedekking\nondergedoken\nplanten (%)",
-    "2" = "Aantal\noeversoorten", 
-    "1" = "Aantal\nwaterplantensoorten",  # Consistent met oeversoorten
-    "draagkracht_oever" = "Draagkracht\noever (MPa)",
-    "slib_redox_pH7" = "Redox slib\nbij pH7 (mV)",
-    "max_slib" = "Slibdikte (m)"
-  )
-  all_importance[, target_dutch_multiline := target_names_dutch_multiline[target_var]]
-}
+target_names_dutch_multiline <- c(
+  "Soortensamenstelling Hydrofyten" = "Soortensamenstelling\nHydrofyten",
+  "Soortensamenstelling Helofyten" = "Soortensamenstelling\nHelofyten",
+  "oeverindex" = "Oeverindex",
+  "waterzone_1_subm_tot_perc" = "Bedekking\nondergedoken\nplanten (%)",
+  "n_soorten_oev_zone2" = "Aantal\noeversoorten",
+  "n_soorten_sub_zone1" = "Aantal\nwaterplantensoorten",
+  "draagkracht_oever" = "Draagkracht\noever (MPa)",
+  "slib_redox_pH7" = "Redox slib\nbij pH7 (mV)",
+  "max_slib" = "Slibdikte (m)"
+)
+
+all_importance[, target_dutch_multiline := target_names_dutch_multiline[target_var]]
 
 if(!"correlation_direction" %in% colnames(all_importance)) {
   all_importance[, correlation_direction := mapply(
@@ -415,63 +389,219 @@ if(!"correlation_direction" %in% colnames(all_importance)) {
   )]
 }
 
-if(!"rmse_unit" %in% colnames(all_importance)) {
-  rmse_units <- c(
-    "waterzone_1_subm_tot_perc" = "%",
-    "2" = "soorten",
-    "draagkracht_oever" = "MPa",
-    "slib_redox_pH7" = "mV",
-    "max_slib" = "m"
-  )
-  all_importance[, rmse_unit := rmse_units[target_var]]
-}
 
-# Gebruik de nieuwe kolom in plot titel (gebruik rmse_pct_target in plaats van rmse_pct)
-all_importance[, plot_title := paste0(target_dutch_multiline, 
-                                      "\nR²: ", round(r2_test * 100, 1), "% | RMSE: ", round(rmse_test, 3), " ", rmse_unit,
-                                      "\nRMSE: ", round(rmse_pct_target, 1), "% van gemiddelde")]
 
 # Definieer Okabe-Ito kleuren voor elke target
-okabe_ito_colors <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00")
-names(okabe_ito_colors) <- target_vars
+okabe_ito_colors <- c(
+  "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+  "#0072B2", "#D55E00", "#CC79A7", "#999999", "#000000"
+)
+names(okabe_ito_colors) <- unique(all_importance$target_var)
 
 # Maak plot titels met kleinere R² en RMSE tekst
 all_importance[, plot_title_clean := paste0(target_dutch_multiline, 
                                             "\nR²: ", round(r2_test * 100, 1), "% | RMSE: ", round(rmse_test, 3), " ", rmse_unit)]
 
-# VIP Plot met Okabe kleuren en aangepaste styling
-ggplot(all_importance, aes(x = reorder(Nederlandse_naam, Gain), y = Gain, fill = target_var)) +
+# VIP Plot met correlatierichting als kleur (Okabe-Ito), gesorteerd per facet op Gain
+okabe_dir <- c("+" = "#0072B2", "-" = "#D55E00")
+
+plot_data <- all_importance[!is.na(correlation_direction)][
+  order(target_var, Gain)
+][, facet_label := paste0(target_var, "__", Nederlandse_naam)
+][, facet_label := factor(facet_label, levels = unique(facet_label))]
+
+ggplot(plot_data, aes(
+    x = facet_label,
+    y = Gain,
+    fill = correlation_direction
+  )) +
   geom_col() +
-  geom_text(aes(label = correlation_direction), 
-            hjust = -0.2, vjust = 0.5, 
-            size = 5, fontface = "bold", 
-            color = "black") +
-  facet_wrap(~plot_title_clean, scales = "free", ncol = 2) +
-  coord_flip() +
-  scale_fill_manual(values = okabe_ito_colors) +
-  labs(
-    title = "Belangrijste verklarende variabelen wensbeelden (XGBoost)",
-    subtitle = "Variable Importance met correlatierichting (+/-) en modelperformantie",
-    x = "Voorspellende variabelen",
-    y = "Informatiewinst (Gain)",
-    fill = "Doelvariable"
+  geom_text(
+    aes(label = correlation_direction),
+    hjust = -0.2,
+    size = 3.5,
+    fontface = "bold",
+    color = "grey20"
   ) +
-  theme_minimal() +
+  facet_wrap(~plot_title_clean, scales = "free", ncol = 3) +
+  scale_x_discrete(labels = function(x) sub(".*__", "", x)) +
+  coord_flip() +
+  scale_fill_manual(
+    values = okabe_dir,
+    labels = c("+" = "Positief verband", "-" = "Negatief verband"),
+    name = "Correlatierichting"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
+  labs(
+    title = "Belangrijkste verklarende variabelen wensbeelden (XGBoost)",
+    subtitle = "Variable Importance (Gain) met correlatierichting op basis van Pearson correlatie",
+    x = NULL,
+    y = "Informatiewinst (Gain)"
+  ) +
+  theme_minimal(base_size = 11) +
   theme(
-    axis.text.x = element_text(size = 12),
-    axis.text.y = element_text(size = 14),  # Grotere y-as labels (gebieden)
-    axis.title = element_text(size = 14, face = "bold"),
-    strip.text = element_text(size = 14, lineheight = 0.9),  # Kleinere strip tekst voor R² en RMSE
-    legend.position = "none",
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-    plot.subtitle = element_text(size = 12, hjust = 0.5),
-    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
-    strip.background = element_rect(colour = "black", fill = "white", linewidth = 0.8),
-    plot.margin = margin(10, 10, 10, 10)  # Minder ruimte onderaan (geen caption)
+    axis.text.y = element_text(size = 9),
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10, face = "bold", margin = margin(t = 6)),
+    strip.text = element_text(size = 8.5, lineheight = 1.1, face = "bold"),
+    strip.background = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.6),
+    panel.border = element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 10),
+    plot.title = element_text(size = 13, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 9.5, hjust = 0.5, color = "grey40"),
+    plot.margin = margin(10, 15, 10, 10)
   )
 
 ggsave(file = 'output/AlleGebieden/Tussenrapportage/XGBoost_feature_importance_okabe_clean.png', 
        width = 35, height = 30, units = 'cm', dpi = 800)
+
+## Manual ALE calculation function (without ALEPlot package)---------------------------------------------
+calculate_ale_manual <- function(model, X_data, feature_idx, K = 50) {
+  
+  # Get the feature column
+  feature_values <- X_data[, feature_idx]
+  feature_name <- colnames(X_data)[feature_idx]
+  
+  # Create quantile breaks
+  quantiles <- quantile(feature_values, probs = seq(0, 1, length.out = K + 1), na.rm = TRUE)
+  quantiles <- unique(quantiles) # Remove duplicates
+  
+  # Initialize ALE values
+  ale_values <- numeric(length(quantiles) - 1)
+  x_values <- numeric(length(quantiles) - 1)
+  
+  for(i in 1:(length(quantiles) - 1)) {
+    # Get data points in this interval
+    in_interval <- feature_values >= quantiles[i] & feature_values <= quantiles[i + 1]
+    
+    if(sum(in_interval) > 0) {
+      # Create data for prediction at interval boundaries
+      X_low <- X_data[in_interval, , drop = FALSE]
+      X_high <- X_data[in_interval, , drop = FALSE]
+      
+      # Set feature values to interval boundaries
+      X_low[, feature_idx] <- quantiles[i]
+      X_high[, feature_idx] <- quantiles[i + 1]
+      
+      # Get predictions
+      pred_low <- predict(model, X_low)
+      pred_high <- predict(model, X_high)
+      
+      # Calculate local effect
+      ale_values[i] <- mean(pred_high - pred_low, na.rm = TRUE)
+      x_values[i] <- (quantiles[i] + quantiles[i + 1]) / 2
+    }
+  }
+  
+  # Calculate cumulative ALE effects
+  ale_cumulative <- cumsum(ale_values)
+  
+  # Center the ALE values
+  ale_centered <- ale_cumulative - mean(ale_cumulative, na.rm = TRUE)
+  
+  return(list(
+    x_values = x_values[!is.na(ale_values)],
+    ale_effects = ale_centered[!is.na(ale_values)],
+    feature_name = feature_name
+  ))
+}
+# Function to create ALE plots without ALEPlot package
+create_ale_plots_manual <- function(model, X_data, target_name) {
+  
+  ale_plots <- list()
+  
+  # Gebruik alle beschikbare features in X_data
+  available_features <- colnames(X_data)
+  
+  for(feature in available_features) {
+    feature_idx <- which(colnames(X_data) == feature)
+    
+    # Calculate ALE manually
+    ale_result <- calculate_ale_manual(model, X_data, feature_idx, K = 30)
+    
+    # Create data frame for plotting
+    ale_df <- data.frame(
+      x = ale_result$x_values,
+      ale_effect = ale_result$ale_effects
+    )
+    
+    # Get Dutch name
+    feature_name_dutch <- nederlandse_namen[feature]
+    if(is.na(feature_name_dutch)) feature_name_dutch <- feature
+    
+    # Calculate effect range
+    effect_range <- max(ale_df$ale_effect, na.rm = TRUE) - min(ale_df$ale_effect, na.rm = TRUE)
+    
+    # Create ggplot
+    p <- ggplot(ale_df, aes(x = x, y = ale_effect)) +
+      geom_line(color = "#1f77b4", size = 1) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "red", alpha = 0.7) +
+      labs(
+        title = paste0(feature_name_dutch),
+        subtitle = paste0("Effect range: ", round(effect_range, 3)),
+        x = feature_name_dutch,
+        y = paste("ALE Effect on", target_names_dutch[target_name])
+      ) +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(size = 12, face = "bold"),
+        plot.subtitle = element_text(size = 10),
+        axis.title = element_text(size = 10),
+        axis.text = element_text(size = 9)
+      )
+    
+    ale_plots[[feature]] <- p
+  }
+  
+  return(ale_plots)
+}
+# Create ALE plots for all models
+all_ale_plots <- list()
+for(target in names(xgb_models)) {
+  cat("Creating ALE plots for:", target, "\n")
+  
+  # Get model data
+  model_vars <- c("SlootID", target, cols_corr)
+  model_vars <- model_vars[!model_vars %in% target & model_vars %in% colnames(abio_proj)]
+  model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
+  
+  # Convert factors to numeric
+  factor_cols <- names(model_data)[sapply(model_data, is.character)]
+  factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
+  factor_cols <- c(factor_cols, factor_cols_2)
+  model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
+  model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
+  
+  # Remove SlootID and target for X_data
+  predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
+  X_data <- as.matrix(model_data[, ..predictors_clean])
+  
+  # Create ALE plots
+  ale_plots <- create_ale_plots_manual(xgb_models[[target]], X_data, target)
+  
+  all_ale_plots[[target]] <- ale_plots
+}
+# Display and save ALE plots for each target
+for(target in names(all_ale_plots)) {
+  
+  target_dutch <- target_names_dutch[target]
+  perf <- performance_summary[target == target]
+  
+  cat("\n=== ALE Plots for", target_dutch, "===\n")
+  cat("RMSE:", round(perf$rmse_test, 3), "| R²:", round(perf$r2_test * 100, 1), "%\n")
+  
+  # Display individual plots
+  if(length(all_ale_plots[[target]]) > 0) {
+    for(plot_name in names(all_ale_plots[[target]])) {
+      cat("Showing ALE plot for:", plot_name, "\n")
+      print(all_ale_plots[[target]][[plot_name]])
+    }
+  }
+}
 
 ## ALE plots nieuw combinatie plots van sturende var op alle targets -------------------------------------------------------
 # Functie om gecombineerde plots te maken met echte data + ALE effect
@@ -663,394 +793,51 @@ for(var in names(combined_ale_plots)) {
 }
 cat("\nAlle gecombineerde ALE plots zijn voltooid en opgeslagen!\n")
 
+### combine ale per target in 1 plot met echte data en mediaan als referentie (ALE=0) + labels min/max ALE effect-----------------
+# ALE combi-plot per target: top predictoren per doelvariabele in één figuur
+library(patchwork)
+top_n <- 5
 
-## Manual ALE calculation function (without ALEPlot package)---------------------------------------------
-
-calculate_ale_manual <- function(model, X_data, feature_idx, K = 50) {
+for (tgt in names(all_ale_plots)) {
   
-  # Get the feature column
-  feature_values <- X_data[, feature_idx]
-  feature_name <- colnames(X_data)[feature_idx]
+  top_feats <- all_importance[target_var == tgt][order(-Gain)][1:min(.N, top_n), Feature]
+  top_feats <- top_feats[top_feats %in% names(all_ale_plots[[tgt]])]
+  if (length(top_feats) == 0) next
   
-  # Create quantile breaks
-  quantiles <- quantile(feature_values, probs = seq(0, 1, length.out = K + 1), na.rm = TRUE)
-  quantiles <- unique(quantiles) # Remove duplicates
+  plots <- lapply(top_feats, function(feat) {
+    dutch_name <- all_importance[target_var == tgt & Feature == feat, Nederlandse_naam]
+    gain_val   <- all_importance[target_var == tgt & Feature == feat, round(Gain, 3)]
+    p <- all_ale_plots[[tgt]][[feat]]
+    p + labs(title = paste0(dutch_name, "
+(Gain: ", gain_val, ")"), subtitle = NULL, x = NULL, y = "ALE effect") +
+      theme_minimal(base_size = 9) +
+      theme(
+        plot.title   = element_text(size = 8, face = "bold", hjust = 0.5),
+        axis.text    = element_text(size = 7),
+        axis.title.y = element_text(size = 7.5),
+        panel.border = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+        plot.margin  = margin(4, 8, 4, 8)
+      )
+  })
   
-  # Initialize ALE values
-  ale_values <- numeric(length(quantiles) - 1)
-  x_values <- numeric(length(quantiles) - 1)
+  title_str <- all_importance[target_var == tgt, target_dutch[1]]
+  perf_str  <- all_importance[target_var == tgt, paste0("R²: ", round(r2_test[1]*100,1), "%  |  RMSE: ", round(rmse_test[1],3), " ", rmse_unit[1])]
   
-  for(i in 1:(length(quantiles) - 1)) {
-    # Get data points in this interval
-    in_interval <- feature_values >= quantiles[i] & feature_values <= quantiles[i + 1]
-    
-    if(sum(in_interval) > 0) {
-      # Create data for prediction at interval boundaries
-      X_low <- X_data[in_interval, , drop = FALSE]
-      X_high <- X_data[in_interval, , drop = FALSE]
-      
-      # Set feature values to interval boundaries
-      X_low[, feature_idx] <- quantiles[i]
-      X_high[, feature_idx] <- quantiles[i + 1]
-      
-      # Get predictions
-      pred_low <- predict(model, X_low)
-      pred_high <- predict(model, X_high)
-      
-      # Calculate local effect
-      ale_values[i] <- mean(pred_high - pred_low, na.rm = TRUE)
-      x_values[i] <- (quantiles[i] + quantiles[i + 1]) / 2
-    }
-  }
-  
-  # Calculate cumulative ALE effects
-  ale_cumulative <- cumsum(ale_values)
-  
-  # Center the ALE values
-  ale_centered <- ale_cumulative - mean(ale_cumulative, na.rm = TRUE)
-  
-  return(list(
-    x_values = x_values[!is.na(ale_values)],
-    ale_effects = ale_centered[!is.na(ale_values)],
-    feature_name = feature_name
-  ))
-}
-
-# Function to create ALE plots without ALEPlot package
-create_ale_plots_manual <- function(model, X_data, target_name) {
-  
-  ale_plots <- list()
-  
-  # Key features to plot
-  key_features <- c("watbte", "drglg", "holleoever", "tldk_oevrwtr_perc", 
-                   "P-AL mg p2o5/100g_SB", "draagkracht_perceel", 
-                   "Z_CLAY_SA_OR_50", "oeverzone_2b_breedte_cm")
-  
-  # Filter to available features
-  available_features <- key_features[key_features %in% colnames(X_data)]
-  
-  for(feature in available_features) {
-    feature_idx <- which(colnames(X_data) == feature)
-    
-    # Calculate ALE manually
-    ale_result <- calculate_ale_manual(model, X_data, feature_idx, K = 30)
-    
-    # Create data frame for plotting
-    ale_df <- data.frame(
-      x = ale_result$x_values,
-      ale_effect = ale_result$ale_effects
+  panel <- wrap_plots(plots, nrow = 1) +
+    plot_annotation(
+      title    = paste0("ALE plots — ", title_str),
+      subtitle = perf_str,
+      theme = theme(
+        plot.title    = element_text(size = 11, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 9, color = "grey40", hjust = 0.5)
+      )
     )
-    
-    # Get Dutch name
-    feature_name_dutch <- nederlandse_namen[feature]
-    if(is.na(feature_name_dutch)) feature_name_dutch <- feature
-    
-    # Calculate effect range
-    effect_range <- max(ale_df$ale_effect, na.rm = TRUE) - min(ale_df$ale_effect, na.rm = TRUE)
-    
-    # Create ggplot
-    p <- ggplot(ale_df, aes(x = x, y = ale_effect)) +
-      geom_line(color = "#1f77b4", size = 1) +
-      geom_hline(yintercept = 0, linetype = "dashed", color = "red", alpha = 0.7) +
-      labs(
-        title = paste0(feature_name_dutch),
-        subtitle = paste0("Effect range: ", round(effect_range, 3)),
-        x = feature_name_dutch,
-        y = paste("ALE Effect on", target_names_dutch[target_name])
-      ) +
-      theme_minimal() +
-      theme(
-        plot.title = element_text(size = 12, face = "bold"),
-        plot.subtitle = element_text(size = 10),
-        axis.title = element_text(size = 10),
-        axis.text = element_text(size = 9)
-      )
-    
-    ale_plots[[feature]] <- p
-  }
   
-  return(ale_plots)
+  outfile <- paste0("output/AlleGebieden/Tussenrapportage/ALE_top5_", tgt, ".png")
+  ggsave(outfile, panel, width = 35, height = 12, units = "cm", dpi = 200)
+  cat("Opgeslagen:", outfile, "
+")
 }
-
-# Create ALE plots for all models
-all_ale_plots <- list()
-
-for(target in names(xgb_models)) {
-  cat("Creating ALE plots for:", target, "\n")
-  
-  # Get model data
-  model_vars <- c("SlootID", target, cols_corr)
-  model_vars <- model_vars[!model_vars %in% target & model_vars %in% colnames(abio_proj)]
-  model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
-  
-  # Convert factors to numeric
-  factor_cols <- names(model_data)[sapply(model_data, is.character)]
-  factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
-  factor_cols <- c(factor_cols, factor_cols_2)
-  model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
-  model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
-  
-  # Remove SlootID and target for X_data
-  predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
-  X_data <- as.matrix(model_data[, ..predictors_clean])
-  
-  # Create ALE plots
-  ale_plots <- create_ale_plots_manual(xgb_models[[target]], X_data, target)
-  
-  all_ale_plots[[target]] <- ale_plots
-}
-
-# Display and save ALE plots for each target
-for(target in names(all_ale_plots)) {
-  
-  target_dutch <- target_names_dutch[target]
-  perf <- performance_summary[target == target]
-  
-  cat("\n=== ALE Plots for", target_dutch, "===\n")
-  cat("RMSE:", round(perf$rmse_test, 3), "| R²:", round(perf$r2_test * 100, 1), "%\n")
-  
-  # Display individual plots
-  if(length(all_ale_plots[[target]]) > 0) {
-    for(plot_name in names(all_ale_plots[[target]])) {
-      cat("Showing ALE plot for:", plot_name, "\n")
-      print(all_ale_plots[[target]][[plot_name]])
-    }
-  }
-}
-
-# Create summary of ALE effect strengths
-create_ale_summary_plot <- function() {
-  
-  ale_summary_data <- list()
-  
-  for(target in names(all_ale_plots)) {
-    for(var in names(all_ale_plots[[target]])) {
-      
-      # Get the plot data to extract effect range
-      plot_data <- all_ale_plots[[target]][[var]]$data
-      effect_range <- max(plot_data$ale_effect, na.rm = TRUE) - min(plot_data$ale_effect, na.rm = TRUE)
-      
-      ale_summary_data[[paste(target, var, sep = "_")]] <- data.table(
-        target = target,
-        target_dutch = target_names_dutch[target],
-        target_dutch_multiline = target_names_dutch_multiline[target],  # Voeg meerregelige versie toe
-        variable = var,
-        variable_dutch = nederlandse_namen[var],
-        effect_range = effect_range
-      )
-    }
-  }
-  
-  # Combine summary data
-  if(length(ale_summary_data) > 0) {
-    ale_summary_dt <- rbindlist(ale_summary_data)
-    
-    # Okabe-Ito kleuren voor consistentie
-    okabe_ito_colors <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00")
-    names(okabe_ito_colors) <- target_vars
-    
-    # Create summary plot met verbeterde styling en meerregelige titels
-    ggplot(ale_summary_dt, aes(x = reorder(variable_dutch, effect_range), 
-                              y = effect_range, fill = target)) +  
-      geom_col(alpha = 0.8) +
-      facet_wrap(~target_dutch_multiline, scales = "free", ncol = 3) +  # Gebruik meerregelige versie
-      coord_flip() +
-      scale_fill_manual(values = okabe_ito_colors) +
-      labs(
-        title = "ALE Effect Sterkte per Variabele en Doelvariabele",
-        subtitle = "Grootte van het effect (range) van elke voorspellende variabele",
-        x = "Voorspellende Variabelen",
-        y = "ALE Effect Range",
-        fill = "Doelvariabele"
-      ) +
-      theme_minimal() +
-      theme(
-        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-        plot.subtitle = element_text(size = 13, hjust = 0.5),
-        axis.title = element_text(size = 14, face = "bold"),
-        axis.text.x = element_text(size = 12),
-        axis.text.y = element_text(size = 12, face = "bold"),  
-        strip.text = element_text(size = 14, face = "bold", lineheight = 0.8),   # Lineheight voor meerregelige tekst
-        legend.position = "none",
-        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8),
-        strip.background = element_rect(colour = "black", fill = "white", linewidth = 0.8)
-      )
-  }
-}
-
-# Create and display summary plot
-if(length(all_ale_plots) > 0 && sum(lengths(all_ale_plots)) > 0) {
-  ale_summary_plot <- create_ale_summary_plot()
-  print(ale_summary_plot)
-  
-  # Save de plot
-  ggsave(
-    filename = 'output/AlleGebieden/Tussenrapportage/ALE_effect_summary.png',
-    plot = ale_summary_plot,
-    width = 40, height = 30, units = 'cm', dpi = 300
-  )
-}
-
-## VIP voor redox modellen -------------------------------------------------------
-# Maak VIP plot specifiek voor redox modellen
-# Functie om de top predictors voor redox te identificeren en samen te plotten
-create_redox_ale_grid <- function() {
-  
-  # Haal de top variabelen op voor redox uit importance data
-  redox_importance <- feature_importance_all[["slib_redox_pH7"]]
-  top_redox_vars <- redox_importance[order(-Gain)][1:8]$Feature  # Top 6 meest belangrijke
-  
-  cat("Top variabelen voor redox:", paste(top_redox_vars, collapse = ", "), "\n")
-  
-  # Maak ALE plots voor alleen deze top variabelen
-  redox_ale_plots <- list()
-  
-  target <- "slib_redox_pH7"
-  
-  # Get model data
-  model_vars <- c("SlootID", target, cols_corr)
-  model_vars <- model_vars[!model_vars %in% target & model_vars %in% colnames(abio_proj)]
-  model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
-  
-  # Convert factors to numeric
-  factor_cols <- names(model_data)[sapply(model_data, is.character)]
-  factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
-  factor_cols <- c(factor_cols, factor_cols_2)
-  if(length(factor_cols) > 0) {
-    model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
-    model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
-  }
-  
-  # Remove SlootID and target for X_data
-  predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
-  X_data <- as.matrix(model_data[, ..predictors_clean])
-  
-  # Maak ALE plots voor top variabelen
-  for(var in top_redox_vars) {
-    if(var %in% colnames(X_data)) {
-      
-      cat("Creating ALE plot for:", var, "\n")
-      
-      feature_idx <- which(colnames(X_data) == var)
-      
-      # Calculate ALE
-      ale_result <- calculate_ale_manual(xgb_models[[target]], X_data, feature_idx, K = 30)
-      
-      # Create ALE data frame
-      ale_df <- data.frame(
-        x = ale_result$x_values,
-        ale_effect = ale_result$ale_effects
-      )
-      
-      # Get real data for scatter plot
-      real_data <- abio_proj[!is.na(get(var)) & !is.na(get(target)), 
-                            .(x = get(var), y = get(target))]
-      
-      # Get Dutch variable name
-      var_name_dutch <- nederlandse_namen[var]
-      if(is.na(var_name_dutch)) var_name_dutch <- var
-      
-      # Get importance rank and value
-      var_rank <- which(top_redox_vars == var)
-      var_importance <- round(redox_importance[Feature == var]$Gain, 3)
-      
-      # Scale ALE effect voor visualisatie
-      target_median <- median(real_data$y, na.rm = TRUE)
-      y_range <- max(real_data$y, na.rm = TRUE) - min(real_data$y, na.rm = TRUE)
-      ale_range <- max(ale_df$ale_effect, na.rm = TRUE) - min(ale_df$ale_effect, na.rm = TRUE)
-      
-      if(ale_range > 0) {
-        scale_factor <- (y_range * 0.3) / ale_range
-        ale_df$ale_scaled <- target_median + ale_df$ale_effect * scale_factor
-      } else {
-        ale_df$ale_scaled <- target_median
-      }
-      
-      # Get correlation direction
-      correlation_direction <- ifelse(cor(real_data$x, real_data$y, use = "complete.obs") > 0, "+", "-")
-      
-      # Create plot
-      p <- ggplot() +
-        # Real data points
-        geom_point(data = real_data, 
-                  aes(x = x, y = y), 
-                  alpha = 0.6, size = 1.5, color = "#56B4E9") +
-        # Median reference line
-        geom_hline(yintercept = target_median, 
-                  linetype = "dashed", color = "#CC79A7", alpha = 0.8, linewidth = 0.8) +
-        # ALE line
-        geom_line(data = ale_df, 
-                 aes(x = x, y = ale_scaled), 
-                 linewidth = 1.5, color = "black") +
-        # Min/Max labels
-        annotate("text", 
-                x = ale_df$x[which.min(ale_df$ale_effect)], 
-                y = ale_df$ale_scaled[which.min(ale_df$ale_effect)],
-                label = paste("Min:", round(min(ale_df$ale_effect), 3)),
-                color = "#0072B2", fontface = "bold", size = 3.5, vjust = -0.5) +
-        annotate("text", 
-                x = ale_df$x[which.max(ale_df$ale_effect)], 
-                y = ale_df$ale_scaled[which.max(ale_df$ale_effect)],
-                label = paste("Max:", round(max(ale_df$ale_effect), 3)),
-                color = "#009E73", fontface = "bold", size = 3.5, vjust = 1.5) +
-        labs(
-          title = paste0("#", var_rank, ": ", var_name_dutch),
-          subtitle = paste0("Importance: ", var_importance, " | Correlatie: ", correlation_direction),
-          x = var_name_dutch,
-          y = "Redox slib bij pH7 (mV)"
-        ) +
-        theme_minimal() +
-        theme(
-          plot.title = element_text(size = 12, face = "bold"),
-          plot.subtitle = element_text(size = 10),
-          axis.title = element_text(size = 11),
-          axis.text = element_text(size = 10),
-          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8)
-        )
-      
-      redox_ale_plots[[var]] <- p
-    }
-  }
-  
-  return(redox_ale_plots)
-}
-
-## Maak de redox ALE plots voor redoxmodel-------------------------------------------------
-
-redox_ale_plots <- create_redox_ale_grid()
-# Combineer in een grid
-library(gridExtra)
-if(length(redox_ale_plots) > 0) {
-  
-  # Maak grid met 2 rijen, 3 kolommen
-  grid_plot <- do.call(grid.arrange, c(redox_ale_plots, list(ncol = 3)))
-  
-  # Toon de plot
-  print(grid_plot)
-  
-  # Save de gecombineerde plot
-  ggsave(
-    filename = 'output/AlleGebieden/Tussenrapportage/Redox_ALE_top_predictors.png',
-    plot = grid_plot,
-    width = 45, height = 30, units = 'cm', dpi = 300
-  )
-  
-  cat("\nRedox ALE grid plot opgeslagen!\n")
-}
-
-# Optioneel: Maak ook individuele plots voor grotere details
-for(var_name in names(redox_ale_plots)) {
-  var_clean <- gsub("[^A-Za-z0-9]", "_", var_name)
-  
-  ggsave(
-    filename = paste0('output/AlleGebieden/Tussenrapportage/Redox_ALE_', var_clean, '.png'),
-    plot = redox_ale_plots[[var_name]],
-    width = 15, height = 12, units = 'cm', dpi = 300
-  )
-}
-
-cat("Alle individuele redox ALE plots opgeslagen!\n")
-
 
 ## Functie voor XGBoost model diagnostiek en validatie ------------------------------------------
 # Functie voor XGBoost model diagnostiek
@@ -1256,3 +1043,192 @@ for(target in names(xgb_diagnostics)) {
 diagnostics_summary <- rbindlist(lapply(xgb_diagnostics, function(x) x$statistics))
 print("=== Samenvattende Diagnostische Statistieken ===")
 print(diagnostics_summary)
+
+
+# redox ----------------------------------------------------------------------------------------
+## versie redox en poriewaterconcentraties erbij-----------------------------------
+
+target_vars <- c("slib_redox_pH7")
+# Selecteer alleen poriewater µmol concentraties
+# Selecteer alle kolommen die µmol bevatten
+cols_umol_pw <- colnames(abio_proj)[grepl('µmol/l_PW', colnames(abio_proj), fixed = TRUE)]
+# Verwijder specifieke kolommen
+cols_umol_pw <- cols_umol_pw[!cols_umol_pw %in% c("Cl_2_µmol/l_PW", "Na_2_µmol/l_PW", "K_2_µmol/l_PW")]
+# Update cols_corr met de gefilterde kolommen
+cols_corr <- c(cols_umol_pw, "P-AL mg p2o5/100g_SB", "pH_CC_SB", "bulk density_kg DW/L FW_SB")
+
+# Update nederlandse_namen mapping
+nederlandse_namen <- c(
+  setNames(paste0(cols_umol_pw, " (µmol/l)"), cols_umol_pw),
+  "P-AL mg p2o5/100g_SB" = "P-AL slib (mg P2O5/100g)",
+  "pH_CC_SB" = "pH slib",
+  "bulk density_kg DW/L FW_SB" = "Bulk density (kg DW/L FW)"
+)
+# Update target_names_dutch mapping
+target_names_dutch <- c(
+  target_names_dutch,
+  "slib_redox_pH7" = "Redox slib bij pH7 (mV)"
+)
+
+## ALE plots voor redox modellen -------------------------------------------------------
+
+# Functie om de top predictors voor redox te identificeren en samen te plotten
+create_redox_ale_grid <- function() {
+  
+  # Haal de top variabelen op voor redox uit importance data
+  redox_importance <- feature_importance_all[["slib_redox_pH7"]]
+  top_redox_vars <- redox_importance[order(-Gain)][1:8]$Feature  # Top 6 meest belangrijke
+  
+  cat("Top variabelen voor redox:", paste(top_redox_vars, collapse = ", "), "\n")
+  
+  # Maak ALE plots voor alleen deze top variabelen
+  redox_ale_plots <- list()
+  
+  target <- "slib_redox_pH7"
+  
+  # Get model data
+  model_vars <- c("SlootID", target, cols_corr)
+  model_vars <- model_vars[!model_vars %in% target & model_vars %in% colnames(abio_proj)]
+  model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
+  
+  # Convert factors to numeric
+  factor_cols <- names(model_data)[sapply(model_data, is.character)]
+  factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
+  factor_cols <- c(factor_cols, factor_cols_2)
+  if(length(factor_cols) > 0) {
+    model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
+    model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
+  }
+  
+  # Remove SlootID and target for X_data
+  predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
+  X_data <- as.matrix(model_data[, ..predictors_clean])
+  
+  # Maak ALE plots voor top variabelen
+  for(var in top_redox_vars) {
+    if(var %in% colnames(X_data)) {
+      
+      cat("Creating ALE plot for:", var, "\n")
+      
+      feature_idx <- which(colnames(X_data) == var)
+      
+      # Calculate ALE
+      ale_result <- calculate_ale_manual(xgb_models[[target]], X_data, feature_idx, K = 30)
+      
+      # Create ALE data frame
+      ale_df <- data.frame(
+        x = ale_result$x_values,
+        ale_effect = ale_result$ale_effects
+      )
+      
+      # Get real data for scatter plot
+      real_data <- abio_proj[!is.na(get(var)) & !is.na(get(target)), 
+                            .(x = get(var), y = get(target))]
+      
+      # Get Dutch variable name
+      var_name_dutch <- nederlandse_namen[var]
+      if(is.na(var_name_dutch)) var_name_dutch <- var
+      
+      # Get importance rank and value
+      var_rank <- which(top_redox_vars == var)
+      var_importance <- round(redox_importance[Feature == var]$Gain, 3)
+      
+      # Scale ALE effect voor visualisatie
+      target_median <- median(real_data$y, na.rm = TRUE)
+      y_range <- max(real_data$y, na.rm = TRUE) - min(real_data$y, na.rm = TRUE)
+      ale_range <- max(ale_df$ale_effect, na.rm = TRUE) - min(ale_df$ale_effect, na.rm = TRUE)
+      
+      if(ale_range > 0) {
+        scale_factor <- (y_range * 0.3) / ale_range
+        ale_df$ale_scaled <- target_median + ale_df$ale_effect * scale_factor
+      } else {
+        ale_df$ale_scaled <- target_median
+      }
+      
+      # Get correlation direction
+      correlation_direction <- ifelse(cor(real_data$x, real_data$y, use = "complete.obs") > 0, "+", "-")
+      
+      # Create plot
+      p <- ggplot() +
+        # Real data points
+        geom_point(data = real_data, 
+                  aes(x = x, y = y), 
+                  alpha = 0.6, size = 1.5, color = "#56B4E9") +
+        # Median reference line
+        geom_hline(yintercept = target_median, 
+                  linetype = "dashed", color = "#CC79A7", alpha = 0.8, linewidth = 0.8) +
+        # ALE line
+        geom_line(data = ale_df, 
+                 aes(x = x, y = ale_scaled), 
+                 linewidth = 1.5, color = "black") +
+        # Min/Max labels
+        annotate("text", 
+                x = ale_df$x[which.min(ale_df$ale_effect)], 
+                y = ale_df$ale_scaled[which.min(ale_df$ale_effect)],
+                label = paste("Min:", round(min(ale_df$ale_effect), 3)),
+                color = "#0072B2", fontface = "bold", size = 3.5, vjust = -0.5) +
+        annotate("text", 
+                x = ale_df$x[which.max(ale_df$ale_effect)], 
+                y = ale_df$ale_scaled[which.max(ale_df$ale_effect)],
+                label = paste("Max:", round(max(ale_df$ale_effect), 3)),
+                color = "#009E73", fontface = "bold", size = 3.5, vjust = 1.5) +
+        labs(
+          title = paste0("#", var_rank, ": ", var_name_dutch),
+          subtitle = paste0("Importance: ", var_importance, " | Correlatie: ", correlation_direction),
+          x = var_name_dutch,
+          y = "Redox slib bij pH7 (mV)"
+        ) +
+        theme_minimal() +
+        theme(
+          plot.title = element_text(size = 12, face = "bold"),
+          plot.subtitle = element_text(size = 10),
+          axis.title = element_text(size = 11),
+          axis.text = element_text(size = 10),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8)
+        )
+      
+      redox_ale_plots[[var]] <- p
+    }
+  }
+  
+  return(redox_ale_plots)
+}
+
+## Maak de redox ALE plots voor redoxmodel-------------------------------------------------
+
+redox_ale_plots <- create_redox_ale_grid()
+# Combineer in een grid
+library(gridExtra)
+if(length(redox_ale_plots) > 0) {
+  
+  # Maak grid met 2 rijen, 3 kolommen
+  grid_plot <- do.call(grid.arrange, c(redox_ale_plots, list(ncol = 3)))
+  
+  # Toon de plot
+  print(grid_plot)
+  
+  # Save de gecombineerde plot
+  ggsave(
+    filename = 'output/AlleGebieden/Tussenrapportage/Redox_ALE_top_predictors.png',
+    plot = grid_plot,
+    width = 45, height = 30, units = 'cm', dpi = 300
+  )
+  
+  cat("\nRedox ALE grid plot opgeslagen!\n")
+}
+
+# Optioneel: Maak ook individuele plots voor grotere details
+for(var_name in names(redox_ale_plots)) {
+  var_clean <- gsub("[^A-Za-z0-9]", "_", var_name)
+  
+  ggsave(
+    filename = paste0('output/AlleGebieden/Tussenrapportage/Redox_ALE_', var_clean, '.png'),
+    plot = redox_ale_plots[[var_name]],
+    width = 15, height = 12, units = 'cm', dpi = 300
+  )
+}
+
+cat("Alle individuele redox ALE plots opgeslagen!\n")
+
+
+

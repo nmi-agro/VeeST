@@ -466,8 +466,8 @@ locaties_pen <- unique(locaties[,c('SlootID','SlootID_old_pengps','oever','jaar'
 locaties_pen <- locaties_pen[!is.na(SlootID_old_pengps),]
 # Check voor duplicate combinaties van SlootID_old_pengps, oever en jaar
 locaties_pen[, .N, by = .(SlootID_old_pengps, oever, jaar)][N > 1]
-
 penmerge[,jaar:= as.character(jaar)]
+# mis SN_5_WP1_O en SW_4_M-NVO_NW
 penmerge <- merge(penmerge[!is.na(name_gps)], locaties_pen, 
                   by.x = c('name_gps','oever','jaar'), by.y = c('SlootID_old_pengps','oever','jaar'), all.x = TRUE, allow.cartesian = TRUE, suffixes = c('_pen','_locs'))
 penmerge[name_gps == 'Rh_4_R' & oever == 'O', SlootID := SlootID_loc]
@@ -475,15 +475,35 @@ penmerge[name_gps == 'Rh_4_R' & oever == 'O', SlootID := SlootID_loc]
 penmerge[,sectie:= 'oever']
 penmerge[dist_id==1,sectie:= 'perceel']
 penmerge[dist_id==2,sectie:= 'insteek']
-penmerge[,dieptebin := cut(as.numeric(Diept), breaks = c('0','10','20','30','40','50','85'), include.lowest = TRUE)]
+# indingingsweerstand per diepteinterval
+penmerge[, diepte_wortels := cut(as.numeric(Diept), breaks = c('0','15','40','85'), include.lowest = TRUE)]
+penmerge[, dieptebin := cut(as.numeric(Diept), breaks = c('0','10','20','30','40','50','85'), include.lowest = TRUE)]
 penmerge[, dieptebin_num := {
   breaks <- c(0, 10, 20, 30, 40, 50, 60, 70, 80, 85)
   bin <- as.integer(cut(as.numeric(Diept), breaks = breaks, include.lowest = TRUE))
   midpoints <- (breaks[-length(breaks)] + breaks[-1]) / 2  # 5, 15, 25, 35, 45, 67.5
   midpoints[bin]
 }]
+# verwijder het punt dat dichtbij de sloot ligt en niet op de oever
+# (hoogste dist_id per SlootID+jaar in sectie oever), maar behoud minimaal één uniek dist_id
+remove_keys <- penmerge[
+  sectie == "oever",
+  .(max_dist = max(dist_id), n_dist = uniqueN(dist_id)),
+  by = .(SlootID, jaar)
+][n_dist > 1, .(SlootID, jaar, max_dist)]
+penmerge[remove_keys, on = .(SlootID, jaar), max_dist_remove := i.max_dist]
+penmerge <- penmerge[!(sectie == "oever" & dist_id == max_dist_remove)]
+penmerge[, max_dist_remove := NULL]
+# laagste weerstand per dieptebin
+penmerge[, indringingsweerstand_dieptebin := lapply(.SD,mean,na.rm=TRUE),.SDcols=c('indringingsweerstand'),by=c('gebied','sloot','SlootID','sectie','dieptebin','jaar')]
+penmerge[, indringingsweerstand_min := min(indringingsweerstand_dieptebin), by = c('SlootID','name_gps','oever','jaar','sectie')]
+penmerge[, diepte_min_weerstand := dieptebin[which.min(indringingsweerstand_dieptebin)], by = .(SlootID, Pen, jaar)]
+# reshape data wide for matching with abiotic data
 penmerge_wide <- dcast(penmerge[!is.na(Diept),], SlootID+jaar~sectie+dieptebin, value.var = c('indringingsweerstand'), fun.aggregate = mean, na.rm = TRUE, fill = FALSE, drop = TRUE)
-
+penmerge_wide2 <- dcast(penmerge[!is.na(Diept),], SlootID+jaar~sectie+diepte_wortels, value.var = c('indringingsweerstand'), fun.aggregate = mean, na.rm = TRUE, fill = FALSE, drop = TRUE)
+penmerge_wide <- merge(penmerge_wide, unique(penmerge[,c('SlootID','indringingsweerstand_min','diepte_min_weerstand','jaar')]), by = c('SlootID','jaar'), all.x = TRUE)
+penmerge_wide <- merge(penmerge_wide, penmerge_wide2, by = c('SlootID','jaar'), all.x = TRUE)
+penmerge_wide[,diepte_min_weerstand := as.factor(diepte_min_weerstand)]
 ## 4.4 validatie regels penetrometer 24 en 25-------------------------
 # check 4 double coordinates in pen_gps
 gps <- st_as_sf(gps2)
@@ -511,7 +531,8 @@ penmergecheck_misgps <- unique(penmerge[is.na(name_gps),c('name_pen','extragebie
 penmergecheck <- unique(penmerge[,c('SlootID','name_pen','name_gps','extragebied','trajecten','oever','jaar')])
 penmergecheck[,jaar:= as.integer(jaar)]
 locaties[,jaar:= as.integer(jaar)]
-locs_pen <- merge(unique(locaties[,c('SlootID','oever','jaar')]), penmergecheck, by = c('SlootID','oever','jaar'), all.x =TRUE, suffixes = c('_locs','_pen'))
+locs_pen <- merge(unique(locaties[,c('SlootID','oever','jaar','WP')]), penmergecheck, by = c('SlootID','oever','jaar'), all.x =TRUE, suffixes = c('_locs','_pen'))
+locs_pen_check <- locs_pen[is.na(name_pen),]
 # Controleer verschillen unieke combinaties in beide tabellen
 setdiff(
   unique(locaties_pen[, .(SlootID, oever, jaar)]),
@@ -785,9 +806,7 @@ check_db <- locaties[!SlootID %in% unique(veg_srt$SlootID),]
 biotaxon <- read_xlsx(paste0(workspace,'/hulp_tabellen/veest_unieke_soorten_Groeivormen toegevoegd.xlsx'))
 veg_srt<- merge(veg_srt, biotaxon, by = 'wetnaam', all.x = TRUE, suffixes = c('','_biotaxon'))
 ## import vegetatie ekr en oeverindex
-veg_ekr <- fread(paste0(workspace2,'/ekr_scores.csv'))
-veg_ekr[, SlootID := sub("^NL14_", "", Meetpunt)]
-veg_oeverindex <- read_xlsx(paste0(workspace2,'/251210_oeverindex_per_sloot.xlsx'))
+veg_ekr_oev <- read_xlsx(paste0(workspace2,'/Indices_soortenrijkdom_260529.xlsx'))
 ### 5.2.1 unieke soorten per monster ------------------------------------------------
 veg_srt[, Submerse_groeivorm := as.numeric(Submerse_groeivorm)]
 veg_sub_srt <- unique(veg_srt[Submerse_groeivorm > 20, c('wetnaam','nednaam')])
@@ -1088,13 +1107,14 @@ colnames(oever_ac_50) <- paste0(colnames(oever_ac_50),'_OR_50')
 # 8. dikte veraarde laag -------------------------------------------------
 veraardveen <- fread(paste0(workspace,"./Bodemanalyses/Dikteveraardeveenlagen.csv"), dec = '.', na.strings = c(-999,'NA',''), encoding = "Latin-1")
 # 9. Beheergegevens ---------------------------------------------------
-beheer <- fread(paste0(workspace2,"beheer_wp1_2024_2025.csv"), dec = '.', na.strings = c(-999,'NA',''), encoding = "Latin-1")
-beheer2 <- fread(paste0(workspace2,"beheer_wp2_2024.csv"), dec = '.', na.strings = c(-999,'NA',''), encoding = "Latin-1")
-beheer <- rbind(beheer, beheer2, fill= TRUE)
+# beheer <- fread(paste0(workspace2,"beheer_wp1_2024_2025.csv"), dec = '.', na.strings = c(-999,'NA',''), encoding = "Latin-1")
+# beheer2 <- fread(paste0(workspace2,"beheer_wp2_2024.csv"), dec = '.', na.strings = c(-999,'NA',''), encoding = "Latin-1")
+# beheer <- rbind(beheer, beheer2, fill= TRUE)
+beheer <- readxl::read_xlsx(paste0(workspace2,"beheerdata_clean_260513.xlsx"))
+setDT(beheer)
+beheer[,c('V1','X','jaar') := NULL]
 beheer[,Maaifrequentie_oever_per_jaar:= gsub('0,5','0.5', Maaifrequentie_oever_per_jaar)]
 beheer[,Jaar := as.numeric(Jaar)]
-beheer[Jaar == 2024,SlootID := gsub('GM_5_R_W','GM_5a_R_W', SlootID)]
-beheer[Jaar == 2024,SlootID := gsub('GZ_2_R_Z','GZ_2a_R_Z', SlootID)]
 beheer[Jaar == 2025,SlootID := gsub('AD_3_WP1_Z','AD_3_WP1_N', SlootID)]
 beheer[Jaar == 2024,SlootID := gsub('AD_3_WP1_Z','ZV_3_WP1_N', SlootID)]
 beheer[Jaar == 2024,SlootID := gsub('AD_4_WP1_Z','ZV_4_WP1_Z', SlootID)]

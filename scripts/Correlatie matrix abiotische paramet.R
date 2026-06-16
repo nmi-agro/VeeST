@@ -1,5 +1,5 @@
 ### Correlatie matrix abiotische parameters----------------
-# Select the variables for correlation analysis tussenrapport
+# Select the variables for correlation analysis tussenrapport-------------------------------------------------------------
 cols_corr <- c("drglg", "max_wtd", "doorzicht2_mid_cm", "max_slib", "watbte",
                "oeverzone_2a_breedte_cm", "oeverzone_2b_breedte_cm", 
                "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc",
@@ -21,14 +21,20 @@ nederlandse_namen <- c(
   "Aantal koeien per perceel per dag"
 )
 # abio + oeverbreedte en veentype ------------------------------------
-cols_corr <- c("drglg", "watbte","oevbte",
+cols_corr <- c("drglg", "watbte","oevbte",'max_slib','max_wtd','drglg',
                "oeverzone_2a_breedte_cm", "oeverzone_2b_breedte_cm", 
-               "holleoever", "veentype_num", "Z_CLAY_SA_OR_50","draagkracht_oever","draagkracht_perceel",
-               "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar","Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag")  # voorbeeldparameters, pas aan op basis van beschikbaarheid)  # nieuwe parameters toegevoegd
+               "holleoever", "veentype_num", "Z_CLAY_SA_OR_25","draagkracht_oever","draagkracht_perceel","oever_(0,15]","oever_(15,40]",
+               "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar",
+               "Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag",
+               'tldk_wtrwtr_perc','tldk_oevrwtr_perc',
+               'tldk_vastbodem_perc','max_hgt_or')  
 nederlandse_namen <- c(
   "Drooglegging (m)",
   "Waterbreedte (m)",
   "Oeverbreedte (m)",
+  "Maximale slibdikte (m)",
+  "Maximale waterdiepte (m)",
+  "Drooglegging (m)",
   "Breedte oevervegetatiezone 2a (cm)",
   "Breedte oevervegetatiezone 2b (cm)",
   "Onderholling (cm)",
@@ -36,6 +42,8 @@ nederlandse_namen <- c(
   "Kleigehalte veen (%)",
   "Draagkracht oever (mPa)",
   "Draagkracht perceel (mPa)",
+  "Draagkracht oever (mPa 0-15cm)",
+  "Draagkracht oever (mPa 15-40cm)",
   "Baggerfrequentie per jaar",
   "Maaifrequentie oever per jaar",
   "Aantal koedagen per jaar",
@@ -46,7 +54,7 @@ cols_corr <- c("waterzone_1_subm_tot_perc","2","draagkracht_oever",
                  "slib_redox_pH7","max_slib",
                  "drglg", "max_wtd", "zichtdiepte", "max_slib", "watbte","oeverzone_2b_breedte_cm", "oeverzone_2b_kaal_perc",
                  "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc", "slib_redox_pH7","slib_pH",
-                 "oevbte", "Z_CLAY_SA_OR_50",
+                 "oevbte", "Z_CLAY_SA_OR_25",
                  "draagkracht_oever", "draagkracht_perceel", "water_pH", "NH4_µmol/l_PW","P-AL mg p2o5/100g_SB")
 # Create readable Dutch names mapping
 nederlandse_namen <- c(
@@ -82,10 +90,10 @@ nederlandse_namen <- c(
 
 # alle xgboost parameters inclusief beheer -------------------------------------------------
 cols_corr <- c("waterzone_1_subm_tot_perc","2","draagkracht_oever", 
-                 "slib_redox_pH7","max_slib",
+                 "slib_redox_pH7","max_slib","temp_slib_c",
                  "drglg", "max_wtd", "zichtdiepte", "max_slib", "watbte","oeverzone_2b_breedte_cm", "oeverzone_2b_kaal_perc",
                  "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc", "slib_redox_pH7","slib_pH",
-                 "oevbte", "Z_CLAY_SA_OR_50",
+                 "oevbte", "Z_CLAY_SA_OR_25",
                  "draagkracht_oever", "draagkracht_perceel", "water_pH", "NH4_µmol/l_PW","P-AL mg p2o5/100g_SB",
                 "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar","Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag")
 # Create readable Dutch names mapping
@@ -95,6 +103,7 @@ nederlandse_namen <- c(
   "draagkracht_oever" = "Draagkracht oever (MPa)",
   "slib_redox_pH7" = "Redox slib bij pH7 (mV)",
   "max_slib" = "Slibdikte (m)",
+  "temp_slib_c" = "Slibtemperatuur (°C)",
   "drglg" = "Drooglegging (m)",
   "max_wtd" = "Maximale waterdiepte (m)", 
   "zichtdiepte" = "Doorzicht/waterdiepte",
@@ -122,6 +131,7 @@ nederlandse_namen <- c(
 
 # create corplot with all variables--------------------------------------------------------
 cols_corr <- names(abio_proj)[sapply(abio_proj, is.numeric)]
+nederlandse_namen <- cols_corr
 ## Check which variables actually exist in the dataset -------------------------------------
 available_cols <- cols_corr[cols_corr %in% colnames(abio_proj)]
 print("Available variables:")
@@ -147,21 +157,15 @@ is_bad <- function(x) all(is.na(x)) || all(is.infinite(x)) || sd(x, na.rm = TRUE
 good_cols <- !sapply(cormatrix, is_bad)
 cormatrix_clean <- cormatrix[, good_cols, with = FALSE]
 
-M <- cor(cormatrix_clean, use = "pairwise.complete.obs")
+M <- cor(cormatrix_clean, use = "complete.obs")
 M[is.nan(M) | is.infinite(M)] <- NA
 
-# Remove rows/cols that are still all-NA after correlation
 keep <- rowSums(!is.na(M)) > 1
 M <- M[keep, keep]
 
 p.mat <- cor_pmat(cormatrix_clean[, names(keep)[keep], with = FALSE])
 rownames(M) <- colnames(cormatrix_clean)
 colnames(M) <- colnames(cormatrix_clean)
-# Create both matrices with the same data
-M <- cor(cormatrix)
-# Apply Dutch names to the same matrix
-rownames(M) <- colnames(cormatrix)
-colnames(M) <- colnames(cormatrix)
 # Nu kunt u de namen vervangen
 rownames(M) <- nederlandse_namen[rownames(M)]
 colnames(M) <- nederlandse_namen[colnames(M)]
