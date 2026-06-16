@@ -161,7 +161,7 @@ nederlandse_namen <- c(
   "slib_pH" = "pH slib",
   "oevbte" = "Oeverbreedte (m)",
   "veentype_num" = "Veentype (numeriek)",
-  "Z_CLAY_SA_OR_50" = "Kleigehalte 50cm (%)",
+  "Z_CLAY_SA_OR_25" = "Kleigehalte 25cm (%)",
   "draagkracht_oever" = "Draagkracht oever (MPa)",
   "draagkracht_perceel" = "Draagkracht perceel (MPa)",
   "water_pH" = "Water pH",
