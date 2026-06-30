@@ -14,14 +14,11 @@ library(ggrepel)
 library(patchwork)
 library(stringr)
 library(ggcorrplot)
-
 # 2. Settings and functions ----------------------------------------------------------------
 workspace <- paste0(Sys.getenv("NMI-SITE"), 'O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Data/')
 ## Load custom functions-----------------------------------------------------
 source(paste0("scripts/functions/functions_veest.R"))
 sys.load.image(paste0(workspace,"/Processed_data_workspace.RData"), quiet = FALSE)
-
-
 # 3. Create database/ merge gegevens -------------------------------------------------------
 setDT(locaties)
 locaties[, jaar := as.integer(jaar)]
@@ -100,7 +97,6 @@ abio_proj[text == "Waterschap Zuiderzeeland",waterschap := 'ZZL']
 abio_proj[text == "Hoogheemraadschap van Delfland",waterschap := 'HDL']
 abio_proj[gebied == 'EEM',waterschap := 'WVV']
 abio_proj[gebied == 'BD',waterschap := 'Fryslân']
-
 # veentype
 abio_proj[grepl('b$',BODEMCODE), veentype:= 'broekveen']
 abio_proj[grepl('k$',BODEMCODE), veentype:= 'kleiig veen']
@@ -158,6 +154,9 @@ abio_proj[, draagkracht_oever := rowMeans(.SD, na.rm = TRUE),
 # Gemiddelde draagkracht perceel berekenen obv perceel penetrometer metingen
 abio_proj[, draagkracht_perceel := rowMeans(.SD, na.rm = TRUE), 
           .SDcols = c("perceel_(10,20]", "perceel_(20,30]", "perceel_(30,40]", "perceel_(40,50]")]
+abio_proj[, draagkracht_insteek := rowMeans(.SD, na.rm = TRUE), 
+          .SDcols = c("insteek_(10,20]", "insteek_(20,30]", "insteek_(30,40]", "insteek_(40,50]")]
+
 abio_proj[, slibdiepte := max_slib + max_wtd]
 abio_proj[, doorzicht2_mid_m :=  doorzicht2_mid_cm/100]
 abio_proj[, zichtdiepte :=   doorzicht2_mid_m/max_wtd]
@@ -299,6 +298,7 @@ veentype_colors <- c(
 
 ### Filter data 4 analyse omstandigheden, beheer en vegetatie-------------
 melt <- melt[WP %in% c('WP1','WP2'),]
+melt_orig <- melt  # bewaar originele melt voor gebruik in loops verderop
 abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
 
 ### Filter data voor ronde hoep----------------------------------------------------
@@ -6401,7 +6401,7 @@ ggplot() +
   ggtitle("Relatie veensloottypen en gemeten veensloottypen") +
   labs(x= "organisch stof obv BodemSchat",y="organisch stof obv meting")
 
-## 5.4a abio per gebied en per parameter -----------------------
+## 5.4a abio alle gebieden en per parameter -----------------------
 # fingerprint per par, eenheid en methode alle gebieden
 for(j in unique(melt$par_eenheid)){
   # j <- unique(melt$par_eenheid)[158]
@@ -6477,6 +6477,32 @@ for(i in unique(melt$variable)){
 
 
 }
+### fingerprints per gebied ---------------------------------------------------
+
+melt_sel <- melt[variable%in%c("fe/p_pw","fe/p_dw_sb","fep_cc_sb_sb","fep_xrf_sb_sb"),]
+ggplot(melt_sel, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(methode~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black'),
+          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
+          
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel$parameter)," ",unique(melt_sel$methode))) 
+dir.create(paste0('output/AlleGebieden/fingerprints'), recursive = TRUE, showWarnings = FALSE)
+ggsave(file=paste0('output/AlleGebieden/fingerprints/AlleGebieden_Fe_P.png'), width = 35,height = 15,units='cm',dpi=800)
+  
+
+# Herstel originele melt (overschreven door eerdere loops/bewerkingen)
+melt <- melt_orig
+
+## 5.4b loop per parameter en gebied en waterbodemdata---------------
 ### loop per parameter, compartiment, monsterdiepte alle gebieden - uitgelicht per gebied
 for(i in unique(melt$variable)){
   # i <- unique(melt$variable)[148]
@@ -6491,7 +6517,7 @@ for(i in unique(melt$variable)){
       
   ggplot() +
     geom_histogram(data = melt_sel, aes(value, fill = fillcol)) +
-    scale_fill_manual(values = c("black", "grey")) +
+    scale_fill_manual(values = c("black", "grey","grey", "grey", "grey", "grey","grey", "grey", "grey")) +
     facet_wrap(jaar~.) +
     theme_minimal()+
     theme(
@@ -6509,7 +6535,7 @@ for(i in unique(melt$variable)){
     labs(x= paste0(unique(melt_sel$eenheid)), y=paste0("aantal monstertrajecten (n= " , uniqueN(melt_sel$SlootID),') '))
   
     # Create directory if it doesn't exist and save in one step
-  output_path <- paste0('output/', j, '/histogram/', var_folder, '_',unique(melt_sel$methode), '.png')
+  output_path <- paste0(workspace,'output/', j, '/histogram/', var_folder, '_',unique(melt_sel$methode), '.png')
   dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
   ggsave(file = output_path, width = 25, height = 15, units = 'cm', dpi = 800)
   
@@ -6534,42 +6560,40 @@ for(i in unique(melt$variable)){
   ggtitle(melt_sel$varnames) +
   labs(x= 'gebied', y=paste0(unique(melt_sel$eenheid)))
   
-  output_path <- paste0('output/', j, '/boxplot/', var_folder, '_',unique(melt_sel$methode), '.png')
+  output_path <- paste0(workspace,'output/', j, '/boxplot/', var_folder, '_',unique(melt_sel$methode), '.png')
   dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
   ggsave(file = output_path, width = 25, height = 15, units = 'cm', dpi = 800)
   }
 
 }
-
-## 5.4b loop per parameter en gebied en waterbodemdata---------------
-### loop per gebied voor specifieke parameters in water en bodem die relevant zijn voor veensloten
+### loop per gebied voor specifieke parameters in waterbodem die relevant zijn voor veensloten
 for(i in unique(melt$gebied)){
-# i <- unique(melt$gebied)[22] # ronde hoep
-sel1 <- c("PO4-CC_mg P/kg_calciumchloride", "Fe_mg/kg_calciumchloride","Fe/P_CC_calciumchloride",
-          "Fe2O3_g/kg_xrf","SO3_g/kg_xrf", "Fe/S__xrf",
-          "P_µmol/l_PW", "Fe_µmol/l_PW", "Fe/P_PW_PW",
-          "Fe/S_DW_PW", "Fe_mmol/kg DW_PW", "S_mmol/kg DW_PW",
+# i <- unique(melt$gebied)[1] # ronde hoep
+sel1 <- c("P-PO4_CC_mg/kg_SB", "Fe_CC_mg/kg_SB","feP_CC_SB_SB",
+          "Fe2O3_xrf_g/kg_SB","SO3_xrf_g/kg_SB", "feS_XRF_SB_SB",
+          "P_µmol/l_PW", "Fe_µmol/l_PW", "FeP_PW",
+          "feS_DW_SB", "Fe_mmol/kg DW_SB", "S_mmol/kg DW_SB",
           "NH4_µmol/l_PW","S_µmol/l_PW")
-
-melt_sel <- melt[par_eenheid %in% sel1,]
+sel1 <- tolower(sel1)
+melt_sel <- melt[variable %in% sel1,]
 melt_sel[,Sloot_nr:= as.character(Sloot_nr)]
 
 #### ammonium tox-----------------
 #nh4 range van 0.9-907 umol/l (mediaan= 330, q90 = 341), max 28 mgN/l = 200 umol
 ammonium <- data.frame(xmin = -Inf, 
                     xmax = Inf,
-                    ymin = c(0,100,1000,2000),  
-                    ymax = c(100,1000,2000,Inf),
-                    fill = c("blue","yellow", "orange","red"),
-                    label = c("niet", "voor gevoelige soorten","voor veel soorten","voor bijna alle soorten"))
+                    ymin = c(0,100,400,750,5000),  
+                    ymax = c(100,400,750,5000,Inf),
+                    fill = c("green","yellow", "orange","red","purple"),
+                    label = c("niet", "voor gevoelige soorten","voor veel soorten","voor bijna alle soorten","voor alle soorten"))
 
-legend_colors <- setNames(c("blue","yellow", "orange","red"), ammonium$label)
+legend_colors <- setNames(c("green","yellow", "orange","red","purple"), ammonium$label)
 
 ggplot() +
   geom_rect(data= ammonium, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill), 
             inherit.aes = FALSE, alpha = 0.15) +
-  scale_fill_identity('Giftig:',breaks = legend_colors, labels = c("niet", "voor gevoelige soorten","voor veel soorten","voor bijna alle soorten"), guide = guide_legend(override.aes = list(alpha = 0.15)))+
-  geom_col(data = melt_sel[variable %in% c('NH4_µmol/l_PW') & gebied %in% i],
+  scale_fill_identity('Giftig:',breaks = legend_colors, labels = c("niet", "voor gevoelige soorten","voor veel soorten","voor bijna alle soorten","voor alle soorten"), guide = guide_legend(override.aes = list(alpha = 0.15)))+
+  geom_col(data = melt_sel[variable %in% c('nh4_µmol/l_pw') & gebied %in% i],
            aes(x= SlootID, y = value), fill = "#1B9E77",
            position = 'dodge', alpha = 0.7)+
   facet_grid(jaar ~ Gebiedsnaam, space = 'free_x', scales = 'free_x', switch = 'x')+
@@ -6591,11 +6615,10 @@ ggplot() +
   )+
   ggtitle('') +
   labs(x= 'gebied & slootnummer' , y= 'µmol/l')
-ggsave(file=paste0('output/',i,'/waterbodem/',i,'_nh4_tox.png'), width = 25,height = 15,units='cm',dpi=800)
+ggsave(file=paste0(workspace,'output/',i,'/waterbodem/',i,'_nh4_tox.png'), width = 25,height = 15,units='cm',dpi=800)
 
 #### S tox--------------
 #S range van 0.5-358 umol/l (mediaan=18.4, q90 = 53.2). 
-
 sulfide <- data.frame(xmin = -Inf, 
                        xmax = Inf,
                        ymin = c(0,10,40,200),  
@@ -6609,7 +6632,7 @@ ggplot() +
   geom_rect(data= sulfide, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill), 
             inherit.aes = FALSE, alpha = 0.15) +
   scale_fill_identity('Mogelijk giftig:',breaks = legend_colors, labels = c("niet", "voor gevoelige soorten","voor veel soorten","voor bijna alle soorten"), guide = guide_legend(override.aes = list(alpha = 0.15)))+
-  geom_col(data = melt_sel[variable %in% c('S_µmol/l_PW') & gebied %in% i],
+  geom_col(data = melt_sel[variable %in% c('s_µmol/l_pw') & gebied %in% i],
            aes(x= Sloot_nr, y = value), fill = "#1B9E77",
            position = 'dodge', alpha = 0.7)+
   facet_grid(.~ Gebiedsnaam, space = 'free_x', scales = 'free_x', switch = 'x')+
@@ -6631,16 +6654,15 @@ ggplot() +
   )+
   ggtitle('') +
   labs(x= 'gebied & slootnummer' , y= 'µmol/l')
-ggsave(file=paste0('output/',i,'/waterbodem/',i,'_S_tox.png'), width = 25,height = 15,units='cm',dpi=800)
+ggsave(file=paste0(workspace,'output/',i,'/waterbodem/',i,'_S_tox.png'), width = 25,height = 15,units='cm',dpi=800)
 
 melt_sel <- dcast(melt_sel, Sloot_nr+Gebiedsnaam+gebied~variable, value.var = 'value', fun.aggregate = mean)
-
 #### P cc fe/s xrf -------------
 ggplot() +
-  geom_point(data = melt_sel, aes(x= feS_XRF_SB_SB, y = `P-PO4_CC_mg/kg`), col = 'lightgrey', size = 5) +
-  geom_point(data = melt_sel[gebied %in% i,], aes(x= feS_XRF_SB_SB, y = `P-PO4_CC_mg/kg`, col = Sloot_nr), size = 5) +
+  geom_point(data = melt_sel, aes(x= fes_xrf_sb_sb, y = `p-po4_cc_mg/kg_sb`), col = 'lightgrey', size = 5) +
+  geom_point(data = melt_sel[gebied %in% i,], aes(x= fes_xrf_sb_sb, y = `p-po4_cc_mg/kg_sb`, col = Sloot_nr), size = 5) +
   # ylim(0,max(melt_sel[gebied %in% i,`P-PO4_CC_mg/kg`]*1.01))+
-  xlim(0,max(melt_sel[gebied %in% i,feS_XRF_SB_SB]*1.01))+
+  xlim(0,max(melt_sel[gebied %in% i,fes_xrf_sb_sb]*1.01))+
   scale_colour_manual(values =c("#1B9E77","#7570B3","#E6AB02","#D95F02","#E7298A",
                                 "#000000", "#E69F00","#56B4E9","#009E73" ,"#F0E442" ,
                                 "#0072B2", "#D55E00", "#CC79A7","#999999",  
@@ -6664,14 +6686,14 @@ ggplot() +
   )+
   ggtitle('') +
   labs(x= 'Fe/S ratio slib (molbasis)' , y= 'P-PO4 CC (mg/kg)', col = 'Sloot nummer' )
-ggsave(file=paste0('output/',i,'/waterbodem/',i,'_PversusFeS_CC_XRF.png'), width = 25,height = 15,units='cm',dpi=800)
+ggsave(file=paste0(workspace,'output/',i,'/waterbodem/',i,'_PversusFeS_CC_XRF.png'), width = 25,height = 15,units='cm',dpi=800)
 
 #### p versus feP - ccP cc fe/s xrf -----------
 ggplot() +
-  geom_point(data = melt_sel, aes(x= feP_CC_SB_SB, y = `P-PO4_CC_mg/kg`), col = 'lightgrey', size = 5) +
-  geom_point(data = melt_sel[gebied %in% i,], aes(x= feP_CC_SB_SB, y = `P-PO4_CC_mg/kg`, col = Sloot_nr), size = 5) +
+  geom_point(data = melt_sel, aes(x= fep_cc_sb_sb, y = `p-po4_cc_mg/kg_sb`), col = 'lightgrey', size = 5) +
+  geom_point(data = melt_sel[gebied %in% i,], aes(x= fep_cc_sb_sb, y = `p-po4_cc_mg/kg_sb`, col = Sloot_nr), size = 5) +
   # ylim(0,max(melt_sel[gebied %in% i,`P-PO4_CC_mg/kg`]*1.01))+
-  xlim(0,max(melt_sel[gebied %in% i,feP_CC_SB_SB]*1.01))+
+  xlim(0,max(melt_sel[gebied %in% i,fep_cc_sb_sb]*1.01))+
   
   scale_colour_manual(values =c("#1B9E77","#7570B3","#E6AB02","#D95F02","#E7298A",
                                 "#000000", "#E69F00","#56B4E9","#009E73" ,"#F0E442" ,
@@ -6696,14 +6718,14 @@ ggplot() +
   )+
   ggtitle('') +
   labs(x= 'Fe/P ratio (molbasis)' , y= 'P-PO4 CC (mg/kg)', col = 'Sloot nummer' )
-ggsave(file=paste0('output/',i,'/waterbodem/',i,'_PversusFeP_CC.png'), width = 25,height = 15,units='cm',dpi=800)
+ggsave(file=paste0(workspace,'output/',i,'/waterbodem/',i,'_PversusFeP_CC.png'), width = 25,height = 15,units='cm',dpi=800)
 
 #### p versus feS - bware -------------
 ggplot() +
-  geom_point(data = melt_sel, aes(x= `Fe/P_PW`, y = `P_µmol/l_PW`), col = 'lightgrey', size = 5) +
-  geom_point(data = melt_sel[gebied %in% i,], aes(x= `Fe/P_PW`, y = `P_µmol/l_PW`, col = Sloot_nr), size = 5) +
+  geom_point(data = melt_sel, aes(x= `fep_pw`, y = `p_µmol/l_pw`), col = 'lightgrey', size = 5) +
+  geom_point(data = melt_sel[gebied %in% i,], aes(x= `fep_pw`, y = `p_µmol/l_pw`, col = Sloot_nr), size = 5) +
   # ylim(0,max(melt_sel[gebied %in% i,`P_µmol/l_PW`]*1.01))+
-  xlim(0,max(melt_sel[gebied %in% i,`Fe/P_PW`]*1.01))+
+  xlim(0,max(melt_sel[gebied %in% i,`fep_pw`]*1.01))+
   scale_colour_manual(values =c("#1B9E77","#7570B3","#E6AB02","#D95F02","#E7298A",
                                 "#000000", "#E69F00","#56B4E9","#009E73" ,"#F0E442" ,
                                 "#0072B2", "#D55E00", "#CC79A7","#999999",  
@@ -6728,14 +6750,14 @@ ggplot() +
   )+
   ggtitle('') +
   labs(x= 'Fe/P ratio poriewater (molbasis)' , y= 'P poriewater (µmol/l)', col = 'Sloot nummer' )
-ggsave(file=paste0('output/',i,'/waterbodem/',i,'_PversusFeP_Bware.png'), width = 25,height = 15,units='cm',dpi=800)
+ggsave(file=paste0(workspace,'output/',i,'/waterbodem/',i,'_PversusFeP_Bware.png'), width = 25,height = 15,units='cm',dpi=800)
 
 #### p versus feS - bware -------------
 ggplot() +
-  geom_point(data = melt_sel, aes(x= feS_DW_SB, y = `P_µmol/l_PW`), col = 'lightgrey', size = 5) +
-  geom_point(data = melt_sel[gebied %in% i,], aes(x= feS_DW_SB, y = `P_µmol/l_PW`, col = Sloot_nr), size = 5) +
+  geom_point(data = melt_sel, aes(x= fes_dw_sb, y = `p_µmol/l_pw`), col = 'lightgrey', size = 5) +
+  geom_point(data = melt_sel[gebied %in% i,], aes(x= fes_dw_sb, y = `p_µmol/l_pw`, col = Sloot_nr), size = 5) +
   # ylim(0,max(melt_sel[gebied %in% i,`P_µmol/l_PW`]*1.01))+
-  xlim(0,max(melt_sel[gebied %in% i,feS_DW_SB]*1.01))+
+  xlim(0,max(melt_sel[gebied %in% i,fes_dw_sb]*1.01))+
   scale_colour_manual(values =c("#1B9E77","#7570B3","#E6AB02","#D95F02","#E7298A",
                                 "#000000", "#E69F00","#56B4E9","#009E73" ,"#F0E442" ,
                                 "#0072B2", "#D55E00", "#CC79A7","#999999",  
@@ -6760,8 +6782,7 @@ ggplot() +
   )+
   ggtitle('') +
   labs(x= 'Fe/S ratio slib (molbasis)' , y= 'P poriewater (µmol/l)', col = 'Sloot nummer' )
-ggsave(file=paste0('output/',i,'/waterbodem/',i,'_PversusFeS_Bware.png'), width = 25,height = 15,units='cm',dpi=800)
-
+ggsave(file=paste0(workspace,'output/',i,'/waterbodem/',i,'_PversusFeS_Bware.png'), width = 25,height = 15,units='cm',dpi=800)
 }
 ### loop abiotiek per gebied----------------
 for(i in unique(melt$gebied)){
@@ -6801,8 +6822,8 @@ for(i in unique(melt$gebied)){
     ggtitle(paste0("Doorzicht, waterdiepte & slibdikte")) +
     labs(x= 'Slootnummer' , y= 'meter')
   
-  dir.create(paste0('output/', i, '/abiotiek'), recursive = TRUE, showWarnings = FALSE)
-  ggsave(file=paste0('output/',i,'/abiotiek/',i, '_watdte_zicht','.png'), width = 25,height = 15,units='cm',dpi=800)
+  dir.create(paste0(workspace,'output/', i, '/abiotiek'), recursive = TRUE, showWarnings = FALSE)
+  ggsave(file=paste0(workspace,'output/',i,'/abiotiek/',i, '_watdte_zicht','.png'), width = 25,height = 15,units='cm',dpi=800)
   
   ## redox------------------------
   melt_sel[,Sloot_nr:= as.character(Sloot_nr)]
@@ -6817,54 +6838,45 @@ for(i in unique(melt$gebied)){
                       label = c("methonogenese", "sulfaatreductie","ijzeroxidereductie","nitraatreductie","oxisch"))
   
   legend_colors <- setNames(c("red", "darkorange","orange", "yellow","blue"), rects$label)
- 
-  
-melt_sel$variable
-ggplot(data = melt_sel[variable %in% c("slib_redox_ph7"),]) +
-    geom_col(aes(x = Sloot_nr, y = value, fill = beheer), position = "dodge") +
-    geom_point(aes(x = Sloot_nr, y = `gemiddelde VeeST`, col = '* gemiddelde VeeST'),
-               shape = 95, size = 10) +
-    scale_fill_manual(values = c("#1B9E77","#7570B3","#E6AB02","#D95F02","#E7298A")) +
-    scale_colour_manual(values = c('grey2')) +
-    new_scale_fill() +
-    geom_rect(data = rects_gebiedsnaam, 
-              aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill),
-              inherit.aes = FALSE, alpha = 0.15) +
-    scale_fill_identity('Redoxtoestand:', breaks = legend_colors,
-                        labels = c("methonogenese","sulfaatreductie","ijzeroxidereductie","nitraatreductie","oxisch"),
-                        guide = guide_legend(override.aes = list(alpha = 0.15))) +
-    facet_grid(. ~ Gebiedsnaam, space = 'free_x', scales = 'free_x', switch = 'x') +
-    theme_minimal(base_size = 15) +
-    theme(
-      strip.background = element_blank(),
-      axis.text.x = element_text(size = 14, vjust = 0.5, hjust = 1, angle = 90),
-      axis.text.y = element_text(size = 14),
-      axis.ticks = element_line(colour = "black"),
-      axis.line = element_line(colour = 'black'),
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      panel.background = element_blank(),
-      panel.border = element_rect(colour = 'black', fill = NA),
-      legend.position = "right"
-    ) +
-    guides(col = guide_legend(title = ''), fill = guide_legend(title = 'Redoxtoestand')) +
-    ggtitle(paste0("Redoxpotentiaal (pH7)in slib in ", unique(melt_sel$Gebiedsnaam))) +
-    labs(x = 'Slootnummer', y = 'mV', fill = 'Type beheer')
-
-  ggsave(file=paste0('output/',i,'/abiotiek/',i, '_redox','.png'), width = 25,height = 15,units='cm',dpi=800)
-  
-  
-  
+   
+  ggplot(data = melt_sel[variable %in% c("slib_redox_ph7"),]) +
+      geom_col(aes(x = Sloot_nr, y = value, fill = beheer), position = "dodge") +
+      geom_point(aes(x = Sloot_nr, y = `gemiddelde VeeST`, col = '* gemiddelde VeeST'),
+                shape = 95, size = 10) +
+      scale_fill_manual(values = c("#1B9E77","#7570B3","#E6AB02","#D95F02","#E7298A")) +
+      scale_colour_manual(values = c('grey2')) +
+      new_scale_fill() +
+      geom_rect(data = rects, 
+                aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill),
+                inherit.aes = FALSE, alpha = 0.15) +
+      scale_fill_identity('Redoxtoestand:', breaks = legend_colors,
+                          labels = c("methonogenese","sulfaatreductie","ijzeroxidereductie","nitraatreductie","oxisch"),
+                          guide = guide_legend(override.aes = list(alpha = 0.15))) +
+      facet_grid(. ~ Gebiedsnaam, space = 'free_x', scales = 'free_x', switch = 'x') +
+      theme_minimal(base_size = 15) +
+      theme(
+        strip.background = element_blank(),
+        axis.text.x = element_text(size = 14, vjust = 0.5, hjust = 1, angle = 90),
+        axis.text.y = element_text(size = 14),
+        axis.ticks = element_line(colour = "black"),
+        axis.line = element_line(colour = 'black'),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = 'black', fill = NA),
+        legend.position = "right"
+      ) +
+      guides(col = guide_legend(title = ''), fill = guide_legend(title = 'Redoxtoestand')) +
+      ggtitle(paste0("Redoxpotentiaal (pH7)in slib in ", unique(melt_sel$Gebiedsnaam))) +
+      labs(x = 'Slootnummer', y = 'mV', fill = 'Type beheer')
+  dir.create(paste0(workspace,'output/', i, '/abiotiek'), recursive = TRUE, showWarnings = FALSE)
+  ggsave(file=paste0(workspace,'output/',i,'/abiotiek/',i, '_redox','.png'), width = 25,height = 15,units='cm',dpi=800)
+    
   ## fingerprint-------------
-  sel <- c("SiO2","Al2O3","MgO" )
-  sel5 <- c("Zn","Pb","Cu","Ni","PH_CC" ) # kan ook opgelost uitspoelen door pyrietoxidatie en zink spoelt makkelijk uit zure veenbodems
-  sel2 <- c("SO3", "CaO", "Fe2O3")
   sel3 <- c("N-NH4", "N-NO3")
   sel4 <- c("P2O5","P-AL","P-CC")
-  sel6 <- c("Fe/P_DW_PW","Fe/P_PW_PW",
-            "Fe/P_CC_calciumchloride","Fe/P__xrf")
-  sel7 <- c("Fe/S__xrf","Fe/S_CC_calciumchloride","Fe/S__PW","Fe/S_DW_PW")
-  
+  sel6 <- c("Fe/P_DW_PW","Fe/P_PW_PW","Fe/P_CC_calciumchloride","Fe/P__xrf")
   melt_sel_fp <- melt_sel[(par_eenheid%in%sel6),]
+  
   if(nrow(melt_sel_fp)>0){
   ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
     facet_wrap(methode~parameter+eenheid, scales = "free",
@@ -6880,9 +6892,11 @@ ggplot(data = melt_sel[variable %in% c("slib_redox_ph7"),]) +
     ) +
     scale_fill_brewer(palette = "Set2") +
     labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel$parameter)," ",unique(melt_sel$methode))) 
-  ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 35,height = 15,units='cm',dpi=800)
+    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
+  dir.create(paste0(workspace,'output/', i, '/fingerprints'), recursive = TRUE, showWarnings = FALSE)
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_Fe_P.png'), width = 35,height = 15,units='cm',dpi=800)
   
+  sel7 <- c("Fe/S__xrf","Fe/S_CC_calciumchloride","Fe/S__PW","Fe/S_DW_PW")
   melt_sel_fp <- melt_sel[(par_eenheid%in%sel7),]
   ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
     facet_wrap(methode~parameter+eenheid, scales = "free",
@@ -6897,9 +6911,10 @@ ggplot(data = melt_sel[variable %in% c("slib_redox_ph7"),]) +
     ) +
     scale_fill_brewer(palette = "Set2") +
     labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel$parameter)," ",unique(melt_sel$methode))) 
-  ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 35,height = 15,units='cm',dpi=800)
+    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_fe_s.png'), width = 35,height = 15,units='cm',dpi=800)
   
+    sel <- c("SiO2","Al2O3","MgO" )
   melt_sel_fp <- melt_sel[(parameter%in%sel & methode == 'xrf')|parameter%in%'organisch stof',]
   ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
     facet_wrap(~parameter+eenheid, scales = "free",
@@ -6913,8 +6928,10 @@ ggplot(data = melt_sel[variable %in% c("slib_redox_ph7"),]) +
     ) +
     scale_fill_brewer(palette = "Set2") +
     labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel$parameter)," ",unique(melt_sel$methode))) 
-  ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 35,height = 15,units='cm',dpi=800)
+    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_minerale_delen.png'), width = 35,height = 15,units='cm',dpi=800)
+  
+    sel5 <- c("Zn","Pb","Cu","Ni","PH_CC" ) # kan ook opgelost uitspoelen door pyrietoxidatie en zink spoelt makkelijk uit zure veenbodems
   
   melt_sel_fp <- melt_sel[(parameter%in%sel5 & methode == 'xrf')|par_eenheid%in%"pH_CC_calciumchloride",]
   ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
@@ -6929,9 +6946,10 @@ ggplot(data = melt_sel[variable %in% c("slib_redox_ph7"),]) +
     ) +
     scale_fill_brewer(palette = "Set2") +
     labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel$parameter)," ",unique(melt_sel$methode))) 
-  ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 35,height = 15,units='cm',dpi=800)
+    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_metalen.png'), width = 35,height = 15,units='cm',dpi=800)
   
+    sel2 <- c("SO3", "CaO", "Fe2O3")
   melt_sel_fp <- melt_sel[(parameter%in%sel2 & methode == 'xrf'),]
   ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
     facet_wrap(~parameter+eenheid, scales = "free",
@@ -6945,149 +6963,13 @@ ggplot(data = melt_sel[variable %in% c("slib_redox_ph7"),]) +
     ) +
     scale_fill_brewer(palette = "Set2") +
     labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel$parameter)," ",unique(melt_sel$methode))) 
-  ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 35,height = 15,units='cm',dpi=800)
+    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_cafeSO.png'), width = 35,height = 15,units='cm',dpi=800)
   
-  melt_sel_fp <- melt_sel[parameter%in%sel4 & methode %in% c('xrf','pal','XRF','calciumchloride','CC'),]
-  melt_sel_fp <- melt_sel_fp[is.na(eenheid), eenheid := ""]
-  melt_sel_fp <- melt_sel_fp[!par_eenheid %in% 'P-AL_mg/kg',]
-  ggplot(melt_sel_fp, aes(x = paste0(compartiment), y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    facet_wrap(~parameter+methode, scales = "free",
-               ncol = 3) +
-    stat_boxplot(geom = 'errorbar') +
-    geom_boxplot(outliers = FALSE) +
-    theme_minimal() +
-    theme(text = element_text(size = 14),
-          axis.ticks =  element_line(colour = "black"),
-          axis.line = element_line(colour='black'),
-          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
-    ) +
-    guides(fill = guide_legend(title = 'compartiment en monsterdiepte', title.vjust = 1))+
-    scale_fill_brewer(palette = "Set2") +
-    labs(x = "", y = "", fill = 'compartiment en monsterdiepte')
-  ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 35,height = 15,units='cm',dpi=800)
   
-  melt_sel_fp <- melt_sel[parameter%in% "Fe/P" & methode %in% c('xrf','pal','XRF','calciumchloride','CC','PW'),]
-  melt_sel_fp <- melt_sel_fp[is.na(eenheid), eenheid := ""]
-  ggplot(melt_sel_fp, aes(x = paste0(compartiment), y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    facet_wrap(~parameter+methode, scales = "fixed",
-               ncol = 3) +
-    stat_boxplot(geom = 'errorbar') +
-    geom_boxplot(outliers = FALSE) +
-    theme_minimal() +
-    theme(text = element_text(size = 14),
-          axis.ticks =  element_line(colour = "black"),
-          axis.line = element_line(colour='black'),
-          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
-    ) +
-    guides(fill = guide_legend(title = 'compartiment en monsterdiepte', title.vjust = 1))+
-    scale_fill_brewer(palette = "Set2") +
-    labs(x = "", y = "", fill = 'compartiment en monsterdiepte')
-  ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 35,height = 15,units='cm',dpi=800)
-  
-  melt_sel_fp <- melt_sel[parameter%in% "Fe/S" & methode %in% c('xrf','pal','XRF','calciumchloride','CC','icp Bware'),]
-  melt_sel_fp <- melt_sel_fp[is.na(eenheid), eenheid := ""]
-  ggplot(melt_sel_fp, aes(x = paste0(compartiment), y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    facet_wrap(~parameter+methode, scales = "fixed",
-               ncol = 3) +
-    stat_boxplot(geom = 'errorbar') +
-    geom_boxplot(outliers = FALSE) +
-    theme_minimal() +
-    theme(text = element_text(size = 14),
-          axis.ticks =  element_line(colour = "black"),
-          axis.line = element_line(colour='black'),
-          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
-    ) +
-    guides(fill = guide_legend(title = 'compartiment en monsterdiepte', title.vjust = 1))+
-    scale_fill_brewer(palette = "Set2") +
-    labs(x = "", y = "", fill = 'compartiment en monsterdiepte')
-  ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 35,height = 15,units='cm',dpi=800)
-  }
-  
-  ## abiotiek-----------------
-  # per sloot nr en behandeling (compartiment en mons diepte facet)
-  for(j in unique(melt_sel$par_eenheid)){
-    # j <- unique(melt_sel$par_eenheid)[164]
-    melt_sel_v <- melt_sel[par_eenheid %in% j,]
-    
-      melt_sel_v[,Sloot_nr:= as.character(Sloot_nr)]
-      melt_sel_v[is.na(monsterdiepte),monsterdiepte := '-']
-      # melt_sel_v[,Sloot_nr:= factor(Sloot_nr, levels = c('1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'))]
-      var_folder <- gsub('/','_',j)
-      var_folder <- gsub('%','perc',var_folder)
-      
-      ggplot() +
-        geom_col(data = melt_sel_v, aes(x= Behandeling, y = value, fill = beheer), position = "dodge") +
-        geom_point(data = melt_sel_v, aes(x= Behandeling, y = `gemiddelde VeeST`, col = '* gemiddelde VeeST'),
-                   shape = 95, size = 10) +
-        scale_fill_manual(values =c("#1B9E77","#7570B3","#E6AB02","#D95F02","#E7298A"))+
-        scale_colour_manual(values =c('grey2'))+
-        facet_grid(compartiment+monsterdiepte ~ Sloot_nr, space = 'free_x', scales = 'free_x', switch = 'x')+
-        theme_minimal(base_size = 15)+
-        theme(
-          strip.background = element_blank(),
-          strip.text.y = element_text(size = 12),
-          axis.text.x = element_text(size = 14, vjust = 0.5, hjust = 1, angle = 90),
-          axis.text.y = element_text(size = 14),
-          axis.title = element_text(size = 14),
-          axis.ticks =  element_line(colour = "black"),
-          axis.line = element_line(colour='black'),
-          plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-          panel.background = element_blank(),
-          panel.border = element_rect(colour='black', fill = NA),
-          plot.background = element_blank(),
-          legend.position = "right",
-          legend.box.just = "center"
-        )+
-        guides(col = guide_legend(title = ''), fill = guide_legend(title = 'Type beheer'))+
-        ggtitle(paste0(unique(melt_sel_v$parameter), " ",unique(melt_sel_v$Gebiedsnaam))) +
-        labs(x= 'Slootnummer en behandeling' , y=paste0(unique(melt_sel_v$parameter),' (',unique(melt_sel_v$eenheid),') '), fill = 'Type beheer' )
-      ggsave(file=paste0('output/',i,'/abiotiek/',i,'_monsdte_comp_',var_folder,unique(melt_sel_v$methode),'.png'), width = 35,height = 15,units='cm',dpi=800)
-      
-       
-  }
-  # per sloot nr en behandeling unieke par, methode en compartiment
-  for(j in unique(melt_sel$variable)){
-    # j <- unique(melt_sel$variable)[306]
-    melt_sel_v <- melt_sel[variable %in% j,]
-    melt_sel_v[,Sloot_nr:= as.character(Sloot_nr)]
-    # melt_sel_v[,Sloot_nr:= factor(Sloot_nr, levels = c('1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'))]  
-    melt_sel_v[,value_ref :=  value -`gemiddelde VeeST`]
-    gemVeest <- round(unique(melt_sel_v$`gemiddelde VeeST`), digits = 2)
-    var_folder <- gsub('/','_',j)
-    var_folder <- gsub('%','perc',var_folder)
-    
-    ggplot() +
-      geom_col(data = melt_sel_v, aes(x= Behandeling, y = value_ref, fill = beheer)) +
-      scale_fill_manual(values =c("#D95F02", "#A6761D", "#7570B3", "#1B9E77","#E6AB02","#E7298A","#66A61E"))+
-      scale_y_continuous(labels = function(x)x+gemVeest,
-                         sec.axis = sec_axis(function(x)x, name = 'tov gemiddelde VeeST'))+
-      facet_grid(.~ Sloot_nr, space = 'free_x', scales = 'free_x', switch = 'x')+
-      theme_minimal(base_size = 15)+
-      theme(
-        strip.background = element_blank(),
-        strip.text.y = element_text(size = 12), 
-        axis.text = element_text(size = 14, angle = 45),
-        axis.title = element_text(size= 15),
-        axis.ticks =  element_line(colour = "black"),
-        plot.title = element_text(size =15, face="bold"),
-        panel.background = element_blank(),
-        panel.border = element_rect(colour='black', fill = NA),
-        plot.background = element_blank(),
-        legend.position = "right",
-        legend.box.just = "center"
-      )+
-      guides(col = guide_legend(title = ''), fill = guide_legend(title = 'Type beheer'))+
-      labs(title = (paste0(capitalize(unique(melt_sel_v$varnames))," ten opzichte van het gemiddelde VeeST (",round(gemVeest, digits = 2), " ",unique(melt_sel_v$eenheid),")" )),
-           subtitle = paste0('in ', unique(melt_sel_v$Gebiedsnaam)),
-           x= 'Slootnummer en behandeling' ,
-           y= fifelse(unique(melt_sel_v$eenheid) == "",
-                        unique(melt_sel_v$parameter),
-                             paste0(unique(melt_sel_v$parameter),' (',unique(melt_sel_v$eenheid),') ')),
-           fill = 'Type beheer' )
-    ggsave(file=paste0('output/',i,'/abiotiek/',i, '_hist_',var_folder,unique(melt_sel_v$methode),'.png'), width = 35,height = 15,units='cm',dpi=800)
   }
 } 
+
 
 ## 5.5 plot penetrometer-------------------------
 # calc draagkracht per diepte
@@ -7150,7 +7032,7 @@ for(gb in unique(penmerge$Gebiedsnaam)){
       )+
     labs(title= paste0("Indringsweerstand per sloot"), 
          subtitle = "gemeten tussen waterlijn en insteek" , x= "indringingsweerstand (mPa)",y="diepteinterval (cm)", col ='Zone')
-  ggsave(file=paste0('output/',unique(penmerge_gb$gebied),'/penetrometer/', unique(penmerge_gb$gebied),'persloot_ydiepte.png'),width = 15,height = 7.0,units='in',dpi=800)
+  ggsave(file=paste0(workspace,'output/',unique(penmerge_gb$gebied),'/penetrometer/', unique(penmerge_gb$gebied),'_persloot_ydiepte.png'),width = 15,height = 7.0,units='in',dpi=800)
    
   #### per behandeling --------------
   penmerge_gb <- penmerge_gb[,lapply(.SD,mean,na.rm=TRUE),.SDcols=c('Diept','indringingsweerstand'),by=c('Gebiedsnaam','gebied','sloot','SlootID','Sloot_nr','sectie','Behandeling','beheer','sectie_f','dieptebin','jaar')]
@@ -7177,7 +7059,7 @@ for(gb in unique(penmerge$Gebiedsnaam)){
     )+
     labs(title= paste0("Indringsweerstand per sloot en behandeling in ",unique(penmerge_gb$Gebiedsnaam)), 
          subtitle = "gemeten tussen waterlijn en insteek" , x= "indringingsweerstand (mPa)",y="diepteinterval (cm)", col ='Zone')
-  ggsave(file=paste0('output/',unique(penmerge_gb$gebied),'/penetrometer/', unique(penmerge_gb$gebied),'sloot_behandeling_diepte.png'),width = 15,height = 7.0,units='in',dpi=800)
+  ggsave(file=paste0(workspace,'output/',unique(penmerge_gb$gebied),'/penetrometer/', unique(penmerge_gb$gebied),'sloot_behandeling_diepte.png'),width = 15,height = 7.0,units='in',dpi=800)
   
   #### plot boxplot---------------
   rects <- data.frame(xmin = -Inf, 
@@ -7208,7 +7090,7 @@ for(gb in unique(penmerge$Gebiedsnaam)){
     )+
     ggtitle(paste0("Indringingsweerstand 0 - 80 cm diepte in ",unique(penmerge_gb$Gebiedsnaam))) +
     labs(x= "locatie",y="indringingsweerstand", col ='Behandeling')
-  ggsave(file=paste0('output/',unique(penmerge_gb$gebied),'/penetrometer/', unique(penmerge_gb$Gebiedsnaam),'_boxplot_zones.png'),width = 15,height = 7.0,units='in',dpi=800)
+  ggsave(file=paste0(workspace,'output/',unique(penmerge_gb$gebied),'/penetrometer/', unique(penmerge_gb$Gebiedsnaam),'_boxplot_zones.png'),width = 15,height = 7.0,units='in',dpi=800)
   
   print(gb)  
   
@@ -7248,7 +7130,7 @@ for(gb in unique(penmerge$Gebiedsnaam)){
         )+
         ggtitle(paste0("Indringsweerstand op locatie ",unique(penmerge_gb_sloot$Sloot_nr))) +
         labs(x= "indringingsweerstand (mPa)",y="diepteinterval (cm)", col ='Afstand waterlijn:')
-      ggsave(file=paste0('output/',unique(penmerge_gb_sloot$gebied),'/penetrometer/',unique(penmerge_gb_sloot$gebied),'_', unique(penmerge_gb_sloot$Sloot_nr),'.png'),width = 10,height = 7.0,units='in',dpi=800)
+      ggsave(file=paste0(workspace,'output/',unique(penmerge_gb_sloot$gebied),'/penetrometer/',unique(penmerge_gb_sloot$gebied),'_', unique(penmerge_gb_sloot$Sloot_nr),'.png'),width = 10,height = 7.0,units='in',dpi=800)
       
       print(loc)  
     }
@@ -7598,7 +7480,6 @@ ggplot()+
 
 
 ### maaifrequentie ----------------------------------------------------------------------
-ggplot() +
   # Achtergrond bars voor drooglegging
   geom_boxplot(data = abio_proj, 
            aes(x = Gebiedsnaam, y = Maaifrequentie_oever_per_jaar), 
@@ -7874,6 +7755,7 @@ ggplot(abio_proj) +
 
 
 
+
 # 6. Export the data ---------------------------------------------------------
 ## locaties---------------------------------------------------------
 locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
@@ -7904,7 +7786,7 @@ st_write(abio, paste0(workspace,  "output/GIS/geo_abio.gpkg"), append = FALSE)
 ## vegetatie-----------------------------------------------------------------
 write.table(veg, file = paste0('output/Database/veg.csv' ), sep = ';',dec = '.', row.names = F)
 setDT(veg)
-veg$geom <- sprintf("LINESTRING(%s %s, %s %s)", veg$Start_traject_lat,veg$Start_traject_long,veg$End_traject_lat,veg$End_traject_long)
+veg$geom <- sprintf("LINESTRING(%s %s, %s %s)", veg$Start_traject_long,veg$Start_traject_lat,veg$End_traject_long,veg$End_traject_lat)
 veg <- veg[geom == "LINESTRING(NA NA, NA NA)", geom:= "LINESTRING(0 0, 0 0)" ]
 veg <- st_as_sf(veg, wkt = "geom", crs = 4326)
 veg <- st_as_sf(veg) %>% st_transform(crs = 28992)
@@ -7963,4 +7845,4 @@ write.table(gebiedsanalyse, file = paste(workspace,"/output/Database/gebiedsanal
 setDT(locaties)
 abio_proj_loc <- merge(locaties[,c('SlootID','geom')], gebiedsanalyse, by = 'SlootID', all.x= TRUE, suffixes =  c('_locs','_db'))
 abio_proj_loc <- st_as_sf(abio_proj_loc) %>% st_transform(crs = 28992)
-  st_write(abio_proj_loc, paste0(workspace,  "output/GIS/gebiedsanalyse.gpkg"), append = FALSE)
+st_write(abio_proj_loc, paste0(workspace,  "output/GIS/gebiedsanalyse.gpkg"), append = FALSE)
