@@ -68,9 +68,14 @@ check_db <- locaties[!Slibmonster_Bware %in% unique(watbod_ac$Customer_ID_SB),]
 # 120 unieke uniqueN(abio_proj$Oevermonster_AgroCares) uniqueN(oever_ac$SlootID_kort) 
 oever_ac_25[, jaar := as.integer(jaar_OR_25)]
 oever_ac_50[, jaar := as.integer(jaar_OR_50)]
+abio_proj[SlootID == "MD_8_NVO_N"  & is.na(Oevermonster_AgroCares) & jaar == 2024,
+          Oevermonster_AgroCares := "MD_8_NVO"]
+abio_proj[SlootID == "MD_8a_NVO_N" & is.na(Oevermonster_AgroCares) & jaar == 2024,
+          Oevermonster_AgroCares := "MD_8_NVO1"]
 abio_proj <- merge(abio_proj, oever_ac_25, by.x = c('Oevermonster_AgroCares','jaar'), by.y = c('SlootID_kort_OR_25','jaar'), all.x = T, suffixes = c('_SB','_OR'))
 abio_proj <- merge(abio_proj, oever_ac_50, by.x = c('Oevermonster_AgroCares','jaar'), by.y = c('SlootID_kort_OR_50','jaar'), all.x = T, suffixes = c('_25','_50'))
 check_db <- locaties[!Oevermonster_AgroCares %in% unique(oever_ac_25$SlootID_kort),]
+
 ## veraard veen ---------------
 abio_proj <- merge(abio_proj, veraardveen[,-c('Gebied','Sloot')], by.x = c('SlootID_kort','jaar'), by.y = c('Slootcode','jaar'), suffixes = c('','_vaveen'), all.x = T)
 check_db <- locaties[!SlootID_kort %in% unique(veraardveen$Slootcode),]
@@ -115,8 +120,6 @@ abio_proj[grepl('M-AF', Behandeling),beheer := 'minimaal + afrastering']
 abio_proj[grepl('R-AF', Behandeling),beheer := 'regulier + afrastering']
 abio_proj[grepl('AF', Behandeling),beheer := 'afrastering']
 abio_proj[grepl('NVO', Behandeling), beheer := 'NVO']
-## adjust colnames----------------------------------
-
 ## adjust penetrometer data for analysis -------------------
 #122160 rijen
 penmerge[,Diept := as.numeric(Diept)]
@@ -188,10 +191,18 @@ abio_proj[holleoever > 150, holleoever := holleoever/10]
 abio_proj[water_O2_mgL > 100, water_O2_mgL := water_O2_mgL/100]
 abio_proj[water_O2_mgL > 20, water_O2_mgL := water_O2_mgL/10]
 # berekenen N mineraal in oever en slib
-abio_proj[,N_mineraal_OR_25 := `N-NH4_CC_mg/kg_OR_25`+`N-NO3_CC_mg/kg_OR_25`+`N-NO2_CC_mg/kg_OR_25`]
-abio_proj[,N_mineraal_SB := `N-NH4_CC_mg/kg_SB`+`N-NO3_CC_mg/kg_SB`+`N-NO2_CC_mg/kg_SB`]
-abio_proj[,N_mineraal_OR_50 := `N-NH4_CC_mg/kg_OR_50`+`N-NO3_CC_mg/kg_OR_50`+`N-NO2_CC_mg/kg_OR_50`]
-
+abio_proj[, N_mineraal_OR_25 := {
+  s <- rowSums(.SD, na.rm = TRUE)
+  ifelse(rowSums(!is.na(.SD)) == 0, NA_real_, s)
+}, .SDcols = c("N-NH4_CC_mg/kg_OR_25", "N-NO3_CC_mg/kg_OR_25", "N-NO2_CC_mg/kg_OR_25")]
+abio_proj[,N_mineraal_SB := {
+  s <- rowSums(.SD, na.rm = TRUE)
+  ifelse(rowSums(!is.na(.SD)) == 0, NA_real_, s)
+}, .SDcols = c("N-NH4_CC_mg/kg_SB","N-NO3_CC_mg/kg_SB","N-NO2_CC_mg/kg_SB")]
+abio_proj[,N_mineraal_OR_50 := {
+  s <- rowSums(.SD, na.rm = TRUE)
+  ifelse(rowSums(!is.na(.SD)) == 0, NA_real_, s)
+}, .SDcols = c("N-NH4_CC_mg/kg_OR_50","N-NO3_CC_mg/kg_OR_50","N-NO2_CC_mg/kg_OR_50")]
 ## omrekenen eenheden ijzer, P, S naar mg/l----------------------------------------------
 # Bereken moleculair gewichten (g/mol)
 MW_Fe <- 55.845   # IJzer
@@ -216,11 +227,11 @@ dup_cols <- names(abio_proj)[duplicated(names(abio_proj))]
 if (length(dup_cols) > 0) abio_proj[, (dup_cols) := NULL]
 melt <- melt(setDT(abio_proj), id.vars = c("SlootID","Sloot_nr","WP","instanceID_abio","instanceID_veg","Gebiedsnaam","MeenemenDataAnalyse_totaal","gebied","sloot","Behandeling","beheer","jaar"), 
              measure.vars = cols_num, na.rm = TRUE)
-# pars <- as.data.table(unique(melt[, variable]))
+pars <- as.data.table(unique(melt[, variable]))
 pars <- fread(paste0(workspace,"./hulp_tabellen/parametersVeest_namen.csv"), dec = '.', na.strings = c('NA',''), encoding = "Latin-1")
 melt[,variable :=tolower(variable)]
-pars[,variable :=tolower(variable)]
-melt <- merge(melt, pars, by = 'variable', all.x = TRUE)
+pars[,variable_lower :=tolower(variable)]
+melt <- merge(melt, pars, by.x = 'variable', by.y = 'variable_lower', all.x = TRUE)
 melt[variable == 'doorzicht2_mid_cm', value :=  value/100]
 check <- unique(melt[,c('variable','monsterdiepte','parameter','compartiment','eenheid','methode','varnames')])
 melt <- melt[!is.na(melt$parameter),]
@@ -506,70 +517,6 @@ ggplot(data = abio_proj_cast[!is.na(max_wtd),]) +
     ggtitle(paste0("Doorzicht, waterdiepte & slibdikte")) +
     labs(x= 'slootID en cluster' , y= 'meter')
 
-##### Plot slibdikte tegen drooglegging ---------------------------
-
-# R² berekenen voor waterzone vs waterbreedte (in meters)
-r2_waterzone_watbte <- get_r_squared(abio_proj[!is.na(max_slib) & !is.na(drglg)], 
-                                     "drglg", "max_slib")
-
-p1 <- ggplot()+
-  geom_jitter(data=abio_proj[!is.na(max_slib) & !is.na(drglg),],
-              aes(y=max_slib, x=drglg), alpha=0.3, size=2)+
-  geom_smooth(data=abio_proj[!is.na(max_slib) & !is.na(drglg),],
-              aes(y=max_slib, x=drglg), method='lm', color='#1B9E77', size=1.5)+
-  # R² annotatie
-  annotate("text", x=Inf, y=Inf, 
-           label=paste0("R² = ", round(r2_waterzone_watbte, 3)), 
-           hjust=1.1, vjust=1.5, size=4, fontface="bold") +
-  theme_minimal(base_size = 15) +
-  theme(
-    axis.text.x = element_text(size = 14),
-    axis.text.y = element_text(size = 14),
-    axis.title = element_text(size = 14),
-    axis.ticks = element_line(colour = "black"),
-    axis.line = element_line(colour = 'black'),
-    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-    panel.background = element_blank(),
-    panel.border = element_rect(colour = 'black', fill = NA),
-    plot.background = element_blank()
-  ) +
-  ggtitle('Relatie slibdikte en drooglegging') +
-  labs(y = 'slibdikte (m)', x = 'drooglegging (m)')
-
-# Toon de gecombineerde plot
-print(p1)
-ggsave(file=paste0('output/AlleGebieden/Tussenrapportage/slibdrooglegging_relatie.png'), width = 25,height = 15,units='cm',dpi=800)
-
-
-#### relatie waterdiepte en redox slib bij pH7 ---------------------------
-# R² berekenen voor waterzone vs waterbreedte (in meters)
-r2_waterzone_watbte <- get_r_squared(abio_proj[!is.na(max_wtd) & !is.na(slib_redox_pH7)], 
-                                     "max_wtd", "slib_redox_pH7")
-p1 <- ggplot()+
-  geom_jitter(data=abio_proj[!is.na(max_wtd) & !is.na(slib_redox_pH7),],
-              aes(y=slib_redox_pH7, x=max_wtd), alpha=0.3, size=2)+
-  geom_smooth(data=abio_proj[!is.na(max_wtd) & !is.na(slib_redox_pH7),],
-              aes(y=slib_redox_pH7, x=max_wtd), method='lm', color='#1B9E77', size=1.5)+
-  # R² annotatie  
-  annotate("text", x=Inf, y=Inf, 
-           label=paste0("R² = ", round(r2_waterzone_watbte, 3)), 
-           hjust=1.1, vjust=1.5, size=4, fontface="bold") +
-  theme_minimal(base_size = 15) +
-  theme(
-    axis.text.x = element_text(size = 14),
-    axis.text.y = element_text(size = 14),
-    axis.title = element_text(size = 14),
-    axis.ticks = element_line(colour = "black"),
-    axis.line = element_line(colour = 'black'),
-    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-    panel.background = element_blank(),
-    panel.border = element_rect(colour = 'black', fill = NA),
-    plot.background = element_blank()
-  ) +
-  ggtitle('Relatie waterdiepte en redox slib bij pH7') +
-  labs(y = 'Redox slib bij pH7 (mV)', x = 'Maximale waterdiepte (m)')
-# Toon de gecombineerde plot
-print(p1)
 ### Bodemopbouw (type veen, bodemstructuur en diepte veraarding)-------------------
 #### Plot van dikte veraarde toplaag-------------------------------
 # Bereken gemiddelde drooglegging per gebied voor de bars
@@ -3532,7 +3479,7 @@ redox_summary <- abio_proj[!is.na(Gebiedsnaam) & !is.na(slib_redox_pH7), .(
   q75_redox = quantile(slib_redox_pH7, 0.75, na.rm = TRUE),
   min_redox = min(slib_redox_pH7, na.rm = TRUE),
   max_redox = max(slib_redox_pH7, na.rm = TRUE)
-), by = Gebiedsnaam]
+), by = c("Gebiedsnaam", "jaar")]
 
 # STAP 1: Bereken eerst alleen de IQR
 redox_summary[, iqr_redox := q75_redox - q25_redox]
@@ -3578,6 +3525,7 @@ ggplot() +
              shape = 95, size = 10) +
   scale_colour_manual(values = c('grey2')) +
   coord_flip() +
+  facet_wrap(~jaar)+
   theme_minimal(base_size = 15) +
   theme(
     strip.background = element_blank(),
@@ -6477,9 +6425,9 @@ for(i in unique(melt$variable)){
 
 
 }
-### fingerprints per gebied ---------------------------------------------------
 
-melt_sel <- melt[variable%in%c("fe/p_pw","fe/p_dw_sb","fep_cc_sb_sb","fep_xrf_sb_sb"),]
+### fingerprints p ALLE gebieden ---------------------------------------------------
+melt_sel <- melt[parameter == "Fe/P",]
 ggplot(melt_sel, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
     facet_wrap(methode~parameter+eenheid, scales = "free",
                ncol = 3) +
@@ -6497,13 +6445,181 @@ ggplot(melt_sel, aes(x = compartiment, y = value, fill = paste0(compartiment, ' 
     ggtitle(paste0(unique(melt_sel$parameter)," ",unique(melt_sel$methode))) 
 dir.create(paste0('output/AlleGebieden/fingerprints'), recursive = TRUE, showWarnings = FALSE)
 ggsave(file=paste0('output/AlleGebieden/fingerprints/AlleGebieden_Fe_P.png'), width = 35,height = 15,units='cm',dpi=800)
+### fingerprint fe/s alle gebieden -------------
+melt_sel_fp <- melt[parameter == "Fe/S",]
+ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(methode~., scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black'),
+          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
+ggsave(file=paste0('output/AlleGebieden/fingerprints/AlleGebieden_fe_s.png'), width = 35,height = 15,units='cm',dpi=800)
+  
+sel <- c("SiO2","Al2O3","MgO" )
+melt_sel_fp <- melt[(parameter%in%sel)|parameter%in%'organisch stof',]
+ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black')
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel_fp$parameter), collapse = ', ')) 
+ggsave(file=paste0('output/AlleGebieden/fingerprints/AlleGebieden_al_mg_OS_si.png'), width = 35,height = 15,units='cm',dpi=800)
+  
+sel5 <- c("Zn","Pb","Cu","Ni","PH_CC" ) # kan ook opgelost uitspoelen door pyrietoxidatie en zink spoelt makkelijk uit zure veenbodems
+melt_sel_fp <- melt[(parameter%in%sel5 & methode == 'xrf')|par_eenheid%in%"pH_CC_calciumchloride",]
+ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black')
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel_fp$parameter), collapse = ', '))
+  ggsave(file=paste0('output/AlleGebieden/fingerprints/AlleGebieden_metalen.png'), width = 35,height = 15,units='cm',dpi=800)
+  
+  sel2 <- c("SO3", "CaO", "Fe2O3")
+  melt_sel_fp <- melt[(parameter%in%sel2 & methode == 'xrf'),]
+  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black')
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel_fp$parameter),collapse = ', ')) 
+ggsave(file=paste0('output/AlleGebieden/fingerprints/AlleGebieden_ca_fe_SO.png'), width = 35,height = 15,units='cm',dpi=800)
   
 
-# Herstel originele melt (overschreven door eerdere loops/bewerkingen)
+## Herstel originele melt (overschreven door eerdere loops/bewerkingen)----------------------------------------------
 melt <- melt_orig
 
 ## 5.4b loop per parameter en gebied en waterbodemdata---------------
 ### loop per parameter, compartiment, monsterdiepte alle gebieden - uitgelicht per gebied
+
+### loop fingerprints per gebied-------------
+for(i in unique(melt$gebied)){
+  # i <- unique(melt$gebied)[8]
+  melt_sel <- unique(melt[gebied %in% i,])
+  sel3 <- c("N-NH4", "N-NO3")
+  sel4 <- c("P2O5","P-AL","P-CC")
+  sel6 <- c("Fe/P_DW_PW","Fe/P_PW_PW","Fe/P_CC_calciumchloride","Fe/P__xrf")
+    
+  melt_sel_fp <- melt_sel[parameter == "Fe/P",] 
+  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(methode~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black'),
+          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
+          
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
+  dir.create(paste0(workspace,'output/', i, '/fingerprints'), recursive = TRUE, showWarnings = FALSE)
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_Fe_P.png'), width = 35,height = 15,units='cm',dpi=800)
+  
+  melt_sel_fp <- melt_sel[parameter == "Fe/S",]
+  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(methode~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black'),
+          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_fe_s.png'), width = 35,height = 15,units='cm',dpi=800)
+  
+  sel <- c("SiO2","Al2O3","MgO" )
+  melt_sel_fp <- melt_sel[(parameter%in%sel & methode == 'xrf')|parameter%in%'organisch stof',]
+  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black')
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel_fp$parameter),collapse = ', '))
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_minerale_delen.png'), width = 35,height = 15,units='cm',dpi=800)
+  
+  sel5 <- c("Zn","Pb","Cu","Ni","PH_CC" ) # kan ook opgelost uitspoelen door pyrietoxidatie en zink spoelt makkelijk uit zure veenbodems
+  melt_sel_fp <- melt_sel[(parameter%in%sel5 & methode == 'xrf')|par_eenheid%in%"pH_CC_calciumchloride",]
+  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black')
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel_fp$parameter),collapse = ', ')) 
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_metalen.png'), width = 35,height = 15,units='cm',dpi=800)
+  
+  sel2 <- c("SO3", "CaO", "Fe2O3")
+  melt_sel_fp <- melt_sel[(parameter%in%sel2 & methode == 'xrf'),]
+  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
+    facet_wrap(~parameter+eenheid, scales = "free",
+               ncol = 3) +
+    stat_boxplot(geom = 'errorbar') +
+    geom_boxplot(outliers = FALSE) +
+    theme_minimal() +
+    theme(text = element_text(size = 14),
+          axis.ticks =  element_line(colour = "black"),
+          axis.line = element_line(colour='black')
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
+    ggtitle(paste0(unique(melt_sel_fp$parameter),collapse = ', ')) 
+  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_cafeSO.png'), width = 35,height = 15,units='cm',dpi=800)
+}
+
+
+
+ ### DEZE DUURT HEEL ERG LANG - NIET DRAAIEN!
 for(i in unique(melt$variable)){
   # i <- unique(melt$variable)[148]
   melt_sel <- melt[variable %in% i,]
@@ -6567,6 +6683,7 @@ for(i in unique(melt$variable)){
 
 }
 ### loop per gebied voor specifieke parameters in waterbodem die relevant zijn voor veensloten
+### AMMONIUM, S TOX EN fE/P RATIOS
 for(i in unique(melt$gebied)){
 # i <- unique(melt$gebied)[1] # ronde hoep
 sel1 <- c("P-PO4_CC_mg/kg_SB", "Fe_CC_mg/kg_SB","feP_CC_SB_SB",
@@ -6784,7 +6901,7 @@ ggplot() +
   labs(x= 'Fe/S ratio slib (molbasis)' , y= 'P poriewater (µmol/l)', col = 'Sloot nummer' )
 ggsave(file=paste0(workspace,'output/',i,'/waterbodem/',i,'_PversusFeS_Bware.png'), width = 25,height = 15,units='cm',dpi=800)
 }
-### loop abiotiek per gebied----------------
+### loop abiotiek (WATERDIEPTE, SLIBDICHTE, DOORZICHT, REDOX) per gebied----------------
 for(i in unique(melt$gebied)){
   # i <- unique(melt$gebied)[8]
   melt_sel <- unique(melt[gebied %in% i,])
@@ -6871,104 +6988,9 @@ for(i in unique(melt$gebied)){
   dir.create(paste0(workspace,'output/', i, '/abiotiek'), recursive = TRUE, showWarnings = FALSE)
   ggsave(file=paste0(workspace,'output/',i,'/abiotiek/',i, '_redox','.png'), width = 25,height = 15,units='cm',dpi=800)
     
-  ## fingerprint-------------
-  sel3 <- c("N-NH4", "N-NO3")
-  sel4 <- c("P2O5","P-AL","P-CC")
-  sel6 <- c("Fe/P_DW_PW","Fe/P_PW_PW","Fe/P_CC_calciumchloride","Fe/P__xrf")
-  melt_sel_fp <- melt_sel[(par_eenheid%in%sel6),]
-  
-  if(nrow(melt_sel_fp)>0){
-  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    facet_wrap(methode~parameter+eenheid, scales = "free",
-               ncol = 3) +
-    stat_boxplot(geom = 'errorbar') +
-    geom_boxplot(outliers = FALSE) +
-    theme_minimal() +
-    theme(text = element_text(size = 14),
-          axis.ticks =  element_line(colour = "black"),
-          axis.line = element_line(colour='black'),
-          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
-          
-    ) +
-    scale_fill_brewer(palette = "Set2") +
-    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
-  dir.create(paste0(workspace,'output/', i, '/fingerprints'), recursive = TRUE, showWarnings = FALSE)
-  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_Fe_P.png'), width = 35,height = 15,units='cm',dpi=800)
-  
-  sel7 <- c("Fe/S__xrf","Fe/S_CC_calciumchloride","Fe/S__PW","Fe/S_DW_PW")
-  melt_sel_fp <- melt_sel[(par_eenheid%in%sel7),]
-  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    facet_wrap(methode~parameter+eenheid, scales = "free",
-               ncol = 3) +
-    stat_boxplot(geom = 'errorbar') +
-    geom_boxplot(outliers = FALSE) +
-    theme_minimal() +
-    theme(text = element_text(size = 14),
-          axis.ticks =  element_line(colour = "black"),
-          axis.line = element_line(colour='black'),
-          axis.text.x = element_text(size = 14, angle = 45,hjust=1)
-    ) +
-    scale_fill_brewer(palette = "Set2") +
-    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
-  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_fe_s.png'), width = 35,height = 15,units='cm',dpi=800)
-  
-    sel <- c("SiO2","Al2O3","MgO" )
-  melt_sel_fp <- melt_sel[(parameter%in%sel & methode == 'xrf')|parameter%in%'organisch stof',]
-  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    facet_wrap(~parameter+eenheid, scales = "free",
-               ncol = 3) +
-    stat_boxplot(geom = 'errorbar') +
-    geom_boxplot(outliers = FALSE) +
-    theme_minimal() +
-    theme(text = element_text(size = 14),
-          axis.ticks =  element_line(colour = "black"),
-          axis.line = element_line(colour='black')
-    ) +
-    scale_fill_brewer(palette = "Set2") +
-    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
-  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_minerale_delen.png'), width = 35,height = 15,units='cm',dpi=800)
-  
-    sel5 <- c("Zn","Pb","Cu","Ni","PH_CC" ) # kan ook opgelost uitspoelen door pyrietoxidatie en zink spoelt makkelijk uit zure veenbodems
-  
-  melt_sel_fp <- melt_sel[(parameter%in%sel5 & methode == 'xrf')|par_eenheid%in%"pH_CC_calciumchloride",]
-  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    facet_wrap(~parameter+eenheid, scales = "free",
-               ncol = 3) +
-    stat_boxplot(geom = 'errorbar') +
-    geom_boxplot(outliers = FALSE) +
-    theme_minimal() +
-    theme(text = element_text(size = 14),
-          axis.ticks =  element_line(colour = "black"),
-          axis.line = element_line(colour='black')
-    ) +
-    scale_fill_brewer(palette = "Set2") +
-    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
-  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_metalen.png'), width = 35,height = 15,units='cm',dpi=800)
-  
-    sel2 <- c("SO3", "CaO", "Fe2O3")
-  melt_sel_fp <- melt_sel[(parameter%in%sel2 & methode == 'xrf'),]
-  ggplot(melt_sel_fp, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
-    facet_wrap(~parameter+eenheid, scales = "free",
-               ncol = 3) +
-    stat_boxplot(geom = 'errorbar') +
-    geom_boxplot(outliers = FALSE) +
-    theme_minimal() +
-    theme(text = element_text(size = 14),
-          axis.ticks =  element_line(colour = "black"),
-          axis.line = element_line(colour='black')
-    ) +
-    scale_fill_brewer(palette = "Set2") +
-    labs(x = "compartiment", y = "", fill = 'compartiment en monsterdiepte')+
-    ggtitle(paste0(unique(melt_sel_fp$parameter)," ",unique(melt_sel_fp$methode))) 
-  ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_cafeSO.png'), width = 35,height = 15,units='cm',dpi=800)
-  
-  
-  }
-} 
+     }
+
+ 
 
 
 ## 5.5 plot penetrometer-------------------------
@@ -7836,13 +7858,24 @@ abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
 dubbelen <- abio_proj[, .N, by = c('SlootID','jaar','instanceID_veg','instanceID_abio')][N > 1]
 dubbelen <- abio_proj[, .N, by = c('SlootID','jaar')][N > 1]
 # wegschrijven tabel
-write.table(abio_proj, file = paste(workspace,"output/Database/db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), na = "", sep =';', dec = '.',row.names = FALSE)
-write.table(abio_proj, file = paste(workspace2,"db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), na = "", sep =';', dec = '.',row.names = FALSE)
-
+write.table(abio_proj, file = paste(workspace,"output/Database/db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), na = "", sep =';', dec = '.',row.names = FALSE, fileEncoding = "UTF-8")
+write.table(abio_proj, file = paste(workspace2,"db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), na = "", sep =';', dec = '.',row.names = FALSE, fileEncoding = "UTF-8")
+# fwrite(abio_proj, file = paste0(workspace,"output/Database/db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv"), na = "", sep =';', dec = '.', bom = TRUE)
+# fwrite(abio_proj, file = paste0(workspace2,"db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv"), na = "", sep =';', dec = '.', bom = TRUE)
 ## gebiedsanalyses ------------------------------------------------------
 gebiedsanalyse <- abio_proj[,c('Gebiedsnaam','gebied','SlootID','Sloot_nr','clusters','drglg','wl','max_hgt_or','watbte','max_wtd','max_slib','veentype', 'trofie','Z_CLAY_SA_OR_25','OS_perc_OR_25','P-AL mg p2o5/100g_OR_25','P-PO4_CC_mg/kg_OR_25','pH_CC_OR_25','holleoever','oever_(20,30]')]
-write.table(gebiedsanalyse, file = paste(workspace,"/output/Database/gebiedsanalyse",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), na = "", sep =';', dec = '.',row.names = FALSE)
+write.table(gebiedsanalyse, file = paste(workspace,"/output/Database/gebiedsanalyse",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), na = "", sep =';', dec = '.',row.names = FALSE, fileEncoding = "UTF-8")
 setDT(locaties)
 abio_proj_loc <- merge(locaties[,c('SlootID','geom')], gebiedsanalyse, by = 'SlootID', all.x= TRUE, suffixes =  c('_locs','_db'))
 abio_proj_loc <- st_as_sf(abio_proj_loc) %>% st_transform(crs = 28992)
 st_write(abio_proj_loc, paste0(workspace,  "output/GIS/gebiedsanalyse.gpkg"), append = FALSE)
+
+## bodemparameters ----------------------------------------------------------------------------------
+sel_vars <- pars[vargroup %in% c("slibkwaliteit_Bware", "slibkwaliteit_AC", "bodemkwaliteit","abiotiek_odk"), variable]
+available <- intersect(sel_vars, names(abio_proj))
+abio_proj_sel <- abio_proj[, ..available]
+# Of inclusief sleutelkolommen:
+abio_proj_sel <- abio_proj[, c("SlootID", 'Gebiedsnaam','gebied','WP','datum','jaar', available), with = FALSE]
+abio_proj_sel <- abio_proj_sel[!duplicated(abio_proj_sel[, .(SlootID, jaar)]), ]
+fwrite(abio_proj_sel, file = paste0(workspace,"output/Database/db_veest_bodemanalyses",format(Sys.time(),"%Y%m%d%H%M"),".csv"), na = "", sep =';', dec = '.', bom = TRUE)
+fwrite(abio_proj_sel, file = paste0(workspace2,"db_veest_bodemanalyses",format(Sys.time(),"%Y%m%d%H%M"),".csv"), na = "", sep =';', dec = '.', bom = TRUE)

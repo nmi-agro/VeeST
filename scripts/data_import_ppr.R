@@ -843,6 +843,9 @@ watbod[, jaar:= year(datum)]
 watbod_proj <- watbod[SlootID %in% c('RH_4_R_N','RH_4_M-AF_N'), ]
 watbod_proj[, SlootID := gsub("_N$", "_Z", SlootID)]
 watbod <- rbind(watbod, watbod_proj, fill = TRUE)
+# remove double cols
+# check <- watbod[!(`Fe/P_PW` == feP_PW & `Fe/P_DW_SB` == feP_DW_SB & `Fe/S_DW_SB` == feS_DW_SB),c('SlootID','Fe/P_PW','Fe/P_DW_SB','Fe/S_DW_SB','feP_PW','feP_DW_SB','feS_DW_SB')]
+watbod[, c("Fe/P_PW", "Fe/P_DW_SB", "Fe/S_DW_SB") := NULL]
 ## ArgoCares 2024
 inputdir <- paste0(workspace,"./Bodemanalyses/AgroCares_CustomPackage_Slib_1922.N.23_27-02-2025 COMPLETE.xlsx")
 tabbladen <- excel_sheets(inputdir)
@@ -893,40 +896,48 @@ colnames(watbod_ac) <- gsub("\r\n", "_", colnames(watbod_ac))
 watbod_ac[, jaar := 2024]
 
 ## ArgoCares 2025
-inputdir <- paste0(workspace,"./Bodemanalyses/NMI Custom Package 26AC0064 - 26AC0182 PARTIAL 03_03_2026.xlsx")
+inputdir <- paste0(workspace,"./Bodemanalyses/project 1922_sediment XRF data.xlsx")
 tabbladen <- excel_sheets(inputdir)
 tab <- tabbladen[grepl("coding", tolower(tabbladen))]
 watbod_coding <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
 tab <- tabbladen[grepl("P-AL", tabbladen)]
 watbod_pal <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
 watbod_pal[,`P-AL mg p2o5/100g` := (`P-AL mg/kg`/10)*2.29]
+watbod_pal <- watbod_pal[!GSL_ID == 0,]
 tab <- tabbladen[grepl("ICP-MS_CC", tabbladen)]
 cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1,skip = 1))
 cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
 cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
 watbod_icpcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, col_names = cnames))
+watbod_icpcc <- watbod_icpcc[!GSL_ID == 0,]
 tab <- tabbladen[grepl("DA_CC", tabbladen)]
 cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1, skip = 1))
 watbod_dacc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, na ='below LOD', col_names = cnames))
+watbod_dacc <- watbod_dacc[!GSL_ID == 0,]
 tab <- tabbladen[grepl("pH_CC", tabbladen)]
 cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
-watbod_phcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na = '',col_names = cnames))
+watbod_phcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na = '', col_names = cnames))
 watbod_phcc[,pH_CC := as.numeric(pH_CC)]
-# dit xrf blad is er nog niet
-# tab <- tabbladen[grepl("XRF", tabbladen)]
-# cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 3))
-# cnames <- paste0(as.character(cnames[1]),"_" ,as.character(cnames[2]))
-# cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
-# watbod_xrf <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, col_names = cnames))
-# # calculate correction factor
-# watbod_xrf <- merge(watbod_xrf, watbod_vocht[,c('GSL CODE','Moist 105C (%)')], by.x = 'GSL_ID', by.y = 'GSL CODE',all.x = TRUE, all.y = FALSE, suffixes = c('','_vocht'))
-# watbod_xrf[, correction_factor := (100 + `Moist 105C (%)`)/100]
-# # correct xrf values to per kg dry at 40 degrees
-# xrf_cols <- colnames(watbod_xrf)[grepl('^C',colnames(watbod_xrf))]
-# watbod_xrf[, (xrf_cols) := lapply(.SD, function(x) x / correction_factor), .SDcols = xrf_cols]
+watbod_phcc <- watbod_phcc[!GSL_ID == 0,]
+# dit xrf blad 
+tab <- tabbladen[grepl("XRF", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 3))
+cnames <- paste0(as.character(cnames[1]),"_" ,as.character(cnames[2]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_xrf <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, col_names = cnames))
+watbod_xrf <- watbod_xrf[!GSL_ID == 0,]
+watbod_vocht <- setDT(readxl::read_xlsx(path = inputdir, sheet = "Moisture 105C"))
+watbod_vocht[, `Moist 105C (%)` := as.numeric(`MOISTURE (%)`)]
+watbod_vocht <- watbod_vocht <- watbod_vocht[!GSL_ID == 0,]
+# calculate correction factor
+watbod_xrf <- merge(watbod_xrf, watbod_vocht[,c('GSL_ID','Moist 105C (%)')], by = 'GSL_ID',all.x = TRUE, all.y = FALSE, suffixes = c('','_vocht'))
+watbod_xrf[, correction_factor := (100 + `Moist 105C (%)`)/100]
+# correct xrf values to per kg dry at 40 degrees
+xrf_cols <- colnames(watbod_xrf)[grepl('^C',colnames(watbod_xrf))]
+watbod_xrf[, (xrf_cols) := lapply(.SD, function(x) x / correction_factor), .SDcols = xrf_cols]
 
 #put all data frames into list
-df_list <- list(watbod_coding,watbod_pal,watbod_icpcc,watbod_dacc,watbod_phcc)      
+df_list <- list(watbod_coding,watbod_pal,watbod_icpcc,watbod_dacc,watbod_phcc,watbod_xrf)      
 #remove duplicate columns
 cols <- as.data.table(lapply(df_list, function(x) { colnames(x) }))
 lapply(df_list, function(x) { x[,c("ID",'ID.x','ID.y','ID_NA','...1','NA_NA'):= NULL]})
@@ -935,23 +946,21 @@ watbod_ac_25 <- Reduce(function(x, y) merge(x, y, by = 'GSL_ID', all=TRUE), df_l
 watbod_ac_25 <- watbod_ac_25[!is.na(GSL_ID),]
 # change colnames
 colnames(watbod_ac_25) <- gsub("^C \\(", "", colnames(watbod_ac_25))
-# colnames(watbod_ac_25) <- gsub(")_", "_xrf_", colnames(watbod_ac_25))
+colnames(watbod_ac_25) <- gsub(")_", "_xrf_", colnames(watbod_ac_25))
 colnames(watbod_ac_25) <- gsub("\r\n", "_", colnames(watbod_ac_25))
 watbod_ac_25[, jaar := 2025]
-
 # merge 24 and 25 data
 watbod_ac <- rbind(watbod_ac, watbod_ac_25, fill = TRUE)
 ## process data bodem
 #calc ratios
-watbod_ac[, feP_CC_SB := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
-watbod_ac[, feP_XRF_SB := (`Fe2O3_xrf_g/kg`/ 55.845)/(`P2O5_xrf_g/kg`/ 30.973762)]
-watbod_ac[, feS_CC_SB := (`Fe_CC_mg/kg`/ 5584.5)/(`S_CC_mg/kg`/ 3206.5)]
-watbod_ac[, feS_XRF_SB := (`Fe2O3_xrf_g/kg`/ 55.845)/(`SO3_xrf_g/kg`/ 80.063)]
+watbod_ac[, feP_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
+watbod_ac[, feP_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`P2O5_xrf_g/kg`/ 70.97)]
+watbod_ac[, feS_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`S_CC_mg/kg`/ 3206.5)]
+watbod_ac[, feS_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`SO3_xrf_g/kg`/ 80.063)]
 #calculate p-org
 watbod_ac[, `P_CC_org_mg/kg` := `P_CC_mg/kg` - `P-PO4_CC_mg/kg`]
 colnames(watbod_ac) <- paste0(colnames(watbod_ac),'_SB')
 watbod_ac[, jaar := jaar_SB]
-
 # 7. Bodemgegevens oever ----------------------------------------------
 ## ArgoCares 2024 --------------------------------------------------------
 inputdir <- paste0(workspace,"./Bodemanalyses/AgroCares_FullPackageCustom_Oever_1922_12-11-2024.xlsx")
@@ -1015,6 +1024,7 @@ colnames(oever_ac) <- gsub("^C \\(", "", colnames(oever_ac))
 colnames(oever_ac) <- gsub(")_", "_xrf_", colnames(oever_ac))
 colnames(oever_ac) <- gsub("\r\n", "_", colnames(oever_ac))
 oever_ac[,jaar:= 2024]
+
 
 ## ArgoCares 2025-------------------------------------------------------------------------
 inputdir <- paste0(workspace,"./Bodemanalyses/NMI Full Package + XRF (232 samples) p.1922.N.24 23_03_2026.xlsx")
@@ -1089,10 +1099,10 @@ oever_ac_25[,jaar:= 2025]
 ## merge 2024 and 2025 data----------------------------------------------------
 oever_ac <- rbind(oever_ac, oever_ac_25, fill = TRUE)
 #calc ratios
-oever_ac[, feP_CC_SB := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
-oever_ac[, feP_XRF_SB := (`Fe2O3_xrf_g/kg`/ 55.845)/(`P2O5_xrf_g/kg`/ 30.973762)]
-oever_ac[, feS_CC_SB := (`Fe_CC_mg/kg`/ 5584.5)/(`S_CC_mg/kg`/ 3206.5)]
-oever_ac[, feS_XRF_SB := (`Fe2O3_xrf_g/kg`/ 55.845)/(`SO3_xrf_g/kg`/ 80.063)]
+oever_ac[, feP_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
+oever_ac[, feP_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`P2O5_xrf_g/kg`/ 70.97)]
+oever_ac[, feS_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`S_CC_mg/kg`/ 3206.5)]
+oever_ac[, feS_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`SO3_xrf_g/kg`/ 80.063)]
 #calculate p-org
 oever_ac[, `P_CC_org_mg/kg` := `P_CC_mg/kg` - `P-PO4_CC_mg/kg`]
 oever_ac[, basen_bez := (`CA_CO_mmol+/kg` + `MG_CO_mmol+/kg` + `NA_CO_mmol+/kg` + `K_CO_mmol+/kg`) / `CEC_CO_mmol+/kg` * 100]
@@ -1125,3 +1135,9 @@ unique(beheer$Maaifrequentie_oever_per_jaar)
 
 # 9. Save workspace ------------------------------------------------------
 save.image(file = paste0(workspace,"/Processed_data_workspace.RData"))
+
+
+
+
+
+
