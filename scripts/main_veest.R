@@ -361,7 +361,7 @@ overzicht_wide <- dcast(
 write.table(overzicht_wide, file = paste(workspace2,"dataOverzicht/Overzichtstabel_pargroups_per_SlootID_jaar",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), na = "", sep =';', dec = '.',row.names = FALSE)
 
 
-# validate complete db-------------------------------------------------------------------
+# validate db-------------------------------------------------------------------
 uniqueN(locaties$SlootID[locaties$`Complete data` == 1]) #238
 uniqueN(abio_proj[!is.na(slib_pH)&!is.na(water_pH)&!is.na(max_slib)&!is.na(`insteek_[0,10]`)&!is.na(instanceID_abio),c('SlootID')])
 # check if instanceID abiotiek voorkomt in abio
