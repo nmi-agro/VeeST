@@ -336,8 +336,9 @@ visualise_profiel<- function(proftest){
       panel.background = element_blank(),
       plot.background = element_blank(),
     )+
-    ggtitle(paste0("Dwarsprofiel oever en sloot op locatie ",proftest$name)) +
-    labs(x= "afstand in meters",y="diepte in mNAP")
+    labs(title = paste0("Dwarsprofiel oever en sloot op locatie ",unique(proftest$name)),
+      subtitle = paste0("SlootID: ",unique(proftest$SlootID[!is.na(proftest$gebied)])," | jaar: ",unique(proftest$jaar[!is.na(proftest$gebied)])),
+      x= "afstand in meters",y="diepte in mNAP")
   
   ggsave(file=paste0(workspace,'output/',unique(proftest$gebied[!is.na(proftest$gebied)]),'/profielen/profiel_',unique(proftest$SlootID[!is.na(proftest$gebied)]),"_",unique(proftest$ID[!is.na(proftest$gebied)]),'.png'),width = 25,height = 10,units='cm',dpi=800)
   

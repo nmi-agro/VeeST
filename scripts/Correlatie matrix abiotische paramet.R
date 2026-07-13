@@ -390,4 +390,164 @@ p <- ggplot(data = abio_proj, aes(x= drglg , y= holleoever))+
   ggtitle("profiel") +
   labs(x= "drooglegging (m)",y="onderholling (m)")
 ggplotly(p, tooltip = c('text'))
+## relatie waterdiepte en redox slib bij pH7 ---------------------------
+# R² berekenen voor waterzone vs waterbreedte (in meters)
+r2_waterzone_watbte <- get_r_squared(abio_proj[!is.na(max_wtd) & !is.na(slib_redox_pH7)], 
+                                     "max_wtd", "slib_redox_pH7")
+p1 <- ggplot()+
+  geom_jitter(data=abio_proj[!is.na(max_wtd) & !is.na(slib_redox_pH7),],
+              aes(y=slib_redox_pH7, x=max_wtd), alpha=0.3, size=2)+
+  geom_smooth(data=abio_proj[!is.na(max_wtd) & !is.na(slib_redox_pH7),],
+              aes(y=slib_redox_pH7, x=max_wtd), method='lm', color='#1B9E77', size=1.5)+
+  # R² annotatie  
+  annotate("text", x=Inf, y=Inf, 
+           label=paste0("R² = ", round(r2_waterzone_watbte, 3)), 
+           hjust=1.1, vjust=1.5, size=4, fontface="bold") +
+  theme_minimal(base_size = 15) +
+  theme(
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = 'black'),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    panel.background = element_blank(),
+    panel.border = element_rect(colour = 'black', fill = NA),
+    plot.background = element_blank()
+  ) +
+  ggtitle('Relatie waterdiepte en redox slib bij pH7') +
+  labs(y = 'Redox slib bij pH7 (mV)', x = 'Maximale waterdiepte (m)')
+# Toon de gecombineerde plot
+print(p1)
+## Plot slibdikte tegen drooglegging ---------------------------
+# R² berekenen voor waterzone vs waterbreedte (in meters)
+r2_waterzone_watbte <- get_r_squared(abio_proj[!is.na(max_slib) & !is.na(watbte)], 
+                                     "watbte", "max_slib")
+p1 <- ggplot()+
+  geom_jitter(data=abio_proj[!is.na(max_slib) & !is.na(watbte),],
+              aes(y=max_slib, x=watbte), alpha=0.3, size=2)+
+  geom_smooth(data=abio_proj[!is.na(max_slib) & !is.na(watbte),],
+              aes(y=max_slib, x=watbte), method='lm', color='#1B9E77', size=1.5)+
+  # R² annotatie
+  annotate("text", x=Inf, y=Inf, 
+           label=paste0("R² = ", round(r2_waterzone_watbte, 3)), 
+           hjust=1.1, vjust=1.5, size=4, fontface="bold") +
+  theme_minimal(base_size = 15) +
+  theme(
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = 'black'),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    panel.background = element_blank(),
+    panel.border = element_rect(colour = 'black', fill = NA),
+    plot.background = element_blank()
+  ) +
+  ggtitle('Relatie slibdikte en waterbreedte') +
+  labs(y = 'slibdikte (m)', x = 'waterbreedte (m)')
 
+# Toon de gecombineerde plot
+print(p1)
+ggsave(file=paste0('output/AlleGebieden/Tussenrapportage/slibwaterbreedte_relatie.png'), width = 25,height = 15,units='cm',dpi=800)
+## Plot slibdikte tegen drooglegging ---------------------------
+# R² berekenen voor waterzone vs waterbreedte (in meters)
+r2_waterzone_watbte <- get_r_squared(abio_proj[!is.na(max_slib) & !is.na(drglg)], 
+                                     "drglg", "max_slib")
+p1 <- ggplot()+
+  geom_jitter(data=abio_proj[!is.na(max_slib) & !is.na(drglg),],
+              aes(y=max_slib, x=drglg), alpha=0.3, size=2)+
+  geom_smooth(data=abio_proj[!is.na(max_slib) & !is.na(drglg),],
+              aes(y=max_slib, x=drglg), method='lm', color='#1B9E77', size=1.5)+
+  # R² annotatie
+  annotate("text", x=Inf, y=Inf, 
+           label=paste0("R² = ", round(r2_waterzone_watbte, 3)), 
+           hjust=1.1, vjust=1.5, size=4, fontface="bold") +
+  theme_minimal(base_size = 15) +
+  theme(
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = 'black'),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    panel.background = element_blank(),
+    panel.border = element_rect(colour = 'black', fill = NA),
+    plot.background = element_blank()
+  ) +
+  ggtitle('Relatie slibdikte en drooglegging') +
+  labs(y = 'slibdikte (m)', x = 'drooglegging (m)')
+
+# Toon de gecombineerde plot
+print(p1)
+ggsave(file=paste0('output/AlleGebieden/Tussenrapportage/slibdrooglegging_relatie.png'), width = 25,height = 15,units='cm',dpi=800)
+
+## relatie koeien drinken uit sloot en redox slib bij pH7 ---------------------------
+dt_plot <- copy(abio_proj)[
+  !is.na(Aantal_Koedagen_per_jaar) & !is.na(slib_redox_pH7)
+]
+### Versie koeien drinken uit sloot (wat soms op ja staat bij uitrastering)-----------------------------------------------
+dt_plot[, koeien_drinken := fifelse(
+  Aantal_Koedagen_per_jaar > 0,
+  "Wel drinken uit sloot",
+  "Geen drinken uit sloot"
+)]
+dt_plot[, koeien_drinken := factor(
+  koeien_drinken,
+  levels = c("Geen drinken uit sloot", "Wel drinken uit sloot")
+)]
+p_koeien_redox <- ggplot(
+  dt_plot,
+  aes(x = koeien_drinken, y = slib_redox_pH7, fill = koeien_drinken)
+) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.75, width = 0.65) +
+  geom_jitter(width = 0.12, alpha = 0.35, size = 1.6, color = "grey30") +
+  scale_fill_manual(values = c("#56B4E9", "#D55E00"), guide = "none") +
+  labs(
+    x = "Koeien drinken uit sloot",
+    y = "Redox slib bij pH7 (mV)",
+    title = "Relatie koeien drinken uit sloot en slib-redox"
+  ) +
+  theme_minimal(base_size = 13)
+### Versie koebelasting drinkende koeien ---------------------------------------------
+dt_plot[, koeien_drinken_correctie := fifelse(
+  koebelasting_drinkende_koeien > 0,
+  "Wel drinken uit sloot",
+  "Geen drinken uit sloot"
+)]
+dt_plot[, koeien_drinken_correctie := factor(
+  koeien_drinken,
+  levels = c("Geen drinken uit sloot", "Wel drinken uit sloot")
+)]
+p_koeien_redox <- ggplot(
+  dt_plot,
+  aes(x = koeien_drinken_correctie, y = slib_redox_pH7, fill = koeien_drinken_correctie)
+) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.75, width = 0.65) +
+  geom_jitter(width = 0.12, alpha = 0.35, size = 1.6, color = "grey30") +
+  scale_fill_manual(values = c("#56B4E9", "#D55E00"), guide = "none") +
+  labs(
+    x = "Koeien drinken uit sloot",
+    y = "Redox slib bij pH7 (mV)",
+    title = "Relatie koeien drinken uit sloot en slib-redox"
+  ) +
+  theme_minimal(base_size = 13)
+### versie jitter met koebelasting drinkende koeien (zonder boxplot) ---------------------------------------------
+p_koeien_redox <- ggplot(
+  dt_plot[koebelasting_drinkende_koeien < 5000,],
+  aes(x = koebelasting_drinkende_koeien, y = slib_redox_pH7)) +
+  # geom_boxplot(outlier.shape = NA, alpha = 0.75, width = 0.65) +
+  geom_jitter(width = 0.12, alpha = 0.35, size = 1.6, color = "grey30") +
+  geom_smooth(method = "glm", color = "#1B9E77", size = 1.5) +
+  # scale_fill_manual(values = c("#56B4E9", "#D55E00"), guide = "none") +
+  labs(
+    x = "Koeibelasting van koeien die drinken uit sloot",
+    y = "Redox slib bij pH7 (mV)",
+    title = "Relatie koeien drinken uit sloot en slib-redox"
+  ) +
+  theme_minimal(base_size = 13)
+p_koeien_redox
+
+
+
+## generiek pars aanpasbaar ----------------------------------------------------------------------------------------

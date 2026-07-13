@@ -44,7 +44,7 @@ locaties <- st_as_sf(locaties, wkt = "geom", crs = 4326)
 locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
 
 ## 1.3 create cluster per loc data---------------------------
-clusters_locs <- st_join(locaties, cluster, st_nearest_feature, left = TRUE)
+clusters_locs <- st_join(locaties[!is.na(locaties$instanceID_veg) & !is.na(locaties$instanceID_abio) & !locaties$WP %in% 'WP2-prenul',], cluster, st_nearest_feature, left = TRUE)
 # sel verschillende indicatoren
 # afwatopp: oppvl/ (omtrek_nat/ 2) brede percelen met weinig sloten is een hoog getal, smalle percelen met veel sloten is laag
 clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort',"Sloot_nr","sloot","Behandeling","Oeverzijde","jaar",'Slibmonster_Bware','Oevermonster_AgroCares','WP','MeenemenDataAnalyse_totaal','clusters','trofie','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text')])
@@ -225,7 +225,7 @@ pen[ ,plot:= as.numeric(gsub("^PLOTX*", "", Plotnaam))]
 pen[ ,pen := as.numeric(gsub("^Pen*", "", as.character(Pen)))]
 pen[ ,plot:= paste0('plot',plot,'pen',pen)]
 pen[ ,gebied:= tstrsplit(name, "_")[1]]
-pen[ ,gebied:=tolower(gebied)]
+pen[ ,gebied:= tolower(gebied)]
 pen[ ,extragebied:= tstrsplit(name, "_")[3]]
 pen[ ,extragebied:= gsub('[<>.]','',extragebied)]
 # correct files with multiple gebieden
@@ -372,6 +372,15 @@ gps25 <- gps25[,c('ID','name','Opmerking','trajecten','dist_id','geometry','X','
 ## add location info for filtering and correcting
 gps25[, gebied:= tstrsplit(name, "_")[1]]
 gps25[, sloot:= tstrsplit(name, "_")[2]]
+gps25[sloot == "nak", `:=`(
+  sloot = gebied,
+  gebied = "oukoop"
+)]
+gps25[sloot == "wak", `:=`(
+  sloot = paste0(gebied, "a"),
+  gebied = "oukoop"
+)]
+gps25[,sloot := as.character(sloot)]
 # correct dist id for multiple transects (2 oevers or 2 transects)
 gps25[,max_dis_id := max(dist_id), by = 'name']
 # make unique name 4 matching
@@ -405,23 +414,23 @@ gps25[name == 'SW_4_M-NVO_w',oever:= 'NW']
 gps25[name == 'SW_4_M-AF-NVO_w',oever:= 'NW']
 # extragebied toevoegen 
 gps25[gebied %in% c('ad','bd','de','dp','dt','eem','ep','hw','ig','lg','lw','mb',
-'ok','sn','sv','up','wjv','wl','wz','zvp','zw') , extragebied:= '']
-gps25[,sloot := as.numeric(sloot)]
-gps25[gebied == 'rh' & sloot %in% c(1,2,3,4,5), extragebied:= 'RH_1tm5'] #gps bevat alleen data van sloot 1 zuid, die hoort bij sloot6tm10
-gps25[gebied == 'rh' & sloot %in% c(7,8,9,10,11), extragebied:= 'RH_7 tm RH_11']
-gps25[gebied == 'sw' & sloot %in% c(1), extragebied:= 'SW_1_4']
-gps25[gebied == 'sw' & sloot %in% c(2,3,5), extragebied:= 'SW_2_3_5']
-gps25[gebied == 'sw' & sloot %in% c(4), extragebied:= 'SW_1_4']
-gps25[gebied == 'zg' & sloot %in% c(1,2,3), extragebied:= 'ZG_1_3']
-gps25[gebied == 'zg' & sloot %in% c(10,11,12,13), extragebied:= 'ZG_10_WP1 tm ZG_13_WP1']
-gps25[gebied == 'zg' & sloot %in% c(6,7,8,9), extragebied:= 'ZG_6_WP1 tm ZG_9_WP1']
-gps25[gebied == 'kw' & sloot %in% c(1), extragebied:= 'KW_1_2_M_R']
-gps25[gebied == 'kw' & sloot %in% c(2) & ID %in% c(207,208), extragebied:= 'KW_1_2_M_R']
-gps25[gebied == 'kw' & sloot %in% c(13,14,15,16), extragebied:= 'KW_13_WP1 tm KW_16_WP1']
-gps25[gebied == 'kw' & sloot %in% c(3), extragebied:= 'KW_2_MAF_3']
-gps25[gebied == 'kw' & sloot %in% c(2) & ID %in% c(206), extragebied:= 'KW_2_MAF_3']
-gps25[gebied == 'sz' & sloot %in% c(1,2), extragebied:= 'SZ_1_2_WP1']
-gps25[gebied == 'sz' & sloot %in% c(3,4,5,6), extragebied:= 'SZ_3_WP1 tm SZ_6_WP1']
+'ok','sn','sv','up','wjv','wl','wz','zvp','zw','oukoop') , extragebied:= '']
+gps25[,extragebied := as.character(extragebied)]
+gps25[gebied == 'rh' & sloot %in% c('1','2','3','4','5'), extragebied:= 'RH_1tm5'] #gps bevat alleen data van sloot 1 zuid, die hoort bij sloot6tm10
+gps25[gebied == 'rh' & sloot %in% c('7','8','9','10','11'), extragebied:= 'RH_7 tm RH_11']
+gps25[gebied == 'sw' & sloot %in% c('1'), extragebied:= 'SW_1_4']
+gps25[gebied == 'sw' & sloot %in% c('2','3','5'), extragebied:= 'SW_2_3_5']
+gps25[gebied == 'sw' & sloot %in% c('4'), extragebied:= 'SW_1_4']
+gps25[gebied == 'zg' & sloot %in% c('1','2','3'), extragebied:= 'ZG_1_3']
+gps25[gebied == 'zg' & sloot %in% c('10','11','12','13'), extragebied:= 'ZG_10_WP1 tm ZG_13_WP1']
+gps25[gebied == 'zg' & sloot %in% c('6','7','8','9'), extragebied:= 'ZG_6_WP1 tm ZG_9_WP1']
+gps25[gebied == 'kw' & sloot %in% c('1'), extragebied:= 'KW_1_2_M_R']
+gps25[gebied == 'kw' & sloot %in% c('2') & ID %in% c(207,208), extragebied:= 'KW_1_2_M_R']
+gps25[gebied == 'kw' & sloot %in% c('13','14','15','16'), extragebied:= 'KW_13_WP1 tm KW_16_WP1']
+gps25[gebied == 'kw' & sloot %in% c('3'), extragebied:= 'KW_2_MAF_3']
+gps25[gebied == 'kw' & sloot %in% c('2') & ID %in% c(206), extragebied:= 'KW_2_MAF_3']
+gps25[gebied == 'sz' & sloot %in% c('1','2'), extragebied:= 'SZ_1_2_WP1']
+gps25[gebied == 'sz' & sloot %in% c('3','4','5','6'), extragebied:= 'SZ_3_WP1 tm SZ_6_WP1']
 ### import penetrometer data 2025----------------------------------------------
 pen <- importPen(inputdir = paste0(workspace,"./Penetrometer/2025"))
 pen2 <- importPen2(inputdir = paste0(workspace,"./Penetrometer/2025"))
@@ -448,7 +457,7 @@ pen[ ,extragebied:= gsub('_plot3','',extragebied)]
 pen[ ,extragebied:= gsub('_plot4','',extragebied)]
 pen[ ,extragebied:= gsub('_plot5','',extragebied)]
 pen[ ,extragebied:= gsub('_plot6','',extragebied)]
-pen[gebied %in% c('ad','bd','de','dp','dt','eem','ep','hw','ig','lg','lw','mb','ok','sn','sv','up','wjv','wl','wz','zvp','zw'), extragebied:= '']
+pen[gebied %in% c('ad','bd','de','dp','dt','eem','ep','hw','ig','lg','lw','mb','ok','sn','sv','up','wjv','wl','wz','zvp','zw','oukoop'), extragebied:= '']
 ## 2.2.2 proces 2025----------------------------------------------
 ### postprocess penetrometer data 25 ---------------------------------------------
 # merge gps with pen
@@ -486,24 +495,48 @@ penmerge[, dieptebin_num := {
 }]
 # verwijder het punt dat dichtbij de sloot ligt en niet op de oever
 # (hoogste dist_id per SlootID+jaar in sectie oever), maar behoud minimaal één uniek dist_id
+rm_keys <- c("SlootID", "jaar", "name_gps", "oever")
 remove_keys <- penmerge[
-  sectie == "oever",
+  sectie == "oever" & !is.na(dist_id),
   .(max_dist = max(dist_id), n_dist = uniqueN(dist_id)),
-  by = .(SlootID, jaar)
-][n_dist > 1, .(SlootID, jaar, max_dist)]
-penmerge[remove_keys, on = .(SlootID, jaar), max_dist_remove := i.max_dist]
-penmerge <- penmerge[!(sectie == "oever" & dist_id == max_dist_remove)]
+  by = rm_keys
+][n_dist > 1]
+penmerge[remove_keys, on = c(setNames(rm_keys, rm_keys)), max_dist_remove := i.max_dist]
+penmerge <- penmerge[
+  !(sectie == "oever" & !is.na(max_dist_remove) & dist_id == max_dist_remove)
+][, max_dist_remove := NULL]
 penmerge[, max_dist_remove := NULL]
-# laagste weerstand per dieptebin
-penmerge[, indringingsweerstand_dieptebin := lapply(.SD,mean,na.rm=TRUE),.SDcols=c('indringingsweerstand'),by=c('gebied','sloot','SlootID','sectie','dieptebin','jaar')]
-penmerge[, indringingsweerstand_min := min(indringingsweerstand_dieptebin), by = c('SlootID','name_gps','oever','jaar','sectie')]
-penmerge[, diepte_min_weerstand := dieptebin[which.min(indringingsweerstand_dieptebin)], by = .(SlootID, Pen, jaar)]
 # reshape data wide for matching with abiotic data
 penmerge_wide <- dcast(penmerge[!is.na(Diept),], SlootID+jaar~sectie+dieptebin, value.var = c('indringingsweerstand'), fun.aggregate = mean, na.rm = TRUE, fill = FALSE, drop = TRUE)
 penmerge_wide2 <- dcast(penmerge[!is.na(Diept),], SlootID+jaar~sectie+diepte_wortels, value.var = c('indringingsweerstand'), fun.aggregate = mean, na.rm = TRUE, fill = FALSE, drop = TRUE)
-penmerge_wide <- merge(penmerge_wide, unique(penmerge[,c('SlootID','indringingsweerstand_min','diepte_min_weerstand','jaar')]), by = c('SlootID','jaar'), all.x = TRUE)
+# laagste weerstand per dieptebin
+# kolommen met dieptebin-waarden in wide formaat
+bin_cols <- grep("^(insteek|oever|perceel)_", names(penmerge_wide), value = TRUE)
+# matrix voor snelle rijgewijze berekening
+m <- as.matrix(penmerge_wide[, ..bin_cols])
+storage.mode(m) <- "numeric"
+# NA tijdelijk op Inf zodat die niet als minimum gekozen worden
+m2 <- m
+m2[is.na(m2)] <- Inf
+# index van minimum per rij (eerste bij ties)
+min_idx <- max.col(-m2, ties.method = "first")
+# minimumwaarde per rij
+min_val <- m2[cbind(seq_len(nrow(m2)), min_idx)]
+# bij rijen met alleen NA: terugzetten naar NA
+all_na <- rowSums(!is.na(m)) == 0
+min_val[all_na] <- NA_real_
+# kolomnaam waar minimum zit (bijv. "oever_[0,10]")
+min_col <- bin_cols[min_idx]
+min_col[all_na] <- NA_character_
+# alleen dieptebin uit de kolomnaam (bijv. "[0,10]")
+min_dieptebin <- sub(".*_", "", min_col)
+# toevoegen aan penmerge_wide
+penmerge_wide[, `:=`(
+  indringingsweerstand_min = min_val,
+  dieptebin_min = as.factor(min_dieptebin)
+)]
 penmerge_wide <- merge(penmerge_wide, penmerge_wide2, by = c('SlootID','jaar'), all.x = TRUE)
-penmerge_wide[,diepte_min_weerstand := as.factor(diepte_min_weerstand)]
+
 ## 4.4 validatie regels penetrometer 24 en 25-------------------------
 # check 4 double coordinates in pen_gps
 gps <- st_as_sf(gps2)
@@ -754,6 +787,8 @@ profiel_wide <- profiel_wide[,c('name','sectie_2','jaar','max_slib','max_wtd','w
 ### 6.3.1 intersect locations with profiel_wide ---------------------
 locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
 locs_prof <- st_intersection(profiel_wide, locaties[!is.na(locaties$SlootID_old_profiel),c('SlootID','jaar','SlootID_old_profiel','oever')])
+locs_prof <- locs_prof[locs_prof$jaar == locs_prof$jaar.1,]
+locs_prof <- locs_prof[locs_prof$name == locs_prof$SlootID_old_profiel,]
 # Difference check: deze profielen missen in locs_prof dus doorkruizen geen geometrie van locaties
 locs_prof_diff <- profiel_wide[!profiel_wide$name %in% locs_prof$name,]
 # Check double values, when present an error in veseq is given when profiel en prof_locs are merged

@@ -1,131 +1,465 @@
-
-# 1. cluster analyse --------------------------------------------------------
+# 0. filter correct data 4 analysis ----------------------------------------------------
+abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
+abio_proj <- abio_proj[!is.na(SlootID) & !is.na(jaar) & !is.na(instanceID_veg) & !is.na(instanceID_abio) , ]
+abio_proj_complete <- abio_proj
+abio_proj <- abio_proj_complete #reset
+abio_proj <- abio_proj[MeenemenDataAnalyse_totaal == 'ja',] # voor xgboost
+# 1. cluster analyse vergelijking met kaart --------------------------------------------------------
 setDT(abio_proj)
-cluster.med<- cluster.med[!clusters %in% 7:8,]
-setorder(cluster.med)
-# trofie/afwateringsopp uit GIS, watbte en drooglegging uit dwarsprofielen
-clust_abio <- abio_proj[,c('SlootID','drglg','watbte',"OS_perc_OR_25" ,"Z_CLAY_SA_OR_25" )]
-clust_abio <- clust_abio[complete.cases(clust_abio)] # 2 missen
-# tot do dist 2 medians, sclae closest
-clust_m <- clust_abio[, drglg-cluster.med$drglg, by ='SlootID'] 
-clust_m[,cluster:= rep(1:6, nrow(clust_m)/6)]
-clust_m[,drglg_d := V1];clust_m[,V1:= NULL]
-clust_m_2 <- clust_abio[, watbte-cluster.med$watbte, by ='SlootID']
-clust_m_2[,cluster:= rep(1:6, nrow(clust_m_2)/6)]
-clust_m_2[,watbte_d := V1]
-clust_m_2[,V1:= NULL]
-clust_m <- merge(clust_m, clust_m_2, by = c('SlootID','cluster'))
-clust_m_2 <- clust_abio[, OS_perc_OR_25-cluster.med$OS_perc_OR_25, by ='SlootID']
-clust_m_2[,cluster:= rep(1:6, nrow(clust_m_2)/6)]
-clust_m_2[,OS_perc_OR_25_d := V1];clust_m_2[,V1:= NULL]
-clust_m <- merge(clust_m, clust_m_2, by = c('SlootID','cluster'))
-clust_m_2 <- clust_abio[, Z_CLAY_SA_OR_25-cluster.med$Z_CLAY_SA_OR_25, by ='SlootID']
-clust_m_2[,cluster:= rep(1:6, nrow(clust_m_2)/6)]
-clust_m_2[,Z_CLAY_SA_OR_25_d := V1];clust_m_2[,V1:= NULL]
-clust_m <- merge(clust_m, clust_m_2, by = c('SlootID','cluster'))
-clust_m_s <- data.frame(lapply(abs(clust_m[,3:6]), function(x) scale(x, center = FALSE, scale = max(x, na.rm = TRUE)/1)))
-# clust_m_s <- data.frame(lapply(clust_m[,3:6], function(x) (x - min(x))/diff(range(x))))
-clust_m <- cbind(clust_m[,c('SlootID','cluster')], clust_m_s)
-clust_m[, sum_val := rowSums(.SD), .SDcols = c('drglg_d','watbte_d',"OS_perc_OR_25_d" ,"Z_CLAY_SA_OR_25_d")]
-clust_m[, cluster_def := cluster[min(sum_val)==sum_val], by = c('SlootID')]
-clust_m <- clust_m[cluster==cluster_def,]
-## merge with data 
-abio_proj <- merge(abio_proj, clust_m, by = c('SlootID'), all.x = T, suffixes = c('','_clustber'))
+# abio variabelen volgens jouw mapping:
+# drglg -> drlg, watbte -> breedtewl, OS_perc_OR_25 -> SOM_LOI, Z_CLAY_SA_OR_25 -> A_CLAY_MI
+# Zet hier de bestaande clusterkolom in abio_proj
+cluster_col <- "clusters"  # of "clusters", als dat jouw kolom is
 
-# 2. RF model ----------------------------------------
+# 1) Input met vaste mapping + oude clusters (abio_loc = cluster_loc uit kolom 'clusters')
+abio_clust <- abio_proj[
+  !is.na(SlootID) & !is.na(drglg) & !is.na(watbte) & !is.na(OS_perc_OR_25) & !is.na(Z_CLAY_SA_OR_25) & !is.na(clusters),
+  .(
+    SlootID,
+    drlg = as.numeric(drglg),
+    breedtewl = as.numeric(watbte),
+    SOM_LOI = as.numeric(OS_perc_OR_25),
+    A_CLAY_MI = as.numeric(Z_CLAY_SA_OR_25),
+    cluster_loc = as.character(clusters)
+  )
+]
 
-## Preparation 
-# Column with point ID names
-var_id <- "SlootID"
-# fraction of training set
-fr_train <- 0.8
-##  Define response & explanatory variables 
-# response variable/ target/ dependent
-var_res <-"max_wtd"
-#"Oeverzone_2a_emers_perc","Oeverzone_2b_emers_perc",
-#"Waterzone_1_subm_tot_perc","Waterzone_1_emers_perc") #"max_wtd"
-#"Oeverzone_2a_kaal_perc", "Oeverzone_2b_kaal_perc", 
-#"oever_(10,20]","oever_(20,30]","oever_(30,40]",
-
-# covariables/ predictors
-var_cov <- c("perceel_(10,20]",
-             "Oeverzone_2a_breedte_cm","Oeverzone_2b_breedte_cm" ,
-             "Oeverzone_2a_emers_perc", "Oeverzone_2b_emers_perc",
-             "tldk_oevrwtr_perc", "tldk_vastbodem_perc",
-             "holleoever","drglg", "max_slib", "watbte", 
-             "veentype", 
-             "water_pH", "doorzicht2_mid_cm","water_conductiviteit_uS_cm","water_O2_mgL",
-             "slib_redox_mgL", 
-             "beheer") 
-# Select complete records
-var <- c(var_id, var_res, var_cov)
-loc_t <- abio_proj[complete.cases(abio_proj[, ..var]), ..var]
-# change column names of response variables
-setnames(loc_t, old = c(var_res,"perceel_(10,20]","oever_(10,20]","oever_(30,40]"), new = c("varres","perceel_1020","oever2030","oever3040"),skip_absent=TRUE)
-
-# Split training and test dataset
-set.seed(123)
-train <- sample(1:nrow(loc_t),nrow(loc_t) * fr_train)
-# add train or not
-loc_t[train, set := "training"]
-loc_t[!train, set := "test"]
-loc_t$set <- as.factor(loc_t$set)
-
-print(paste0("training N = ", loc_t[set == "training", .N], 
-             ", testing N = ", loc_t[set == "test", .N]))
-
-## Random forest 
-# Run random forest
-require(randomForest)
-cols <- c(var_id,"set")
-cols <- colnames(loc_t)[!colnames(loc_t)%in%cols]
-rf_res <- randomForest(varres ~ ., data = loc_t[set == "training", ..cols], mtry = round(length(var_cov)/3, 0), ntree = 400)
-print(rf_res)
-importance(rf_res)
-#prediction
-loc_t[, pred_rf := predict(rf_res, loc_t)]
-loc_t[, resid_rf := varres - pred_rf]
-varImpPlot(rf_res, type=2, main = "importance of variables")
-# show figure of error vs number of trees
-plot(rf_res, main = "Error vs number of trees")
-## Check different numbers of Variables randomly chosen at each split (mtry)
-# Check OBB errors in errors in test set
-nvar <- length(var_cov) # number of explanatory variables
-oob.err=double(nvar)
-test.err=double(nvar)
-#mtry is no of Variables randomly chosen at each split
-for(mtry_t in 1:nvar){
-    rf <- randomForest(varres ~ ., data = loc_t[set == "training", ..cols], 
-                       mtry=mtry_t, ntree=400)
-    oob.err[mtry_t] = rf$mse[400] #Error of all Trees fitted
-    pred <- predict(rf, loc_t[-train,]) #Predictions on Test Set for each Tree
-    test.err[mtry_t] = with(loc_t[-train,], mean( (varres - pred)^2)) #Mean Squared Test Error
-    cat(mtry_t," ") #printing the output to the console
+# 2) 1 regel per SlootID
+mode_char <- function(x) {
+  x <- x[!is.na(x)]
+  if (!length(x)) return(NA_character_)
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
 }
-# plot errors
-dt_f <- data.table(mtry = rep(1:nvar, times = 2),
-                     val = c(oob.err, test.err),
-                     type = c(rep("oob.err", nvar),
-                              rep("test.err", nvar)))
-gp_error <- ggplot(dt_f) + geom_point(aes(x = mtry, y = val, col = type), size = 3) +
-    geom_line(aes(x = mtry, y = val, col = type), linewidth = 1) +
-    xlab("Number of Predictors Considered at each Split") + ylab("Mean Squared Error") +
-    scale_color_discrete(name="", breaks=c("oob.err", "test.err"),
-                         labels=c("Out of Bag Error", "Test Error"))  +
-    theme(legend.position="top")
-show(gp_error)
-#pdp
-partialPlot(rf_res, loc_t[set == "training", ..cols], watbte)
-partialPlot(rf_res, loc_t[set == "training", ..cols], drglg)
-partialPlot(rf_res, loc_t[set == "training", ..cols], slib_redox_mgL)
-partialPlot(rf_res, loc_t[set == "training", ..cols], water_O2_mgL)
 
+abio_sid <- abio_clust[
+  ,
+  .(
+    drlg = median(drlg, na.rm = TRUE),
+    breedtewl = median(breedtewl, na.rm = TRUE),
+    SOM_LOI = median(SOM_LOI, na.rm = TRUE),
+    A_CLAY_MI = median(A_CLAY_MI, na.rm = TRUE),
+    cluster_loc = mode_char(cluster_loc)
+  ),
+  by = SlootID
+][complete.cases(drlg, breedtewl, SOM_LOI, A_CLAY_MI, cluster_loc)]
+
+# 3) Zelfde aantal clusters als unieke oude clusters
+k <- uniqueN(abio_sid$cluster_loc)
+
+X <- scale(abio_sid[, .(drlg, breedtewl, SOM_LOI, A_CLAY_MI)])
+set.seed(123)
+km <- kmeans(X, centers = k, nstart = 100)
+
+abio_sid[, cluster_abio_raw := as.integer(km$cluster)]
+
+# 4) Sorteer nieuwe clusters op drooglegging: cluster 1 = kleinste drlg
+ord <- abio_sid[
+  , .(drlg_med = median(drlg, na.rm = TRUE)),
+  by = cluster_abio_raw
+][order(-drlg_med)]
+
+relabel <- ord[, .(cluster_abio_raw, cluster_abio = as.character(seq_len(.N)))]
+abio_sid <- merge(abio_sid, relabel, by = "cluster_abio_raw", all.x = TRUE)
+
+# 5) 1-op-1 mapping cluster_abio -> cluster_loc (max overlap)
+xt <- xtabs(~ cluster_abio + cluster_loc, data = abio_sid)
+assign <- solve_LSAP(xt, maximum = TRUE)
+
+map_1op1 <- data.table(
+  cluster_abio = rownames(xt),
+  cluster_loc_mapped = colnames(xt)[as.integer(assign)],
+  overlap_n = xt[cbind(seq_len(nrow(xt)), as.integer(assign))]
+)
+
+# 6) Toepassen + controle
+abio_sid <- merge(abio_sid, map_1op1, by = "cluster_abio", all.x = TRUE)
+abio_sid[, match_1op1 := cluster_loc == cluster_loc_mapped]
+
+kwaliteit <- abio_sid[, .(
+  n = .N,
+  n_match = sum(match_1op1, na.rm = TRUE),
+  pct_match = 100 * mean(match_1op1, na.rm = TRUE)
+)]
+
+list(
+  k_gebruikt = k,
+  drlg_volgorde_clusters_abio = ord,
+  mapping_1op1 = map_1op1,
+  kwaliteit = kwaliteit,
+  resultaat = abio_sid
+)
+# visualisatie
+
+# locaties -> sf
+if (inherits(locaties, "sf")) {
+  loc_sf <- locaties
+} else if ("geom" %in% names(locaties)) {
+  loc_sf <- st_as_sf(locaties, sf_column_name = "geom")
+} else if ("geometry" %in% names(locaties)) {
+  loc_sf <- st_as_sf(locaties, sf_column_name = "geometry")
+}
+
+# Koppel clusters
+cluster_map <- unique(abio_sid[, .(SlootID, cluster_abio)])
+loc_cl <- loc_sf |>
+  left_join(as.data.frame(cluster_map), by = "SlootID") |>
+  filter(!is.na(cluster_abio)) |>
+  group_by(SlootID, cluster_abio) |>
+  summarise(do_union = TRUE, .groups = "drop")
+
+# CRS afdwingen naar RD
+if (is.na(st_crs(loc_cl))) {
+  st_crs(loc_cl) <- 28992
+} else {
+  loc_cl <- st_transform(loc_cl, 28992)
+}
+
+# Zoom op data-extent (meters, RD)
+bb <- st_bbox(loc_cl)
+pad <- 15000  # 15 km marge
+xlim <- c(bb["xmin"] - pad, bb["xmax"] + pad)
+ylim <- c(bb["ymin"] - pad, bb["ymax"] + pad)
+
+# Maak van (multi)lijnen één representatief punt per feature
+loc_mid <- loc_cl |>
+  st_cast("MULTILINESTRING", warn = FALSE) |>
+  st_line_merge() |>
+  st_cast("LINESTRING", do_split = FALSE, warn = FALSE) |>
+  st_point_on_surface()
+
+p_clusters_nl <- ggplot() +
+  ggspatial::annotation_map_tile(
+    type = "cartolight",
+    cachedir = "/osm_cache",
+    zoomin = 1,
+    progress = "none",
+    quiet = TRUE
+  ) +
+  geom_sf(data = loc_cl, color = "grey60", linewidth = 0.6, alpha = 0.4) +
+  geom_sf(
+    data = loc_mid,
+    aes(fill = cluster_abio),
+    shape = 21,
+    size = 6,
+    color = "black",
+    stroke = 0.4,
+    alpha = 0.95
+  ) +
+  coord_sf(crs = st_crs(28992), xlim = xlim, ylim = ylim, expand = FALSE) +
+  scale_fill_brewer(palette = "Set2", name = "Cluster abio") +
+  theme_minimal(base_size = 14)
+
+p_clusters_nl
+
+# 2. clusteranalyse van alle veestvariabelen in abio_proj waar op minstens 3/4 van waarnemingen data van beschikbaar is-------------------------------------------------------------------------
+setDT(abio_proj)
+setDT(pars)
+## ---------- helpers ----------
+norm_name <- function(x) {
+  x <- gsub("[µμ]", "u", x, perl = TRUE)
+  tolower(gsub("[^a-z0-9]", "", x, perl = TRUE))
+}
+
+clean_micro <- function(x) gsub("[µμ]", "u", x, perl = TRUE)
+
+safe_median_num <- function(x) {
+  x <- as.numeric(x)
+  if (all(is.na(x))) NA_real_ else median(x, na.rm = TRUE)
+}
+
+is_constant_within_year <- function(dt, col) {
+  if (is.list(dt[[col]])) return(FALSE)
+  yrs <- dt[!is.na(jaar), unique(jaar)]
+  if (length(yrs) == 0L) return(FALSE)
+  all(vapply(yrs, function(y) {
+    v <- dt[jaar == y, get(col)]
+    uniqueN(v[!is.na(v)]) <= 1L
+  }, logical(1)))
+}
+
+## ---------- 0) basisfilter ----------
+abio_base <- copy(abio_proj)[
+  WP %in% c("WP1", "WP2") &
+    !is.na(SlootID) & !is.na(jaar) &
+    !is.na(instanceID_veg) & !is.na(instanceID_abio)
+]
+
+## ---------- 1) drop: admin + geen variatie + LIAB/M3 via pars ----------
+keep_cols <- c("SlootID", "jaar", "WP", "clusters")
+
+admin_pattern <- paste(
+  c(
+    "instanceid", "^id$", "_id$", "^id_", "uuid", "objectid", "aan_id",
+    "^wp$", "datum", "date", "complete", "accur", "^start_", "^end_",
+    "shape_", "^geom$", "^geometry$", "creator", "device", "submission", "versie", "sync"
+  ),
+  collapse = "|"
+)
+
+admin_cols <- setdiff(
+  names(abio_base)[grepl(admin_pattern, tolower(names(abio_base)), perl = TRUE)],
+  keep_cols
+)
+
+candidate_cols_nv <- setdiff(names(abio_base), c(keep_cols, admin_cols))
+no_variation_cols <- candidate_cols_nv[
+  vapply(candidate_cols_nv, function(cl) is_constant_within_year(abio_base, cl), logical(1))
+]
+
+## --- LIAB/M3 DROP via pars$methode (behalve klei/clay) ---
+abio_map <- data.table(
+  abio_name = names(abio_base),
+  var_norm = norm_name(names(abio_base))
+)
+
+pars_map <- copy(pars)[
+  ,
+  .(
+    variable,
+    parameter,
+    methode,
+    var_norm = norm_name(variable),
+    meth_norm = tolower(trimws(methode)),
+    keep_klei = grepl("clay|klei", tolower(parameter))
+  )
+]
+
+drop_norm <- unique(
+  pars_map[meth_norm %chin% c("liab", "m3") & !keep_klei, var_norm]
+)
+
+liab_m3_drop <- unique(
+  abio_map[var_norm %chin% drop_norm, abio_name]
+)
+
+drop_cols <- unique(c(admin_cols, no_variation_cols, liab_m3_drop))
+drop_cols <- intersect(drop_cols, names(abio_base))
+
+abio_proj_clean <- abio_base[, setdiff(names(abio_base), drop_cols), with = FALSE]
+
+## Harde check: via pars mogen geen liab/m3 (excl klei) over zijn
+remaining_liab_m3 <- unique(
+  abio_map[abio_name %in% names(abio_proj_clean)][
+    pars_map,
+    on = "var_norm",
+    nomatch = 0L
+  ][meth_norm %chin% c("liab", "m3") & !keep_klei, abio_name]
+)
+
+if (length(remaining_liab_m3) > 0L) {
+  stop(
+    paste0(
+      "Nog LIAB/M3 kolommen aanwezig na cleaning: ",
+      paste(remaining_liab_m3, collapse = ", ")
+    )
+  )
+}
+
+## ---------- 2) kolomnamen normaliseren ----------
+old_nms <- names(abio_proj_clean)
+new_nms <- make.unique(clean_micro(old_nms))
+setnames(abio_proj_clean, old = old_nms, new = new_nms)
+
+## ---------- 3) variabelenselectie >= 75% ----------
+id_exclude <- c(
+  "SlootID", "jaar", "WP", "instanceID_veg", "instanceID_abio",
+  "geom", "geometry", "clusters", "cluster_abio", "cluster_loc"
+)
+
+logi_cols <- names(abio_proj_clean)[vapply(abio_proj_clean, is.logical, logical(1))]
+if (length(logi_cols) > 0L) {
+  abio_proj_clean[, (logi_cols) := lapply(.SD, as.numeric), .SDcols = logi_cols]
+}
+
+is_num <- vapply(abio_proj_clean, function(x) is.numeric(x) || is.integer(x), logical(1))
+candidate_vars <- setdiff(names(abio_proj_clean)[is_num], id_exclude)
+
+coverage_dt <- data.table(
+  variable = candidate_vars,
+  non_na_frac = vapply(candidate_vars, function(v) mean(!is.na(abio_proj_clean[[v]])), numeric(1))
+)[order(-non_na_frac)]
+
+selected_vars <- coverage_dt[non_na_frac >= 0.75, variable]
+
+if (length(selected_vars) < 3L) {
+  stop("Te weinig variabelen met >=75% dekking voor clusteranalyse.")
+}
+
+## ---------- 4) naar SlootID niveau ----------
+abio_sid <- abio_proj_clean[
+  ,
+  lapply(.SD, safe_median_num),
+  by = .(SlootID),
+  .SDcols = selected_vars
+]
+
+abio_sid[, (selected_vars) := lapply(.SD, function(x) {
+  x <- as.numeric(x)
+  x[!is.finite(x)] <- NA_real_
+  x
+}), .SDcols = selected_vars]
+
+for (v in selected_vars) {
+  med_v <- abio_sid[is.finite(get(v)), median(get(v), na.rm = TRUE)]
+  abio_sid[!is.finite(get(v)) | is.na(get(v)), (v) := med_v]
+}
+
+var_ok <- vapply(selected_vars, function(v) sd(abio_sid[[v]], na.rm = TRUE) > 0, logical(1))
+vars_km <- selected_vars[var_ok]
+
+if (length(vars_km) < 3L) {
+  stop("Te weinig variabelen met variatie na opschonen.")
+}
+
+## ---------- 5) kmeans ----------
+X <- scale(as.matrix(abio_sid[, ..vars_km]))
+keep <- apply(X, 1, function(r) all(is.finite(r)))
+X_km <- X[keep, , drop = FALSE]
+
+if (nrow(X_km) < 3L) {
+  stop("Te weinig complete rijen voor clustering.")
+}
+
+k <- if ("clusters" %in% names(abio_proj_clean) && any(!is.na(abio_proj_clean$clusters))) {
+  uniqueN(as.character(abio_proj_clean[!is.na(clusters), clusters]))
+} else {
+  6L
+}
+k <- as.integer(max(2L, k))
+k_use <- min(k, nrow(X_km) - 1L)
+k_use <- max(2L, k_use)
+
+set.seed(123)
+km <- kmeans(X_km, centers = k_use, nstart = 100)
+
+abio_sid[, cluster_abio := NA_character_]
+abio_sid[which(keep), cluster_abio := as.character(km$cluster)]
+abio_sid[, cluster_abio := factor(cluster_abio)]
+
+## ---------- 6) variabele-invloed (eta²) ----------
+eta2_dt <- rbindlist(lapply(vars_km, function(v) {
+  d <- abio_sid[!is.na(cluster_abio), .(y = get(v), g = cluster_abio)]
+  y_bar <- mean(d$y, na.rm = TRUE)
+  ss_total <- sum((d$y - y_bar)^2, na.rm = TRUE)
+  grp <- d[, .(n = .N, m = mean(y, na.rm = TRUE)), by = g]
+  ss_between <- sum(grp$n * (grp$m - y_bar)^2, na.rm = TRUE)
+  data.table(variable = v, eta2 = ifelse(ss_total > 0, ss_between / ss_total, NA_real_))
+}), use.names = TRUE)[order(-eta2)]
+
+top_n <- min(12L, nrow(eta2_dt))
+top_vars <- eta2_dt[1:top_n, variable]
+
+## ---------- 7) boxplots ----------
+box_dt <- melt(
+  abio_sid[!is.na(cluster_abio), c("SlootID", "cluster_abio", top_vars), with = FALSE],
+  id.vars = c("SlootID", "cluster_abio"),
+  variable.name = "variabele",
+  value.name = "waarde"
+)
+
+p_box <- ggplot(box_dt, aes(x = cluster_abio, y = waarde, fill = cluster_abio)) +
+  geom_boxplot(outlier.alpha = 0.25) +
+  facet_wrap(~ variabele, scales = "free_y", ncol = 4) +
+  labs(
+    title = "Spreiding per cluster voor belangrijkste variabelen",
+    x = "Cluster abio",
+    y = "Waarde"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none")
+
+## ---------- 8) kaart ----------
+if (inherits(locaties, "sf")) {
+  loc_sf <- locaties
+} else if ("geom" %in% names(locaties)) {
+  loc_sf <- st_as_sf(locaties, sf_column_name = "geom")
+} else if ("geometry" %in% names(locaties)) {
+  loc_sf <- st_as_sf(locaties, sf_column_name = "geometry")
+} else {
+  stop("Geen geometriekolom gevonden in 'locaties'.")
+}
+
+cluster_map <- unique(abio_sid[!is.na(cluster_abio), .(SlootID, cluster_abio)])
+
+loc_cl <- loc_sf |>
+  left_join(as.data.frame(cluster_map), by = "SlootID") |>
+  filter(!is.na(cluster_abio)) |>
+  group_by(SlootID, cluster_abio) |>
+  summarise(do_union = TRUE, .groups = "drop")
+
+if (nrow(loc_cl) == 0L) {
+  stop("Geen ruimtelijke matches tussen locaties en clusterresultaten.")
+}
+
+if (is.na(st_crs(loc_cl))) {
+  st_crs(loc_cl) <- 28992
+} else {
+  loc_cl <- st_transform(loc_cl, 28992)
+}
+
+bb <- st_bbox(loc_cl)
+pad <- 15000
+xlim <- c(bb["xmin"] - pad, bb["xmax"] + pad)
+ylim <- c(bb["ymin"] - pad, bb["ymax"] + pad)
+
+loc_mid <- st_point_on_surface(loc_cl)
+
+p_clusters_nl <- ggplot() +
+  ggspatial::annotation_map_tile(
+    type = "cartolight",
+    cachedir = "/osm_cache",
+    zoomin = 1,
+    progress = "none",
+    quiet = TRUE
+  ) +
+  geom_sf(data = loc_cl, color = "grey60", linewidth = 0.6, alpha = 0.35) +
+  geom_sf(
+    data = loc_mid,
+    aes(fill = cluster_abio),
+    shape = 21,
+    size = 6,
+    color = "black",
+    stroke = 0.4,
+    alpha = 0.95
+  ) +
+  coord_sf(crs = st_crs(28992), xlim = xlim, ylim = ylim, expand = FALSE) +
+  scale_fill_brewer(palette = "Set2", name = "Cluster abio") +
+  theme_minimal(base_size = 13)
+
+## ---------- 9) output ----------
+clusteranalyse_veest <- list(
+  checks = list(
+    n_liab_m3_drop = length(liab_m3_drop),
+    liab_m3_drop = liab_m3_drop,
+    remaining_liab_m3 = remaining_liab_m3
+  ),
+  gebruikte_variabelen = coverage_dt[variable %in% selected_vars][order(-non_na_frac)],
+  gebruikte_variabelen_kmeans = vars_km,
+  variabelen_belang_eta2 = eta2_dt,
+  top_variabelen = eta2_dt[1:top_n],
+  data_met_clusters = abio_sid,
+  plot_box = p_box,
+  plot_kaart = p_clusters_nl,
+  qc = list(
+    n_cols_orig = ncol(abio_base),
+    n_cols_clean = ncol(abio_proj_clean),
+    n_admin_removed = length(admin_cols),
+    n_no_variation_removed = length(no_variation_cols),
+    n_liab_m3_removed = length(liab_m3_drop),
+    n_vars_selected_75 = length(selected_vars),
+    n_vars_kmeans = length(vars_km),
+    n_rows_sid = nrow(abio_sid),
+    n_rows_kmeans = nrow(X_km),
+    k_used = k_use
+  )
+)
+
+clusteranalyse_veest
 # 3. XGBoost model --------------------------------------------------------
-
 ## versie met meerdere target variabelen tegelijk ---------------------------------
-
 target_vars <- c("n_soorten_oev_zone2","oeverindex","Soortensamenstelling Helofyten","waterzone_1_subm_tot_perc","n_soorten_sub_zone1","Soortensamenstelling Hydrofyten","draagkracht_oever", 
-                 "slib_redox_pH7","max_slib")
+                 "slib_redox_pH7","P-AL mg p2o5/100g_SB","max_slib")
 # redox, draagkracht oever, aantal soorten, slibdikte
 # Create Dutch translation mapping for target variables
 target_names_dutch <- c(
@@ -137,14 +471,16 @@ target_names_dutch <- c(
   "Soortensamenstelling Hydrofyten" = "Soortensamenstelling Hydrofyten",
   "draagkracht_oever" = "Draagkracht oever (MPa)",
   "slib_redox_pH7" = "Redox slib bij pH7 (mV)",
+  "P-AL mg p2o5/100g_SB" ="P-AL slib (mg P2O5/100g)",
   "max_slib" = "Slibdikte (m)")
 # Define predictor variables with readable Dutch names
-# baggermoment toevoegen?
 cols_corr <- c("drglg", "max_wtd", "zichtdiepte", "max_slib", "watbte","oeverzone_2b_breedte_cm", "oeverzone_2b_kaal_perc", 
                "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc", "slib_redox_pH7","slib_pH",
-               "oevbte", "veentype_num", "Z_CLAY_SA_OR_25",
-               "draagkracht_oever", "draagkracht_perceel", "water_pH", "NH4_µmol/l_PW","P-AL mg p2o5/100g_SB",
-              "Baggerfrequentie_per_jaar","Maaifrequentie_oever_per_jaar","Aantal_Koedagen_per_jaar","Aantal_koeien_vee_perceel_dag", "Koeien_drinken_sloot")
+               "oevbte", "veentype_num", "Z_CLAY_SA_OR_25","OS_perc_OR_25","CEC_CO_mmol+/kg_OR_25",
+               "draagkracht_oever", "dieptebin_min","draagkracht_perceel", "water_pH", "watertemp_C","NH4_µmol/l_PW","P-AL mg p2o5/100g_SB","feP_PW",
+              "Baggerfrequentie_per_jaar","Baggermoment_maand","Maaifrequentie_oever_per_jaar",
+              "koebelasting_drinkende_koeien", "koeien_drinken_correctie","vernat_loc"
+            )
 # Create readable Dutch names mapping
 nederlandse_namen <- c(
   "drglg" = "Drooglegging (m)",
@@ -162,16 +498,21 @@ nederlandse_namen <- c(
   "oevbte" = "Oeverbreedte (m)",
   "veentype_num" = "Veentype (numeriek)",
   "Z_CLAY_SA_OR_25" = "Kleigehalte 25cm (%)",
+  "OS_perc_OR_25" = "Organisch stofgehalte 25cm (%)",
+  "CEC_CO_mmol+/kg_OR_25" = "Cation Exchange Capacity (mmol+/kg)",
   "draagkracht_oever" = "Draagkracht oever (MPa)",
+  "dieptebin_min" = "Diepte laagste draagkracht (m)",
   "draagkracht_perceel" = "Draagkracht perceel (MPa)",
   "water_pH" = "Water pH",
+  "watertemp_C" = "Watertemperatuur (°C)",
   "NH4_µmol/l_PW" = "Ammonium (µmol/l)",
   "P-AL mg p2o5/100g_SB" = "P-AL slib (mg P2O5/100g)",
+  "feP_PW" = "FeP (mol/mol)",
   "Baggerfrequentie_per_jaar" = "Baggerfrequentie per jaar",
+  "Baggermoment_maand" = "Baggermoment (maand)",
   "Maaifrequentie_oever_per_jaar"= "Maaifrequentie oever per jaar",
-  "Aantal_Koedagen_per_jaar"= "Aantal koedagen per jaar",
-  "Aantal_koeien_vee_perceel_dag"= "Aantal koeien per perceel per dag",
-  "Koeien_drinken_sloot" = "Koeien drinken uit sloot (ja/nee)"
+  "koebelasting_drinkende_koeien" = "Koebelasting drinkende koeien",
+  "Koeien_drinken_sloot" = "Koeien drinken uit sloot correctie (ja/nee)"
 )
 
 ## Preparation------------------------------------------------
@@ -185,6 +526,10 @@ abio_proj[,Maaifrequentie_oever_per_jaar := as.numeric(Maaifrequentie_oever_per_
 abio_proj[,Baggerfrequentie_per_jaar := as.numeric(Baggerfrequentie_per_jaar)]
 abio_proj[,Aantal_koeien_vee_perceel_dag := as.numeric(Aantal_koeien_vee_perceel_dag)]
 abio_proj[,Aantal_Koedagen_per_jaar := as.numeric(Aantal_Koedagen_per_jaar)]
+abio_proj[,koebelasting_drinkende_koeien := as.numeric(koebelasting_drinkende_koeien)]
+abio_proj[vernat_loc %in% c("ja", "tijdelijk","beperkt"), vernat_loc := 1]
+abio_proj[vernat_loc %in% c("nee"," ")|is.na(vernat_loc), vernat_loc := 0]
+abio_proj[,vernat_loc := as.numeric(vernat_loc)]
 
 ## Function to create XGBoost model for single target ---------------------------------
 create_xgb_model <- function(target_var, predictors, data) {
@@ -359,8 +704,10 @@ target_names_dutch_multiline <- c(
   "n_soorten_sub_zone1" = "Aantal\nwaterplantensoorten",
   "draagkracht_oever" = "Draagkracht\noever (MPa)",
   "slib_redox_pH7" = "Redox slib\nbij pH7 (mV)",
+  "P-AL mg p2o5/100g_SB" ="P-AL slib (mg P2O5/100g)",
   "max_slib" = "Slibdikte (m)"
 )
+
 
 all_importance[, target_dutch_multiline := target_names_dutch_multiline[target_var]]
 
@@ -389,14 +736,18 @@ if(!"correlation_direction" %in% colnames(all_importance)) {
   )]
 }
 
-
-
 # Definieer Okabe-Ito kleuren voor elke target
-okabe_ito_colors <- c(
+targets_present <- unique(na.omit(all_importance$target_var))
+
+okabe_ito_base <- c(
   "#E69F00", "#56B4E9", "#009E73", "#F0E442",
   "#0072B2", "#D55E00", "#CC79A7", "#999999", "#000000"
 )
-names(okabe_ito_colors) <- unique(all_importance$target_var)
+
+okabe_ito_colors <- setNames(
+  rep(okabe_ito_base, length.out = length(targets_present)),
+  targets_present
+)
 
 # Maak plot titels met kleinere R² en RMSE tekst
 all_importance[, plot_title_clean := paste0(target_dutch_multiline, 
@@ -460,145 +811,196 @@ ggsave(file = 'output/AlleGebieden/Tussenrapportage/XGBoost_feature_importance_o
        width = 35, height = 30, units = 'cm', dpi = 800)
 
 ## Manual ALE calculation function (without ALEPlot package)---------------------------------------------
+# r
 calculate_ale_manual <- function(model, X_data, feature_idx, K = 50) {
-  
-  # Get the feature column
-  feature_values <- X_data[, feature_idx]
+  feature_values <- suppressWarnings(as.numeric(X_data[, feature_idx]))
   feature_name <- colnames(X_data)[feature_idx]
-  
-  # Create quantile breaks
-  quantiles <- quantile(feature_values, probs = seq(0, 1, length.out = K + 1), na.rm = TRUE)
-  quantiles <- unique(quantiles) # Remove duplicates
-  
-  # Initialize ALE values
-  ale_values <- numeric(length(quantiles) - 1)
-  x_values <- numeric(length(quantiles) - 1)
-  
-  for(i in 1:(length(quantiles) - 1)) {
-    # Get data points in this interval
-    in_interval <- feature_values >= quantiles[i] & feature_values <= quantiles[i + 1]
-    
-    if(sum(in_interval) > 0) {
-      # Create data for prediction at interval boundaries
+
+  ok <- is.finite(feature_values)
+  feature_values_ok <- feature_values[ok]
+
+  if (length(feature_values_ok) < 2L || length(unique(feature_values_ok)) < 2L) {
+    return(list(x_values = numeric(0), ale_effects = numeric(0), feature_name = feature_name))
+  }
+
+  quantiles <- unique(as.numeric(
+    quantile(feature_values_ok, probs = seq(0, 1, length.out = K + 1), na.rm = TRUE, names = FALSE)
+  ))
+
+  if (length(quantiles) < 2L) {
+    return(list(x_values = numeric(0), ale_effects = numeric(0), feature_name = feature_name))
+  }
+
+  ale_values <- rep(NA_real_, length(quantiles) - 1L)
+  x_values <- rep(NA_real_, length(quantiles) - 1L)
+
+  for (i in seq_len(length(quantiles) - 1L)) {
+    in_interval <- ok & feature_values >= quantiles[i] & feature_values <= quantiles[i + 1]
+    n_int <- sum(in_interval, na.rm = TRUE)
+
+    if (n_int > 0L) {
       X_low <- X_data[in_interval, , drop = FALSE]
       X_high <- X_data[in_interval, , drop = FALSE]
-      
-      # Set feature values to interval boundaries
+
       X_low[, feature_idx] <- quantiles[i]
       X_high[, feature_idx] <- quantiles[i + 1]
-      
-      # Get predictions
+
       pred_low <- predict(model, X_low)
       pred_high <- predict(model, X_high)
-      
-      # Calculate local effect
+
       ale_values[i] <- mean(pred_high - pred_low, na.rm = TRUE)
       x_values[i] <- (quantiles[i] + quantiles[i + 1]) / 2
     }
   }
-  
-  # Calculate cumulative ALE effects
-  ale_cumulative <- cumsum(ale_values)
-  
-  # Center the ALE values
+
+  valid <- is.finite(ale_values) & is.finite(x_values)
+  if (!any(valid)) {
+    return(list(x_values = numeric(0), ale_effects = numeric(0), feature_name = feature_name))
+  }
+
+  ale_cumulative <- cumsum(ale_values[valid])
   ale_centered <- ale_cumulative - mean(ale_cumulative, na.rm = TRUE)
-  
-  return(list(
-    x_values = x_values[!is.na(ale_values)],
-    ale_effects = ale_centered[!is.na(ale_values)],
+
+  list(
+    x_values = x_values[valid],
+    ale_effects = ale_centered,
     feature_name = feature_name
-  ))
+  )
 }
 # Function to create ALE plots without ALEPlot package
-create_ale_plots_manual <- function(model, X_data, target_name) {
-  
+# r
+rescale_to <- function(x, to_min, to_max) {
+  xr <- range(x, na.rm = TRUE)
+  if (!all(is.finite(xr)) || diff(xr) == 0) {
+    return(rep((to_min + to_max) / 2, length(x)))
+  }
+  (x - xr[1]) / diff(xr) * (to_max - to_min) + to_min
+}
+create_ale_plots_manual <- function(model, X_data, y_data, target_name) {
   ale_plots <- list()
-  
-  # Gebruik alle beschikbare features in X_data
   available_features <- colnames(X_data)
-  
-  for(feature in available_features) {
+
+  for (feature in available_features) {
     feature_idx <- which(colnames(X_data) == feature)
-    
-    # Calculate ALE manually
+
     ale_result <- calculate_ale_manual(model, X_data, feature_idx, K = 30)
-    
-    # Create data frame for plotting
+    if (length(ale_result$x_values) == 0L) next
     ale_df <- data.frame(
       x = ale_result$x_values,
       ale_effect = ale_result$ale_effects
     )
-    
-    # Get Dutch name
+
+    real_df <- data.frame(
+      x = X_data[, feature_idx],
+      y = y_data
+    )
+    real_df <- real_df[is.finite(real_df$x) & is.finite(real_df$y), ]
+
+    # Schaal echte y-waarden naar ALE-range voor achtergrondweergave
+    ale_rng <- range(ale_df$ale_effect, na.rm = TRUE)
+    y_rng   <- range(real_df$y, na.rm = TRUE)
+    real_df$y_bg <- rescale_to(real_df$y, ale_rng[1], ale_rng[2])
+
+    # Inverse transformatie voor tweede y-as: ALE-eenheid -> echte y-eenheid
+    # y_real = y_rng[1] + (y_bg - ale_rng[1]) / diff(ale_rng) * diff(y_rng)
+    sec_trans <- if (diff(ale_rng) > 0) {
+      scale_fac <- diff(y_rng) / diff(ale_rng)
+      list(
+        trans  = ~ y_rng[1] + (. - ale_rng[1]) * scale_fac,
+        inv    = ~ ale_rng[1] + (. - y_rng[1]) / scale_fac
+      )
+    } else NULL
+
     feature_name_dutch <- nederlandse_namen[feature]
-    if(is.na(feature_name_dutch)) feature_name_dutch <- feature
-    
-    # Calculate effect range
+    if (is.na(feature_name_dutch)) feature_name_dutch <- feature
+
+    target_name_dutch <- target_names_dutch[target_name]
+    if (is.na(target_name_dutch)) target_name_dutch <- target_name
+
     effect_range <- max(ale_df$ale_effect, na.rm = TRUE) - min(ale_df$ale_effect, na.rm = TRUE)
-    
-    # Create ggplot
-    p <- ggplot(ale_df, aes(x = x, y = ale_effect)) +
-      geom_line(color = "#1f77b4", size = 1) +
+
+    p <- ggplot() +
+      geom_point(
+        data = real_df,
+        aes(x = x, y = y_bg),
+        color = "grey70",
+        alpha = 0.35,
+        size = 1.2
+      ) +
+      geom_line(
+        data = ale_df,
+        aes(x = x, y = ale_effect),
+        color = "#1f77b4",
+        linewidth = 1
+      ) +
       geom_hline(yintercept = 0, linetype = "dashed", color = "red", alpha = 0.7) +
       labs(
-        title = paste0(feature_name_dutch),
+        title    = feature_name_dutch,
         subtitle = paste0("Effect range: ", round(effect_range, 3)),
-        x = feature_name_dutch,
-        y = paste("ALE Effect on", target_names_dutch[target_name])
+        x        = feature_name_dutch,
+        y        = paste("ALE effect op", target_name_dutch)
       ) +
-      theme_minimal() +
-      theme(
-        plot.title = element_text(size = 12, face = "bold"),
-        plot.subtitle = element_text(size = 10),
-        axis.title = element_text(size = 10),
-        axis.text = element_text(size = 9)
-      )
-    
+      theme_minimal()
+
+    # Voeg tweede y-as toe met meetwaarden van de target
+    if (!is.null(sec_trans)) {
+      p <- p + scale_y_continuous(
+        sec.axis = sec_axis(
+          trans  = sec_trans$trans,
+          name   = target_name_dutch,
+          labels = scales::label_number(accuracy = 0.1)
+        )
+      ) +
+        theme(
+          axis.title.y.right = element_text(color = "grey50", size = 8),
+          axis.text.y.right  = element_text(color = "grey50", size = 7)
+        )
+    }
+
     ale_plots[[feature]] <- p
   }
-  
-  return(ale_plots)
+
+  ale_plots
 }
 # Create ALE plots for all models
 all_ale_plots <- list()
-for(target in names(xgb_models)) {
+# r
+for (target in names(xgb_models)) {
   cat("Creating ALE plots for:", target, "\n")
   
-  # Get model data
+  # target MOET in model_data blijven
   model_vars <- c("SlootID", target, cols_corr)
-  model_vars <- model_vars[!model_vars %in% target & model_vars %in% colnames(abio_proj)]
+  model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
   model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
   
-  # Convert factors to numeric
   factor_cols <- names(model_data)[sapply(model_data, is.character)]
   factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
   factor_cols <- c(factor_cols, factor_cols_2)
   model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
   model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
   
-  # Remove SlootID and target for X_data
   predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
   X_data <- as.matrix(model_data[, ..predictors_clean])
+  y_data <- model_data[[target]]
+
+  if (length(y_data) == 0L || nrow(X_data) != length(y_data)) next
   
-  # Create ALE plots
-  ale_plots <- create_ale_plots_manual(xgb_models[[target]], X_data, target)
-  
+  ale_plots <- create_ale_plots_manual(xgb_models[[target]], X_data, y_data, target)
   all_ale_plots[[target]] <- ale_plots
 }
 # Display and save ALE plots for each target
-for(target in names(all_ale_plots)) {
+for (tgt in names(all_ale_plots)) {
   
-  target_dutch <- target_names_dutch[target]
-  perf <- performance_summary[target == target]
+  target_dutch <- target_names_dutch[tgt]
+  perf <- performance_summary[target == tgt]
   
   cat("\n=== ALE Plots for", target_dutch, "===\n")
   cat("RMSE:", round(perf$rmse_test, 3), "| R²:", round(perf$r2_test * 100, 1), "%\n")
   
-  # Display individual plots
-  if(length(all_ale_plots[[target]]) > 0) {
-    for(plot_name in names(all_ale_plots[[target]])) {
+  if (length(all_ale_plots[[tgt]]) > 0) {
+    for (plot_name in names(all_ale_plots[[tgt]])) {
       cat("Showing ALE plot for:", plot_name, "\n")
-      print(all_ale_plots[[target]][[plot_name]])
+      all_ale_plots[[tgt]][[plot_name]]
     }
   }
 }
@@ -606,173 +1008,134 @@ for(target in names(all_ale_plots)) {
 ## ALE plots nieuw combinatie plots van sturende var op alle targets -------------------------------------------------------
 # Functie om gecombineerde plots te maken met echte data + ALE effect
 create_combined_ale_plots <- function() {
-  
-  # Definieer de 10 variabelen
   ale_variables <- cols_corr
-  
   combined_plots <- list()
-  
-  for(var in ale_variables) {
-    if(var %in% colnames(abio_proj)) {
-      
-      cat("Creating combined plot for:", var, "\n")
-      
-      # Verzamel alle target data voor deze variabele
-      plot_data_list <- list()
-      ale_data_list <- list()
-      
-      for(target in names(xgb_models)) {
-        if(target %in% colnames(abio_proj)) {
-          
-          # Echte data voor scatter plot
-          real_data <- abio_proj[!is.na(get(var)) & !is.na(get(target)), 
-                                .(x = get(var), y = get(target), target = target)]
-          
-          if(nrow(real_data) > 10) {
-            plot_data_list[[target]] <- real_data
-            
-            # Bereken ALE effect
-            # Get model data
-            model_vars <- c("SlootID", target, cols_corr)
-            model_vars <- model_vars[!model_vars %in% target & model_vars %in% colnames(abio_proj)]
-            model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
-            
-            # Convert factors to numeric
-            factor_cols <- names(model_data)[sapply(model_data, is.character)]
-            factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
-            factor_cols <- c(factor_cols, factor_cols_2)
-            if(length(factor_cols) > 0) {
-              model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
-              model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
-            }
-            
-            # Remove SlootID and target for X_data
-            predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
-            X_data <- as.matrix(model_data[, ..predictors_clean])
-            
-            # Check if variable exists in model
-            if(var %in% colnames(X_data)) {
-              feature_idx <- which(colnames(X_data) == var)
-              
-              # Calculate ALE
-              ale_result <- calculate_ale_manual(xgb_models[[target]], X_data, feature_idx, K = 30)
-              
-              # Create ALE data frame
-              ale_df <- data.frame(
-                x = ale_result$x_values,
-                ale_effect = ale_result$ale_effects,
-                target = target
-              )
-              
-              ale_data_list[[target]] <- ale_df
-            }
-          }
-        }
+
+  for (var in ale_variables) {
+    if (!var %in% colnames(abio_proj)) next
+
+    plot_data_list <- list()
+    ale_data_list <- list()
+
+    for (tgt in names(xgb_models)) {
+      if (!tgt %in% colnames(abio_proj)) next
+
+      real_data <- abio_proj[
+        !is.na(get(var)) & !is.na(get(tgt)),
+        .(x = get(var), y = get(tgt), target = tgt)
+      ]
+
+      if (nrow(real_data) <= 10) next
+      plot_data_list[[tgt]] <- real_data
+
+      model_vars <- c("SlootID", tgt, cols_corr)
+      model_vars <- model_vars[!model_vars %in% tgt & model_vars %in% colnames(abio_proj)]
+      model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
+
+      factor_cols <- names(model_data)[sapply(model_data, is.character) | sapply(model_data, is.factor)]
+      if (length(factor_cols) > 0) {
+        model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
+        model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
       }
-      
-      if(length(plot_data_list) > 0 && length(ale_data_list) > 0) {
-        
-        # Combine all real data
-        all_real_data <- rbindlist(plot_data_list)
-        all_real_data[, target_dutch := target_names_dutch[target]]
-        
-        # Combine all ALE data
-        all_ale_data <- rbindlist(ale_data_list, fill = TRUE)
-        all_ale_data[, target_dutch := target_names_dutch[target]]
-        
-        # Get Dutch variable name
-        var_name_dutch <- nederlandse_namen[var]
-        if(is.na(var_name_dutch)) var_name_dutch <- var
-        
-        # CORRECTE SCHALING: ALE=0 op mediaan van doelvariabele
-        all_ale_data[, target_median := median(all_real_data[target == get("target"), y], na.rm = TRUE), by = target]
-        
-        # Bereken schaalfactor op basis van bereik
-        y_range_per_target <- all_real_data[, .(y_min = min(y, na.rm = TRUE), 
-                                               y_max = max(y, na.rm = TRUE),
-                                               y_median = median(y, na.rm = TRUE)), by = target]
-        
-        all_ale_data <- merge(all_ale_data, y_range_per_target, by = "target")
-        
-        # Schaal ALE effecten zodat ze goed zichtbaar zijn maar ALE=0 op mediaan ligt
-        ale_range_per_target <- all_ale_data[, .(ale_min = min(ale_effect, na.rm = TRUE),
-                                                ale_max = max(ale_effect, na.rm = TRUE)), by = target]
-        
-        all_ale_data <- merge(all_ale_data, ale_range_per_target, by = "target")
-        
-        # Bereken schaalfactor per target zodat ALE range past binnen ~30% van y range
-        all_ale_data[, scale_factor := ifelse(ale_max - ale_min > 0, 
-                                             (y_max - y_min) * 0.3 / (ale_max - ale_min), 
-                                             1), by = target]
-        
-        # Schaal ALE effecten met mediaan als centrum (ALE=0 op y_median)
-        all_ale_data[, ale_scaled := y_median + ale_effect * scale_factor]
-        
-        # Maak referentielijn data voor ALE=0 (mediaan)
-        median_lines <- unique(all_ale_data[, .(target, target_dutch, y_median)])
-        
-        # Bereken min/max ALE effecten per target voor labels
-        ale_minmax <- all_ale_data[, .(
-          ale_min_val = min(ale_effect, na.rm = TRUE),
-          ale_max_val = max(ale_effect, na.rm = TRUE),
-          x_pos_min = x[which.min(ale_effect)],
-          x_pos_max = x[which.max(ale_effect)],
-          y_pos_min = ale_scaled[which.min(ale_effect)],
-          y_pos_max = ale_scaled[which.max(ale_effect)]
-        ), by = .(target, target_dutch)]
-        
-        # Create the plot
-        p <- ggplot() +
-          # Echte datapunten
-          geom_point(data = all_real_data, 
-                    aes(x = x, y = y, color = target_dutch), 
-                    alpha = 0.6, size = 1.5) +
-          # Mediaan lijnen (ALE = 0 referentie)
-          geom_hline(data = median_lines, 
-                    aes(yintercept = y_median), 
-                    linetype = "dashed", color = "red", alpha = 0.7, size = 0.5) +
-          # ALE lijnen (geschaald met mediaan als centrum)
-          geom_line(data = all_ale_data, 
-                   aes(x = x, y = ale_scaled), 
-                   size = 1.2, color = "black") +
-          # Labels voor minimum ALE effect
-          geom_text(data = ale_minmax,
-                   aes(x = x_pos_min, y = y_pos_min, 
-                       label = paste("Min:", round(ale_min_val, 3))),
-                   color = "blue", fontface = "bold", size = 3,
-                   hjust = 0.5, vjust = -0.5) +
-          # Labels voor maximum ALE effect  
-          geom_text(data = ale_minmax,
-                   aes(x = x_pos_max, y = y_pos_max,
-                       label = paste("Max:", round(ale_max_val, 3))),
-                   color = "darkgreen", fontface = "bold", size = 3,
-                   hjust = 0.5, vjust = 1.5) +
-          facet_wrap(~target_dutch, scales = "free_y", ncol = 3) +
-          labs(
-            title = paste("Effect van", var_name_dutch, "op alle doelvariabelen"),
-            subtitle = "Punten = echte data, zwarte lijn = ALE effect, rode lijn = mediaan (ALE=0), labels = min/max ALE",
-            x = var_name_dutch,
-            y = "Waarde doelvariabele",
-            color = "Doelvariabele"
-          ) +
-          theme_minimal() +
-          theme(
-            plot.title = element_text(size = 14, face = "bold"),
-            plot.subtitle = element_text(size = 12),
-            axis.title = element_text(size = 12),
-            axis.text = element_text(size = 10),
-            strip.text = element_text(size = 11),
-            legend.position = "bottom",
-            legend.text = element_text(size = 9)
-          ) +
-          guides(color = guide_legend(ncol = 3))
-        
-        combined_plots[[var]] <- p
-      }
+
+      predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", tgt)]
+      X_data <- as.matrix(model_data[, ..predictors_clean])
+      if (!var %in% colnames(X_data)) next
+
+      feature_idx <- which(colnames(X_data) == var)
+      ale_result <- calculate_ale_manual(xgb_models[[tgt]], X_data, feature_idx, K = 30)
+
+      ale_data_list[[tgt]] <- data.table(
+        x = ale_result$x_values,
+        ale_effect = ale_result$ale_effects,
+        target = tgt
+      )
     }
+
+    if (length(plot_data_list) == 0 || length(ale_data_list) == 0) next
+
+    all_real_data <- rbindlist(plot_data_list, fill = TRUE)
+    all_ale_data  <- rbindlist(ale_data_list, fill = TRUE)
+
+    all_real_data[, target_dutch := target_names_dutch[target]]
+    all_ale_data[, target_dutch := target_names_dutch[target]]
+
+    # stats per target voor schaling
+    y_stats <- all_real_data[, .(
+      y_min = min(y, na.rm = TRUE),
+      y_max = max(y, na.rm = TRUE),
+      y_median = median(y, na.rm = TRUE)
+    ), by = target]
+
+    ale_stats <- all_ale_data[, .(
+      ale_min = min(ale_effect, na.rm = TRUE),
+      ale_max = max(ale_effect, na.rm = TRUE)
+    ), by = target]
+
+    all_ale_data <- merge(all_ale_data, y_stats, by = "target", all.x = TRUE)
+    all_ale_data <- merge(all_ale_data, ale_stats, by = "target", all.x = TRUE)
+
+    all_ale_data[, scale_factor := fifelse(
+      (ale_max - ale_min) > 0,
+      (y_max - y_min) * 0.30 / (ale_max - ale_min),
+      1
+    )]
+
+    all_ale_data[, ale_scaled := y_median + ale_effect * scale_factor]
+
+    median_lines <- unique(all_ale_data[, .(target, target_dutch, y_median)])
+
+    ale_minmax <- all_ale_data[, .(
+      ale_min_val = min(ale_effect, na.rm = TRUE),
+      ale_max_val = max(ale_effect, na.rm = TRUE),
+      x_pos_min = x[which.min(ale_effect)],
+      x_pos_max = x[which.max(ale_effect)],
+      y_pos_min = ale_scaled[which.min(ale_effect)],
+      y_pos_max = ale_scaled[which.max(ale_effect)]
+    ), by = .(target, target_dutch)]
+
+    var_name_dutch <- nederlandse_namen[var]
+    if (is.na(var_name_dutch)) var_name_dutch <- var
+
+    p <- ggplot() +
+      geom_point(
+        data = all_real_data,
+        aes(x = x, y = y),
+        color = "grey70", alpha = 0.35, size = 1.2
+      ) +
+      geom_hline(
+        data = median_lines,
+        aes(yintercept = y_median),
+        linetype = "dashed", color = "red", alpha = 0.7, linewidth = 0.5
+      ) +
+      geom_line(
+        data = all_ale_data,
+        aes(x = x, y = ale_scaled),
+        color = "black", linewidth = 1.1
+      ) +
+      geom_text(
+        data = ale_minmax,
+        aes(x = x_pos_min, y = y_pos_min, label = paste("Min:", round(ale_min_val, 3))),
+        color = "blue", size = 3, fontface = "bold", vjust = -0.4
+      ) +
+      geom_text(
+        data = ale_minmax,
+        aes(x = x_pos_max, y = y_pos_max, label = paste("Max:", round(ale_max_val, 3))),
+        color = "darkgreen", size = 3, fontface = "bold", vjust = 1.3
+      ) +
+      facet_wrap(~target_dutch, scales = "free_y", ncol = 3) +
+      labs(
+        title = paste("Effect van", var_name_dutch, "op alle doelvariabelen"),
+        subtitle = "Grijze punten = waarnemingen, zwarte lijn = ALE (geschaald), rode lijn = mediaan (ALE=0)",
+        x = var_name_dutch,
+        y = "Doelvariabele"
+      ) +
+      theme_minimal(base_size = 11)
+
+    combined_plots[[var]] <- p
   }
-  
-  return(combined_plots)
+
+  combined_plots
 }
 cat("Creating combined ALE + data plots...\n")
 combined_ale_plots <- create_combined_ale_plots()
@@ -838,6 +1201,173 @@ for (tgt in names(all_ale_plots)) {
   cat("Opgeslagen:", outfile, "
 ")
 }
+
+## Kantelpunten detectie in ALE-curves --------------------------------------------------------
+
+detect_tipping_points <- function(x, y, min_effect_range = 0.01, min_jump_pct = 0.15) {
+  effect_range <- diff(range(y, na.rm = TRUE))
+
+  # Sla hele curve over als totaal bereik te klein is
+  if (effect_range < min_effect_range || length(x) < 4) return(NULL)
+
+  dy <- diff(y)
+  dx <- diff(x)
+
+  # 1. Lokale extrema via tekenwissel in dy
+  sign_ch <- which(diff(sign(dy)) != 0) + 1
+
+  # Filter: alleen bewaren als de sprong rondom het punt >= min_jump_pct * effect_range
+  min_jump_abs <- min_jump_pct * effect_range
+  sign_ch_filtered <- sign_ch[vapply(sign_ch, function(i) {
+    left  <- if (i > 1)           abs(dy[i - 1]) else 0
+    right <- if (i <= length(dy)) abs(dy[i])     else 0
+    max(left, right) >= min_jump_abs
+  }, logical(1))]
+
+  # 2. Steilste helling
+  slopes       <- dy / dx
+  steepest_idx <- which.max(abs(slopes)) + 1
+
+  local_extrema <- if (length(sign_ch_filtered)) {
+    data.frame(x = x[sign_ch_filtered], y = y[sign_ch_filtered], type = "Lokaal extremum")
+  } else NULL
+
+  list(
+    local_extrema = local_extrema,
+    steepest      = data.frame(x = x[steepest_idx], y = y[steepest_idx], type = "Steilste helling")
+  )
+}
+
+## Loop over alle targets: ALE plots met kantelpunten -----------------------------------------
+
+tipping_records <- list()
+
+for (tgt in names(all_ale_plots)) {
+
+  top_feats <- all_importance[target_var == tgt][order(-Gain)][1:min(.N, 5), Feature]
+  top_feats <- top_feats[top_feats %in% names(all_ale_plots[[tgt]])]
+  if (length(top_feats) == 0) next
+
+  plots_tgt <- lapply(top_feats, function(feat) {
+
+    # Haal ALE x/y op uit de bestaande ggplot-objecten (layer 2 = geom_line)
+    ale_df <- layer_data(all_ale_plots[[tgt]][[feat]], 2)[, c("x", "y")]
+    names(ale_df) <- c("x", "ale_effect")
+
+    tp <- detect_tipping_points(ale_df$x, ale_df$ale_effect)
+
+    # Sla op voor overzichtstabel
+    if (!is.null(tp)) {
+      tp_all <- rbind(
+        if (!is.null(tp$local_extrema)) tp$local_extrema else NULL,
+        tp$steepest
+      )
+      if (!is.null(tp_all) && nrow(tp_all) > 0) {
+        tipping_records[[length(tipping_records) + 1]] <<- data.table(
+          target     = tgt,
+          target_nl  = target_names_dutch[tgt],
+          predictor  = feat,
+          pred_nl    = nederlandse_namen[feat],
+          type       = tp_all$type,
+          x_waarde   = round(tp_all$x, 4),
+          ale_effect = round(tp_all$y, 4)
+        )
+      }
+    }
+
+    dutch_name <- all_importance[target_var == tgt & Feature == feat, Nederlandse_naam][1]
+    gain_val   <- all_importance[target_var == tgt & Feature == feat, round(Gain, 3)][1]
+
+    # Basisplot overnemen
+    p <- all_ale_plots[[tgt]][[feat]] +
+      labs(
+        title    = paste0(dutch_name, "\n(Gain: ", gain_val, ")"),
+        subtitle = NULL,
+        x        = NULL,
+        y        = "ALE effect"
+      ) +
+      theme_minimal(base_size = 9) +
+      theme(
+        plot.title   = element_text(size = 8, face = "bold", hjust = 0.5),
+        axis.text    = element_text(size = 7),
+        axis.title.y = element_text(size = 7.5),
+        panel.border = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+        plot.margin  = margin(4, 8, 4, 8)
+      )
+
+    # Voeg annotaties toe als detect_tipping_points iets retourneert
+    if (!is.null(tp)) {
+
+      # Verticale lijn alleen voor steilste helling
+      p <- p +
+        geom_vline(
+          xintercept = tp$steepest$x,
+          linetype   = "dashed",
+          color      = "#CC79A7",
+          linewidth  = 0.7,
+          alpha      = 0.9
+        ) +
+        annotate(
+          "label",
+          x      = tp$steepest$x,
+          y      = Inf,
+          label  = round(tp$steepest$x, 2),
+          vjust  = 1.3,
+          size   = 2.5,
+          fontface = "bold",
+          color  = "#CC79A7",
+          fill   = "white",
+          label.padding = unit(0.15, "lines")
+        )
+
+      # Rode stippen op de ALE-lijn voor lokale extrema
+      if (!is.null(tp$local_extrema) && nrow(tp$local_extrema) > 0) {
+        p <- p +
+          geom_point(
+            data  = tp$local_extrema,
+            aes(x = x, y = y),
+            color = "red",
+            size  = 2.5,
+            shape = 16
+          ) +
+          geom_label(
+            data  = tp$local_extrema,
+            aes(x = x, y = y, label = round(x, 2)),
+            vjust = -0.6,
+            size  = 2.2,
+            color = "red",
+            fill  = "white",
+            label.padding = unit(0.12, "lines")
+          )
+      }
+    }
+
+    p
+  })
+
+  title_str <- all_importance[target_var == tgt, target_dutch[1]]
+  perf_str  <- all_importance[target_var == tgt,
+    paste0("R²: ", round(r2_test[1] * 100, 1), "%  |  RMSE: ",
+           round(rmse_test[1], 3), " ", rmse_unit[1])]
+
+  panel <- wrap_plots(plots_tgt, nrow = 1) +
+    plot_annotation(
+      title    = paste0("ALE + Kantelpunten — ", title_str),
+      subtitle = perf_str,
+      theme    = theme(
+        plot.title    = element_text(size = 11, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 9, color = "grey40", hjust = 0.5)
+      )
+    )
+
+  outfile <- paste0("output/AlleGebieden/Tussenrapportage/ALE_tipping_", tgt, ".png")
+  ggsave(outfile, panel, width = 35, height = 12, units = "cm", dpi = 200)
+  cat("Opgeslagen:", outfile, "\n")
+}
+
+## Overzichtstabel alle kantelpunten ---------------------------------------------------
+tipping_points_summary <- rbindlist(tipping_records, fill = TRUE)
+print(tipping_points_summary)
 
 ## Functie voor XGBoost model diagnostiek en validatie ------------------------------------------
 # Functie voor XGBoost model diagnostiek
@@ -1045,7 +1575,8 @@ print("=== Samenvattende Diagnostische Statistieken ===")
 print(diagnostics_summary)
 
 
-# redox ----------------------------------------------------------------------------------------
+
+# 4. redox XGBOOST----------------------------------------------------------------------------------------
 ## versie redox en poriewaterconcentraties erbij-----------------------------------
 
 target_vars <- c("slib_redox_pH7")
