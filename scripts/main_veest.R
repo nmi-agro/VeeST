@@ -341,6 +341,11 @@ melt[compartiment == 'OW', compartiment := 'water']
 melt[compartiment == 'PW', compartiment := 'poriewater']
 melt[,`gemiddelde VeeST` := mean(value, na.rm = TRUE), by = c('variable','monsterdiepte','parameter','compartiment','eenheid','methode','varnames')] 
 
+## correct values that contain commas and are read as characters instead of numeric
+abio_proj[, names(abio_proj) := lapply(.SD, function(x) {
+  if (is.character(x)) gsub(";", ":", iconv(x, to = "UTF-8", sub = "byte")) else x
+})]
+
 ## overzichtstabel met pargroups per gebied per jaar ---------------------------
 
 overzicht_wide <- dcast(

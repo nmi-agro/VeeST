@@ -397,7 +397,6 @@ gps25[,plot := gsub("pot3pen7", "plot3pen7", plot)]
 gps25[,gebied:= tolower(gebied)]
 gps25[grepl('WP1', name), extragebied:= 'wp1']
 gps25[,oever := sapply(strsplit(name, '_'), `[`, 4)]
-gps25[,oever:= toupper(oever)]
 # correctie oever
 gps25[name == 'IG_15_WP1_w' ,oever:= 'N']
 gps25[name == 'SN_5_WP1_w' ,oever:= 'O']
@@ -412,6 +411,9 @@ gps25[name == 'SW_4_M_o',oever:= 'ZO']
 gps25[name == 'SW_4_M-AF_o',oever:= 'ZO']
 gps25[name == 'SW_4_M-NVO_w',oever:= 'NW']
 gps25[name == 'SW_4_M-AF-NVO_w',oever:= 'NW']
+gps25[grepl('s1',oever), oever := sapply(strsplit(name, '_'), `[`, 5)]
+gps25[grepl('s2',oever), oever := sapply(strsplit(name, '_'), `[`, 5)]
+gps25[,oever:= toupper(oever)]
 # extragebied toevoegen 
 gps25[gebied %in% c('ad','bd','de','dp','dt','eem','ep','hw','ig','lg','lw','mb',
 'ok','sn','sv','up','wjv','wl','wz','zvp','zw','oukoop') , extragebied:= '']
@@ -425,10 +427,10 @@ gps25[gebied == 'zg' & sloot %in% c('1','2','3'), extragebied:= 'ZG_1_3']
 gps25[gebied == 'zg' & sloot %in% c('10','11','12','13'), extragebied:= 'ZG_10_WP1 tm ZG_13_WP1']
 gps25[gebied == 'zg' & sloot %in% c('6','7','8','9'), extragebied:= 'ZG_6_WP1 tm ZG_9_WP1']
 gps25[gebied == 'kw' & sloot %in% c('1'), extragebied:= 'KW_1_2_M_R']
-gps25[gebied == 'kw' & sloot %in% c('2') & ID %in% c(207,208), extragebied:= 'KW_1_2_M_R']
-gps25[gebied == 'kw' & sloot %in% c('13','14','15','16'), extragebied:= 'KW_13_WP1 tm KW_16_WP1']
+gps25[gebied == 'kw' & sloot %in% c('2') & name %in% c('KW_2_M_w','KW_2_R_w'), extragebied:= 'KW_1_2_M_R']
+gps25[gebied == 'kw' & sloot %in% c('2') & name %in% c('KW_2_M-AF_w'), extragebied:= 'KW_2_MAF_3']
 gps25[gebied == 'kw' & sloot %in% c('3'), extragebied:= 'KW_2_MAF_3']
-gps25[gebied == 'kw' & sloot %in% c('2') & ID %in% c(206), extragebied:= 'KW_2_MAF_3']
+gps25[gebied == 'kw' & sloot %in% c('13','14','15','16'), extragebied:= 'KW_13_WP1 tm KW_16_WP1']
 gps25[gebied == 'sz' & sloot %in% c('1','2'), extragebied:= 'SZ_1_2_WP1']
 gps25[gebied == 'sz' & sloot %in% c('3','4','5','6'), extragebied:= 'SZ_3_WP1 tm SZ_6_WP1']
 ### import penetrometer data 2025----------------------------------------------
@@ -468,11 +470,64 @@ penmerge_25[,Diept := as.numeric(Diept)]
 penmerge[,Diept := as.numeric(Diept)]
 penmerge <- rbind(penmerge, penmerge_25, fill = TRUE)
 
-## 4.3 merge with locationcorrection 24 en 25---------------------------------
+## Import 2026 ------------------------------------------------------------
+### import gps csv data 2026--------------------------------------------------------
+gps26 <-  importGPS2(inputdir = paste0(workspace,"./GPS/2026"), gpsid = max(gps$ID))
+gps26 <-  st_transform(gps26, crs = 28992)
+setDT(gps26)
+gps26[,trajecten := 1]
+# voeg volgnummer toe voor bepaling afstand tot sloot
+# 1 = perceel, 2 = insteek, 3 tm 12 = oever en insteek en perceel andere oeverzijde
+gps26 <- gps26[,dist_id := frank(Puntnummer, ties.method = 'dense'), by = 'ID']
+# create id for filtering
+coords <- data.frame(st_coordinates(st_zm(gps26$geometry)))
+gps26 <- cbind(gps26,coords)
+gps26[,ident:= paste0(X,'_',Y)]
+gps26 <- gps26[,c('ID','name','Opmerking','trajecten','dist_id','geometry','X','Y','ident')]
+## add location info for filtering and correcting
+gps26[, gebied:= tstrsplit(name, "_")[1]]
+gps26[, sloot:= tstrsplit(name, "_")[2]]
+gps26[,sloot := as.character(sloot)]
+# correct dist id for multiple transects (2 oevers or 2 transects)
+gps26[,max_dis_id := max(dist_id), by = 'name']
+# make unique name 4 matching
+gps26[,Opmerking := tolower(Opmerking)]
+gps26[,Opmerking := lapply(.SD, function(x) gsub("\\s+|\\s+", "",x)),.SDcols = c('Opmerking')]
+gps26[,plot := Opmerking]
+gps26[,gebied:= tolower(gebied)]
+gps26[,oever := sapply(strsplit(name, '_'), `[`, 4)]
+gps26[,oever:= toupper(oever)]
+gps26[name == 'SW_4_M_o',oever:= 'ZO']
+gps26[name == 'SW_4_M-AF_o',oever:= 'ZO']
+gps26[name == 'SW_4_M-NVO_w',oever:= 'NW']
+gps26[name == 'SW_4_M-NVO-AF_w',oever:= 'NW']
+### import penetrometer data 2025----------------------------------------------
+pen <- importPen2(inputdir = paste0(workspace,"./Penetrometer/2026"))
+pen[,Diept := as.numeric(Diept)]
+pen <- pen[,Diept := Diept -1]
+pen <- pen[!is.na(indringingsweerstand),]
+# make unique name 4 matching
+pen[ ,plot:= as.numeric(gsub("^PLOTX*", "", Plotnaam))]
+pen[ ,pen := as.numeric(gsub("^Pen*", "", as.character(Pen)))]
+pen[ ,plot:= paste0('plot',plot,'pen',pen)]
+pen[ ,gebied:= tstrsplit(name, "_")[1]]
+pen[ ,gebied:=tolower(gebied)]
+pen[ ,extragebied:= " "]
+## 2.2.2 proces 2026----------------------------------------------
+### postprocess penetrometer data 26 ---------------------------------------------
+# merge gps with pen
+penmerge_26 <- merge(pen, gps26, by=c('gebied','plot'), all = TRUE, allow.cartesian = FALSE, suffixes = c('_pen','_gps'))
+# add date/ jaar
+penmerge_26[,jaar := "2026"]
+penmerge_26[,Diept := as.numeric(Diept)]
+penmerge[,Diept := as.numeric(Diept)]
+penmerge <- rbind(penmerge, penmerge_26, fill = TRUE)
+
+## 4.3 merge with locationcorrection 24 en 25 en 26---------------------------------
 setDT(locaties)
 locaties[,jaar:= as.character(jaar)]
 locaties_pen <- unique(locaties[,c('SlootID','SlootID_old_pengps','oever','jaar')])
-locaties_pen <- locaties_pen[!is.na(SlootID_old_pengps),]
+locaties_pen <- locaties_pen[!is.na(SlootID_old_pengps) ,]
 # Check voor duplicate combinaties van SlootID_old_pengps, oever en jaar
 locaties_pen[, .N, by = .(SlootID_old_pengps, oever, jaar)][N > 1]
 penmerge[,jaar:= as.character(jaar)]
@@ -480,6 +535,8 @@ penmerge[,jaar:= as.character(jaar)]
 penmerge <- merge(penmerge[!is.na(name_gps)], locaties_pen, 
                   by.x = c('name_gps','oever','jaar'), by.y = c('SlootID_old_pengps','oever','jaar'), all.x = TRUE, allow.cartesian = TRUE, suffixes = c('_pen','_locs'))
 penmerge[name_gps == 'Rh_4_R' & oever == 'O', SlootID := SlootID_loc]
+
+check <- penmerge[is.na(SlootID) & !is.na(name_gps), .N, by = .(name_gps, oever, jaar)]
 # 1 = perceel, 2 = insteek, 3 tm 12 = oever en insteek en perceel andere oeverzijde
 penmerge[,sectie:= 'oever']
 penmerge[dist_id==1,sectie:= 'perceel']
@@ -506,6 +563,35 @@ penmerge <- penmerge[
   !(sectie == "oever" & !is.na(max_dist_remove) & dist_id == max_dist_remove)
 ][, max_dist_remove := NULL]
 penmerge[, max_dist_remove := NULL]
+# verwijder trajecten met 30+ opeenvolgende dieptepunten (gemiddeld per diepte)
+# met indringingsweerstand < 0.15, tenzij het het enige oeverpunt voor die locatie is
+flat_series <- penmerge[!is.na(Diept) & !is.na(indringingsweerstand), {
+  dt_avg  <- data.table(d = Diept, v = indringingsweerstand)[
+    , .(avg_v = mean(v, na.rm = TRUE)), by = d][order(d)]
+  low     <- dt_avg$avg_v < 0.15
+  rle_low <- rle(low)
+  max_run <- if (any(rle_low$values)) max(rle_low$lengths[rle_low$values]) else 0L
+  .(max_consecutive_low = max_run)
+}, by = .(SlootID, sectie, jaar)]
+# flag alle trajecten met >= 30 opeenvolgende lage punten
+flat_series[, flat_flag := max_consecutive_low >= 30]
+penmerge <- merge(penmerge, flat_series[, .(SlootID, sectie, jaar, max_consecutive_low, flat_flag)],
+                  by = c("SlootID", "sectie", "jaar"), all.x = TRUE)
+# overzichtslijst van gevlagde trajecten (voor inspectie)
+flat_flag_overzicht <- flat_series[flat_flag == TRUE][order(-max_consecutive_low)]
+message(nrow(flat_flag_overzicht), " trajecten gevlagd met 30+ opeenvolgende punten < 0.15 MPa")
+print(flat_flag_overzicht)
+
+# bescherm oever-trajecten die het enige oeverpunt voor die SlootID+jaar zijn
+oever_counts <- penmerge[sectie == "oever", .(n_oever_trajecten = uniqueN(paste(SlootID, jaar))),
+                         by = .(SlootID, jaar)]
+flag_keys <- flat_series[flat_flag == TRUE, .(SlootID, sectie, jaar)]
+flag_keys <- merge(flag_keys, oever_counts, by = c("SlootID", "jaar"), all.x = TRUE)
+# verwijder alleen als: niet-oever, of oever met meer dan 1 traject
+flag_keys <- flag_keys[is.na(n_oever_trajecten) | !(sectie == "oever" & n_oever_trajecten == 1)]
+
+penmerge <- penmerge[!flag_keys, on = .(SlootID, sectie, jaar)]
+
 # reshape data wide for matching with abiotic data
 penmerge_wide <- dcast(penmerge[!is.na(Diept),], SlootID+jaar~sectie+dieptebin, value.var = c('indringingsweerstand'), fun.aggregate = mean, na.rm = TRUE, fill = FALSE, drop = TRUE)
 penmerge_wide2 <- dcast(penmerge[!is.na(Diept),], SlootID+jaar~sectie+diepte_wortels, value.var = c('indringingsweerstand'), fun.aggregate = mean, na.rm = TRUE, fill = FALSE, drop = TRUE)
@@ -539,22 +625,21 @@ penmerge_wide <- merge(penmerge_wide, penmerge_wide2, by = c('SlootID','jaar'), 
 
 ## 4.4 validatie regels penetrometer 24 en 25-------------------------
 # check 4 double coordinates in pen_gps
-gps <- st_as_sf(gps2)
-gps2 <- st_zm(gps, crs = 28992)
-coords <- as.data.table(st_coordinates(gps2))
+gps <- st_as_sf(gps)
+gps <- st_zm(gps, crs = 28992)
+coords <- as.data.table(st_coordinates(gps))
 dubbel_24 <- gps[which(duplicated(coords)),]
 gps <- st_as_sf(gps25)
 gps2 <- st_zm(gps, crs = 28992)
 coords <- as.data.table(st_coordinates(gps2))
 dubbel_25 <- gps[which(duplicated(coords)),]
 # check double plots in penetrometerdata 
-setDT(gps)
-gps_tab <- dcast(gps25, gebied+plot+extragebied~., value.var = c('name'), fun.aggregate = uniqueN)
-checkgps <- gps[, nunique := uniqueN(ident), by = c('gebied','plot','extragebied')]
+checkgps <- gps_24[, nunique := uniqueN(ident), by = c('gebied','plot','extragebied')]
 checkgps <- checkgps[nunique>1,]
-# check wel gps geen pen
-checkgps <- merge(gps[,c('name','gebied','plot','extragebied')],pen[,c('name','gebied','plot','extragebied')], by = c('gebied','plot','extragebied'), all.x = TRUE)
-checkgps <- checkgps[is.na(name.y),]
+checkgps <- gps25[, nunique := uniqueN(ident), by = c('gebied','plot','extragebied')]
+checkgps <- checkgps[nunique>1,]
+checkgps <- gps26[, nunique := uniqueN(ident), by = c('gebied','plot')]
+checkgps <- checkgps[nunique>1,]
 # oever present in al pen/gps data
 checkgps <- unique(penmerge[is.na(oever)&!is.na(name_gps), name_gps])
 # check if gps is present 4 penetrometer data
@@ -580,6 +665,8 @@ inputdir <- paste0(workspace,"./ODK_abiotiek")
 abio <- file.info(list.files(path= paste0(inputdir), pattern=".csv", full.names =  T))
 abio <- rownames(abio)[which.max(abio$mtime)]
 abio <- fread(abio, dec = ',', na.strings = c(999,9999,-999,-99,'999,0','999,00','999,000','NA','999','999,0000'))
+abio2 <- fread("C:/Users/LauraMoria/NMI/NMI - Gedeelde documenten/Projecten/O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Data/./ODK_abiotiek/VeeST_Veldform Abiotiek_v5_results_251104.csv" , dec = ',', na.strings = c(999,9999,-999,-99,'999,0','999,00','999,000','NA','999','999,0000'))
+abio <- rbind(abio,abio2, fill=TRUE)
 abio[, datum := as.POSIXct(datemanual) ]
 abio[,jaar:= year(datum)]
 abio_cols <- fread(paste0(workspace,"./hulp_tabellen/veest_kolomnamen.csv"), dec = ',')
@@ -606,8 +693,8 @@ abio[watertemp_C > 50, watertemp_C := NA]
 # merge with unique/ koppelnames
 setDT(locaties)
 # check if instanceID locaties allemaal voorkomen in abio
-# abio_loc_instanceidcheck <- unique(abio[!instanceID %in% unique(locaties$instanceID_abio),c("SlootID",'instanceID')])
-# loc_abio_instanceidcheck <- unique(locaties[!instanceID_abio %in% unique(abio$instanceID),c("SlootID",'instanceID_abio')])
+abio_loc_instanceidcheck <- unique(abio[!instanceID %in% unique(locaties$instanceID_abio),c("SlootID",'instanceID','jaar')])
+loc_abio_instanceidcheck <- unique(locaties[!instanceID_abio %in% unique(abio$instanceID),c("SlootID",'instanceID_abio')])
 abio <- merge(abio, locaties, by.x ='instanceID', by.y ='instanceID_abio', all.x = TRUE, all.y = FALSE, suffixes = c('_abio',''))
 #check if slootID_old_abio == SlootID_abio
 check_abio <- unique(abio[!SlootID_old_abio == SlootID_abio, c('SlootID_old_abio','SlootID_abio')])
@@ -665,6 +752,11 @@ setDT(profiel_25)
 profiel_25[,jaar := 2025]
 profiel_25[,ID := paste0(ID,'_25')]
 profiel <- rbind(profiel_24, profiel_25)
+profiel_26 <-  importGPSprof(inputdir = paste0(workspace,"./GPS slootprofielen/2026"))
+setDT(profiel_26)
+profiel_26[,jaar := 2026]
+profiel_26[,ID := paste0(ID,'_26')]
+profiel <- rbind(profiel, profiel_26)
 ## 6.2 Postprocess profielen-----------------------------------------------------
 ### 6.2.1 correct Mijnden -------------------------------------
 setDT(profiel)
@@ -725,9 +817,14 @@ profiel[, watbte := dist[Puntnummer == numwl_max]-dist[Puntnummer == numwl_min],
 # breedte oever
 profiel[, oevbte := dist[Puntnummer == numwl_min]-dist[Puntnummer == min(Puntnummer[sectie == 'oever'])], by =c ('ID','sectie_2')]
 
-### 6.2.2a correct Idzegea -------------------------------------
+### 6.2.2a correct sectie -------------------------------------
 profiel[name == 'IG_10_WP1' & Puntnummer > 31 & jaar == 2025, sectie := 'perceel']
 profiel[name == 'WZ_1_WP1' & Puntnummer > 45 & jaar == 2025, sectie := 'perceel']
+profiel[name == 'HW_7_WP1' & Puntnummer == 20 & jaar == 2024 & sectie_2 == 2, sectie := 'oever']
+profiel[name == 'KW_6_WP1' & Puntnummer == 8 & jaar == 2024 & sectie_2 == 1, sectie := 'oever']
+profiel[name == 'MD_6_NVO2' & Puntnummer == 6 & jaar == 2024 & sectie_2 == 1, sectie := 'oever']
+profiel[name == 'RH_12_WP1' & Puntnummer == 6 & jaar == 2024 & sectie_2 == 1, sectie := 'oever']
+profiel[name == 'SV_4_WP1' & Puntnummer == 21 & jaar == 2024 & sectie_2 == 2, sectie := 'oever']
 
 ### 6.2.3 taludhoek berekenen ------------------------------
 profiel[sectie_2 == 1,talud := 100*((z- shift(z,-1))/ (-1*(dist - shift(dist,-1)))), by ='ID']
@@ -796,7 +893,7 @@ setDT(locs_prof)
 uniqueN(locs_prof[,c('name','sectie_2','jaar')])
 locs_prof_double <- as.data.table(table(locs_prof[,c('name','sectie_2','jaar')])) # mag 0 en 1 zijn
 # Check double slootIDs als twee profielen hetzelfde traject doorkruizen
-locs_prof_double <- as.data.table(table(locs_prof[,c('SlootID')])) # mag 1 zijn
+locs_prof_double <- as.data.table(table(locs_prof[,c('SlootID')])) # mag 1 en 2 zijn
 # DR_4_M-AUG wordt twee keer doorkruist door een profiel: mogelijk later een gemiddelde van talud etc. per slootID nemen
 locs_prof <- locs_prof[!(SlootID == 'DR_4_M-AUG_Z' & name == '4_nak_reg_s2'),]
 locs_prof <- locs_prof[!(SlootID == 'IG_15_WP1_N' & sectie_2 == 2),]
@@ -835,12 +932,20 @@ write.table(locs_veg, paste0(workspace,"/hulp_tabellen/locs_veg_instanceidcheck.
 library(readxl)
 veg_srt <- read_xlsx(paste0(inputdir,'/vegetatieopnames_vera_odk.xlsx'))
 setDT(veg_srt)
-veg_srt[SlootID == 'AD_3_WP1_Z' & jaar == 2025, SlootID := 'AD_3_WP1_Z'] # fout in naamgeving
+veg_srt[SlootID == 'AD_3_WP1_Z' & jaar == 2025, SlootID := 'AD_3_WP1_N'] # fout in naamgeving
 veg_srt[SlootID == 'OK_4_WP1' & jaar == 2025, SlootID := 'OK_4_WP1_N'] # fout in naamgeving
+veg_srt[SlootID == 'MD_1_NVO_N' & jaar == 2024, SlootID := 'MD_1_NVO_N'] # fout in naamgeving
+veg_srt[SlootID == 'MD_1a_NVO1_Z' & jaar == 2024, SlootID := 'MD_1a_NVO_Z'] # fout in naamgeving
+veg_srt[SlootID == 'MD_2_NVO_Z' & jaar == 2024, SlootID := 'MD_2_NVO_Z'] # fout in naamgeving
+veg_srt[SlootID == 'MD_2b_NVO2_N' & jaar == 2024, SlootID := 'MD_2b_NVO_N'] # fout in naamgeving
+veg_srt[SlootID == 'MD_4_NVO1_Z' & jaar == 2024, SlootID := 'MD_4_NVO_Z'] # fout in naamgeving
+veg_srt[SlootID == 'MD_5_NVO_N' & jaar == 2024, SlootID := 'MD_5_NVO_N'] # fout in naamgeving
+veg_srt[SlootID == 'MD_8_NVO_N' & jaar == 2024, SlootID := 'MD_8_NVO_N'] # fout in naamgeving
+veg_srt[SlootID == 'MD_8a_NVO1_N' & jaar == 2024, SlootID := 'MD_8a_NVO_N'] # fout in naamgeving
 check_db <- locaties[!SlootID %in% unique(veg_srt$SlootID),]
 biotaxon <- read_xlsx(paste0(workspace,'/hulp_tabellen/veest_unieke_soorten_Groeivormen toegevoegd.xlsx'))
 veg_srt<- merge(veg_srt, biotaxon, by = 'wetnaam', all.x = TRUE, suffixes = c('','_biotaxon'))
-## import vegetatie ekr en oeverindex
+## import vegetatie ekr en oeverindex LET OP DEZE DATA MIST 2026 nog
 veg_ekr_oev <- read_xlsx(paste0(workspace2,'/Indices_soortenrijkdom_260529.xlsx'))
 ### 5.2.1 unieke soorten per monster ------------------------------------------------
 veg_srt[, Submerse_groeivorm := as.numeric(Submerse_groeivorm)]
