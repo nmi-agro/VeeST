@@ -316,6 +316,11 @@ abio_proj[, `:=`(
 )]
 abio_proj[, Cl_mg_l_OW := `Cl_µmol/l_OW` * 35.45 / 1000]
 abio_proj[, Cl_mg_l_PW := `Cl_µmol/l_PW` * 35.45 / 1000]
+
+## correct values that contain commas and are read as characters instead of numeric
+abio_proj[, names(abio_proj) := lapply(.SD, function(x) {
+  if (is.character(x)) gsub(";", ":", iconv(x, to = "UTF-8", sub = "byte")) else x
+})]
 ## reformat data for plot loop------------------------------------------------------------------
 cols_num <- colnames(abio_proj)[sapply(abio_proj, is.numeric)]
 dup_cols <- names(abio_proj)[duplicated(names(abio_proj))]
@@ -341,10 +346,6 @@ melt[compartiment == 'OW', compartiment := 'water']
 melt[compartiment == 'PW', compartiment := 'poriewater']
 melt[,`gemiddelde VeeST` := mean(value, na.rm = TRUE), by = c('variable','monsterdiepte','parameter','compartiment','eenheid','methode','varnames')] 
 
-## correct values that contain commas and are read as characters instead of numeric
-abio_proj[, names(abio_proj) := lapply(.SD, function(x) {
-  if (is.character(x)) gsub(";", ":", iconv(x, to = "UTF-8", sub = "byte")) else x
-})]
 
 ## overzichtstabel met pargroups per gebied per jaar ---------------------------
 
