@@ -2104,10 +2104,6 @@ ggplot(clay_long[!is.na(value)],
 
 
 
-# ### 5.1.6 Samenstelling water
-#
-# pH, chlorofyl-A, N- en P-fracties, N/P-ratio, IR/EGV, PAL, NH4, chloride, metalen, redox en P-nalevering.
-
 ### Samenstelling water-----------------------
 #### pH ------------------------------
 
@@ -6272,35 +6268,48 @@ for(i in unique(profiel$ID)){
 
 
 # ## 5.3 Clusteranalyse
-#
+# Eerst main_veest draaien en daarna analyses_dev_db
 # Boxplots van clustervariabelen voor alle gebieden (NL), data-gedreven clusters en ruimtelijke vergelijking.
 
 ## 5.3 plot clusters-------------------------------------------------------------------
-# Optioneel: backward-compatible alias
-if (!"cluster_def" %in% names(abio_proj) && "clusters" %in% names(abio_proj)) {
-  abio_proj[, cluster_def := clusters]
-}
-abio_proj[!behandeling_1 =='WP1', behandeling_1 := 'WP2']
-ggplot() +
-  # geom_boxplot(data = abio_proj, aes(x = gebied, y = clusters)) + 
-  geom_histogram(data = abio_proj, aes(cluster_def, fill = behandeling_1), col = 'black', binwidth = 1)+
-  # geom_histogram(data = abio_proj, aes(cluster, fill = behandeling_1), col = 'black', binwidth = 1)+
-  theme_minimal()+
-  theme(
-    strip.background = element_blank(),
-    strip.text.x = element_text(size=15), 
-    strip.text.y = element_text(size = 10), 
-    axis.text.x = element_text(size = 15),
-    axis.text.y = element_text(size= 15),
-    axis.ticks =  element_line(colour = "black"),
-    plot.title = element_text(size =15, face="bold", hjust = 0.5),
-    axis.title = element_text(size=15),
-    panel.background = element_blank(),
-    plot.background = element_blank(),
-  )+
-  ggtitle("") +
-  labs(x= "veensloottype",y="aantal monsters")
-ggsave(file=paste0('output/clusters/clusters.png'),width = 25, height = 15,units='cm',dpi=800)
+# KAART RESULTAAT kmeans clustering van abio_proj op basis van 4 variabelen: drglg, watbte, OS_perc_OR_25, Z_CLAY_SA_OR_25
+
+p_clusters_nl <- ggplot() +
+  ggspatial::annotation_map_tile(
+    type = "cartolight",
+    cachedir = "/osm_cache",
+    zoomin = 1,
+    progress = "none",
+    quiet = TRUE
+  ) +
+  # geom_sf(data = loc_cl, color = "grey60", linewidth = 0.6, alpha = 0.4) +
+  geom_sf(
+    data = cluster,
+    aes(col = factor(clusters), fill = factor(clusters)),
+  ) +
+  coord_sf(crs = st_crs(28992), expand = FALSE) +
+  scale_color_manual(
+    values = c("#7b2d8b", "#2166ac", "#1a7d3a", "#74c476", "#fdae61", "#d73027", "#5f5e5e", "#535252"),
+    guide = "none"
+  ) +
+  scale_fill_manual(
+    values = c("#7b2d8b", "#2166ac", "#1a7d3a", "#74c476", "#fdae61", "#d73027", "#5f5e5e", "#535252"),
+    guide = guide_legend(title = "Clusters verkenningsfase")
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(panel.grid = element_blank(),
+          panel.background = element_rect(fill = 'white'),  ## azure
+          axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank(),
+          axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          plot.title = element_text(hjust = 0), # left-align
+          legend.position="right",
+          legend.title=element_text(size=20),
+          legend.text=element_text(size=18)) 
+print(p_clusters_nl)
 
 ### boxplots all cluster all parcels NL--------------------
 melt <- melt(setDT(cluster), id.vars = c("clusters"), 
@@ -6339,7 +6348,7 @@ ggplotly(p)
 
 ### clust by data -------------------------
 # melt data table voor boxplots
-melt <- melt(setDT(abio_proj), id.vars = c("clusters_clustber"), 
+melt <- melt(setDT(abio_proj), id.vars = c("clusters"), 
              measure.vars = c('drglg','watbte','trofie',"TOC [%]_25" ,"Z_CLAY_SA_25" ))
 melt$clusters <- as.factor(melt$clusters)
 namenind <- c("drooglegging", "slootbreedte","trofiegraad veen","organisch stof","kleigehalte")

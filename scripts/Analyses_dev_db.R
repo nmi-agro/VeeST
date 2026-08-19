@@ -1,96 +1,107 @@
+## ---------- helpers ----------
+norm_name <- function(x) {
+  x <- gsub("[µμ]", "u", x, perl = TRUE)
+  tolower(gsub("[^a-z0-9]", "", x, perl = TRUE))
+}
+
+clean_micro <- function(x) gsub("[µμ]", "u", x, perl = TRUE)
+
+safe_median_num <- function(x) {
+  x <- as.numeric(x)
+  if (all(is.na(x))) NA_real_ else median(x, na.rm = TRUE)
+}
+
+is_constant_within_year <- function(dt, col) {
+  if (is.list(dt[[col]])) return(FALSE)
+  yrs <- dt[!is.na(jaar), unique(jaar)]
+  if (length(yrs) == 0L) return(FALSE)
+  all(vapply(yrs, function(y) {
+    v <- dt[jaar == y, get(col)]
+    uniqueN(v[!is.na(v)]) <= 1L
+  }, logical(1)))
+}
+
+
 # 0. filter correct data 4 analysis ----------------------------------------------------
-abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
-abio_proj <- abio_proj[!is.na(SlootID) & !is.na(jaar) & !is.na(instanceID_veg) & !is.na(instanceID_abio) , ]
-abio_proj_complete <- abio_proj
+# abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
+# abio_proj <- abio_proj[!is.na(SlootID) & !is.na(jaar) & !is.na(instanceID_veg) & !is.na(instanceID_abio) , ]
+# abio_proj_complete <- abio_proj
 abio_proj <- abio_proj_complete #reset
 abio_proj <- abio_proj[MeenemenDataAnalyse_totaal == 'ja',] # voor xgboost
-# 1. cluster analyse vergelijking met kaart --------------------------------------------------------
+# 1. cluster analyse vergelijking met kaart clusters uit verkenningsfase--------------------------------------------------------
 setDT(abio_proj)
 # abio variabelen volgens jouw mapping:
 # drglg -> drlg, watbte -> breedtewl, OS_perc_OR_25 -> SOM_LOI, Z_CLAY_SA_OR_25 -> A_CLAY_MI
-# Zet hier de bestaande clusterkolom in abio_proj
-cluster_col <- "clusters"  # of "clusters", als dat jouw kolom is
+# 1. Cluster vergelijking: variabele-gebaseerd vs ruimtelijk per SlootID ----------------
+vars_clust  <- c("drglg", "watbte", "OS_perc_OR_25", "Z_CLAY_SA_OR_25") # in abio_proj
+scale_means <- sapply(vars_clust, function(v) mean(abio_proj[[v]], na.rm = TRUE))
+scale_sds   <- sapply(vars_clust, function(v) sd(abio_proj[[v]],   na.rm = TRUE))
 
-# 1) Input met vaste mapping + oude clusters (abio_loc = cluster_loc uit kolom 'clusters')
-abio_clust <- abio_proj[
-  !is.na(SlootID) & !is.na(drglg) & !is.na(watbte) & !is.na(OS_perc_OR_25) & !is.na(Z_CLAY_SA_OR_25) & !is.na(clusters),
-  .(
-    SlootID,
-    drlg = as.numeric(drglg),
-    breedtewl = as.numeric(watbte),
-    SOM_LOI = as.numeric(OS_perc_OR_25),
-    A_CLAY_MI = as.numeric(Z_CLAY_SA_OR_25),
-    cluster_loc = as.character(clusters)
-  )
-]
-
-# 2) 1 regel per SlootID
-mode_char <- function(x) {
-  x <- x[!is.na(x)]
-  if (!length(x)) return(NA_character_)
-  ux <- unique(x)
-  ux[which.max(tabulate(match(x, ux)))]
-}
-
-abio_sid <- abio_clust[
-  ,
-  .(
-    drlg = median(drlg, na.rm = TRUE),
-    breedtewl = median(breedtewl, na.rm = TRUE),
-    SOM_LOI = median(SOM_LOI, na.rm = TRUE),
-    A_CLAY_MI = median(A_CLAY_MI, na.rm = TRUE),
-    cluster_loc = mode_char(cluster_loc)
-  ),
-  by = SlootID
-][complete.cases(drlg, breedtewl, SOM_LOI, A_CLAY_MI, cluster_loc)]
-
-# 3) Zelfde aantal clusters als unieke oude clusters
-k <- uniqueN(abio_sid$cluster_loc)
-
-X <- scale(abio_sid[, .(drlg, breedtewl, SOM_LOI, A_CLAY_MI)])
-set.seed(123)
-km <- kmeans(X, centers = k, nstart = 100)
-
-abio_sid[, cluster_abio_raw := as.integer(km$cluster)]
-
-# 4) Sorteer nieuwe clusters op drooglegging: cluster 1 = kleinste drlg
-ord <- abio_sid[
-  , .(drlg_med = median(drlg, na.rm = TRUE)),
-  by = cluster_abio_raw
-][order(-drlg_med)]
-
-relabel <- ord[, .(cluster_abio_raw, cluster_abio = as.character(seq_len(.N)))]
-abio_sid <- merge(abio_sid, relabel, by = "cluster_abio_raw", all.x = TRUE)
-
-# 5) 1-op-1 mapping cluster_abio -> cluster_loc (max overlap)
-xt <- xtabs(~ cluster_abio + cluster_loc, data = abio_sid)
-assign <- solve_LSAP(xt, maximum = TRUE)
-
-map_1op1 <- data.table(
-  cluster_abio = rownames(xt),
-  cluster_loc_mapped = colnames(xt)[as.integer(assign)],
-  overlap_n = xt[cbind(seq_len(nrow(xt)), as.integer(assign))]
+# Gestandaardiseerde clustermediane (uit data import/ waar varaibelen al zijn gemapped) per cluster
+med_s <- data.table(
+  clusters = cluster.med$clusters,
+  drglg_z  = (cluster.med$drglg           - scale_means["drglg"])           / scale_sds["drglg"],
+  watbte_z = (cluster.med$watbte          - scale_means["watbte"])          / scale_sds["watbte"],
+  OS_z     = (cluster.med$OS_perc_OR_25   - scale_means["OS_perc_OR_25"])   / scale_sds["OS_perc_OR_25"],
+  klei_z   = (cluster.med$Z_CLAY_SA_OR_25 - scale_means["Z_CLAY_SA_OR_25"]) / scale_sds["Z_CLAY_SA_OR_25"]
 )
 
-# 6) Toepassen + controle
-abio_sid <- merge(abio_sid, map_1op1, by = "cluster_abio", all.x = TRUE)
-abio_sid[, match_1op1 := cluster_loc == cluster_loc_mapped]
+# Gestandaardiseerde waarden per SlootID
+locs <- abio_proj[
+  !is.na(drglg) & !is.na(watbte) & !is.na(OS_perc_OR_25) & !is.na(Z_CLAY_SA_OR_25),
+  .(SlootID,
+    cluster_ruimtelijk = clusters,
+    drglg_z  = (drglg           - scale_means["drglg"])           / scale_sds["drglg"],
+    watbte_z = (watbte          - scale_means["watbte"])          / scale_sds["watbte"],
+    OS_z     = (OS_perc_OR_25   - scale_means["OS_perc_OR_25"])   / scale_sds["OS_perc_OR_25"],
+    klei_z   = (Z_CLAY_SA_OR_25 - scale_means["Z_CLAY_SA_OR_25"]) / scale_sds["Z_CLAY_SA_OR_25"]
+  )
+] |> unique(by = "SlootID")
 
-kwaliteit <- abio_sid[, .(
-  n = .N,
-  n_match = sum(match_1op1, na.rm = TRUE),
-  pct_match = 100 * mean(match_1op1, na.rm = TRUE)
+# Cross join: elke locatie x elk cluster, dan dichtstbijzijnde via Euclidische afstand
+locs[, row_id := .I]
+cross <- CJ(row_id = locs$row_id, cl_idx = seq_len(nrow(med_s)))
+cross[, `:=`(
+  drglg_z_loc  = locs$drglg_z [row_id],
+  watbte_z_loc = locs$watbte_z[row_id],
+  OS_z_loc     = locs$OS_z    [row_id],
+  klei_z_loc   = locs$klei_z  [row_id],
+  drglg_z_med  = med_s$drglg_z [cl_idx],
+  watbte_z_med = med_s$watbte_z[cl_idx],
+  OS_z_med     = med_s$OS_z    [cl_idx],
+  klei_z_med   = med_s$klei_z  [cl_idx],
+  clusters     = med_s$clusters[cl_idx]
+)]
+cross[, afstand := sqrt(
+  (drglg_z_loc  - drglg_z_med)^2 +
+  (watbte_z_loc - watbte_z_med)^2 +
+  (OS_z_loc     - OS_z_med)^2    +
+  (klei_z_loc   - klei_z_med)^2
 )]
 
-list(
-  k_gebruikt = k,
-  drlg_volgorde_clusters_abio = ord,
-  mapping_1op1 = map_1op1,
-  kwaliteit = kwaliteit,
-  resultaat = abio_sid
-)
-# visualisatie
+best <- cross[, .SD[which.min(afstand)], by = row_id][, .(row_id, cluster_var = clusters, afstand_min = afstand)]
 
+vergelijking <- locs[best, on = "row_id"][,
+  .(SlootID, cluster_ruimtelijk, cluster_var, afstand_min,
+    match = cluster_ruimtelijk == cluster_var)]
+
+cat("Overeenkomst ruimtelijk vs. variabelen:", round(mean(vergelijking$match, na.rm = TRUE) * 100, 1), "%\n")
+
+# Verwarringsmatrix
+conf <- vergelijking[, .N, by = .(cluster_ruimtelijk, cluster_var)]
+ggplot(conf, aes(x = factor(cluster_var), y = factor(cluster_ruimtelijk))) +
+  geom_tile(aes(fill = N), color = "white") +
+  geom_text(aes(label = N), size = 4) +
+  scale_fill_gradient(low = "white", high = "#2166ac") +
+  labs(
+    x     = "Cluster o.b.v. variabelen (abio_proj)",
+    y     = "Cluster ruimtelijk",
+    title = "Vergelijking ruimtelijk vs. variabele-gebaseerde cluster",
+    fill  = "Aantal locaties"
+  ) +
+  theme_minimal(base_size = 13)
+
+# visualisatie
 # locaties -> sf
 if (inherits(locaties, "sf")) {
   loc_sf <- locaties
@@ -101,11 +112,11 @@ if (inherits(locaties, "sf")) {
 }
 
 # Koppel clusters
-cluster_map <- unique(abio_sid[, .(SlootID, cluster_abio)])
+cluster_map <- unique(vergelijking[, .(SlootID, cluster_ruimtelijk, cluster_var)])
 loc_cl <- loc_sf |>
   left_join(as.data.frame(cluster_map), by = "SlootID") |>
-  filter(!is.na(cluster_abio)) |>
-  group_by(SlootID, cluster_abio) |>
+  filter(!is.na(cluster_var)) |>
+  group_by(SlootID, cluster_var) |>
   summarise(do_union = TRUE, .groups = "drop")
 
 # CRS afdwingen naar RD
@@ -139,7 +150,7 @@ p_clusters_nl <- ggplot() +
   geom_sf(data = loc_cl, color = "grey60", linewidth = 0.6, alpha = 0.4) +
   geom_sf(
     data = loc_mid,
-    aes(fill = cluster_abio),
+    aes(fill = factor(cluster_var)),
     shape = 21,
     size = 6,
     color = "black",
@@ -157,40 +168,159 @@ ggsave(
   width = 30, height = 25, units = "cm", dpi = 300
 )
 
+# Bereik in cluster (GIS-laag) vs abio_proj per variabele
+# cluster gebruikt: drlg, breedtewl, A_SOM_LOI, A_CLAY_MI (voor cluster.med)
+# abio_proj gebruikt: drglg, watbte, OS_perc_OR_25, Z_CLAY_SA_OR_25
+
+vars_info <- list(
+  list(label = "Drooglegging",  cluster_col = "drlg",        abio_col = "drglg"),
+  list(label = "Waterbreedte",  cluster_col = "breedtewl",   abio_col = "watbte"),
+  list(label = "OS (%)",        cluster_col = "A_SOM_LOI",   abio_col = "OS_perc_OR_25"),
+  list(label = "Klei (%)",      cluster_col = "A_CLAY_MI",   abio_col = "Z_CLAY_SA_OR_25")
+)
+
+rows <- rbindlist(lapply(vars_info, function(v) {
+  cl <- cluster[[v$cluster_col]]
+  ab <- abio_proj[[v$abio_col]]
+  data.table(
+    variabele = v$label,
+    bron      = c("GIS-laag (cluster)", "Velddata (abio_proj)"),
+    p10       = c(quantile(cl, 0.10, na.rm=TRUE), quantile(ab, 0.10, na.rm=TRUE)),
+    mediaan   = c(median(cl, na.rm=TRUE),          median(ab, na.rm=TRUE)),
+    p90       = c(quantile(cl, 0.90, na.rm=TRUE),  quantile(ab, 0.90, na.rm=TRUE))
+  )
+}))
+
+rows[, bereik_p10_p90 := p90 - p10]
+
+# Ratio van bereiken als maat voor schaalbereik-verschil
+ratio <- rows[, .(ratio = bereik_p10_p90[bron == "GIS-laag (cluster)"] /
+                          bereik_p10_p90[bron == "Velddata (abio_proj)"]), by = variabele]
+print(ratio)
+
+# Visualisatie: P10-mediaan-P90 per bron per variabele
+ggplot(rows, aes(x = bron, y = mediaan, color = bron)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = p10, ymax = p90), width = 0.2, linewidth = 0.8) +
+  facet_wrap(~variabele, scales = "free_y") +
+  labs(
+    title = "Schaalbereik GIS-laag vs. velddata (P10–P90)",
+    x = NULL, y = NULL, color = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom", axis.text.x = element_blank())
+
+# Voeg gebiedsnaam toe aan vergelijking via SlootID (eerste deel voor underscore)
+locs_analysis <- copy(locs)
+locs_analysis[, gebied := sub("_.*", "", SlootID)]
+# Voeg ruimtelijke clusterinfo toe
+locs_analysis <- locs_analysis[vergelijking[, .(SlootID, cluster_ruimtelijk, cluster_var, match)], on = "SlootID"]
+
+# Variatie binnen ruimtelijke cluster per variabele: IQR en SD
+# Gebruik abio_proj met gebied
+abio_var <- abio_proj[
+  !is.na(drglg) & !is.na(watbte) & !is.na(OS_perc_OR_25) & !is.na(Z_CLAY_SA_OR_25),
+  .(SlootID, clusters,
+    drglg        = drglg,
+    watbte       = watbte,
+    OS_perc      = OS_perc_OR_25,
+    klei         = Z_CLAY_SA_OR_25)
+] |> unique(by = "SlootID")
+abio_var[, gebied := sub("_.*", "", SlootID)]
+
+# Spreiding per cluster: SD per variabele
+spreiding <- abio_var[, .(
+  n            = .N,
+  drglg_sd     = sd(drglg,   na.rm=TRUE),
+  watbte_sd    = sd(watbte,  na.rm=TRUE),
+  OS_sd        = sd(OS_perc, na.rm=TRUE),
+  klei_sd      = sd(klei,    na.rm=TRUE)
+), by = clusters][order(clusters)]
+
+spreiding# Afwijking per locatie per variabele tov GIS-clustermediane (ongestandaardiseerd)
+# Voeg clustermediane toe op basis van ruimtelijke cluster
+med_orig <- cluster.med[, .(clusters, drglg_med = drglg, watbte_med = watbte,
+                             OS_med = OS_perc_OR_25, klei_med = Z_CLAY_SA_OR_25)]
+
+afwijking <- abio_var[med_orig, on = c(clusters = "clusters"), nomatch = 0]
+afwijking[, `:=`(
+  drglg_afw = drglg   - drglg_med,
+  watbte_afw= watbte  - watbte_med,
+  OS_afw    = OS_perc - OS_med,
+  klei_afw  = klei    - klei_med
+)]
+# Gemiddelde absolute afwijking per gebied
+afw_gebied <- afwijking[, .(
+  drglg_mae  = mean(abs(drglg_afw),  na.rm=TRUE),
+  watbte_mae = mean(abs(watbte_afw), na.rm=TRUE),
+  OS_mae     = mean(abs(OS_afw),     na.rm=TRUE),
+  klei_mae   = mean(abs(klei_afw),   na.rm=TRUE),
+  drglg_bias = mean(drglg_afw,       na.rm=TRUE),  # systematisch te hoog/laag
+  OS_bias    = mean(OS_afw,          na.rm=TRUE)
+), by = gebied][order(-drglg_mae)]
+
+afw_gebied# Long format voor plot: afwijking per variabele per gebied
+afw_long <- melt(afw_gebied, 
+  id.vars = "gebied",
+  measure.vars = c("drglg_mae", "OS_mae", "watbte_mae", "klei_mae"),
+  variable.name = "variabele", value.name = "mae"
+)
+afw_long[, variabele := factor(variabele,
+  levels = c("drglg_mae", "watbte_mae", "OS_mae", "klei_mae"),
+  labels = c("Drooglegging (m)", "Waterbreedte (m)", "OS (%)", "Klei (%)")
+)]
+# Schaal per variabele zodat vergelijking visueel zinvol is
+afw_long[, mae_scaled := mae / max(mae), by = variabele]
+
+ggplot(afw_long, aes(x = mae_scaled, y = reorder(gebied, mae_scaled))) +
+  geom_col() +
+  facet_wrap(~variabele, scales = "free_x", nrow = 1) +
+  labs(
+    title = "Gemiddelde absolute afwijking veldmeting t.o.v. GIS-clustermediane per gebied",
+    subtitle = "Waarden geschaald per variabele (1 = grootste afwijking)",
+    x = "Relatieve afwijking (geschaald)", y = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(strip.text = element_text(face = "bold"))# Bias drooglegging: negatief = veldmeting lager dan GIS (zoals Hegewarren verwacht)
+# Toon ook OS bias: negatief = veldmeting lager dan GIS
+afw_gebied[, .(gebied, drglg_bias = round(drglg_bias, 3), OS_bias = round(OS_bias, 1))][order(drglg_bias)]
+
+
+# Spreiding binnen ruimtelijke cluster: boxplot per cluster per variabele
+afwijking_long <- melt(afwijking,
+  id.vars = c("SlootID", "gebied", "clusters"),
+  measure.vars = c("drglg_afw", "watbte_afw", "OS_afw", "klei_afw"),
+  variable.name = "variabele", value.name = "afwijking"
+)
+afwijking_long[, variabele := factor(variabele,
+  levels = c("drglg_afw", "watbte_afw", "OS_afw", "klei_afw"),
+  labels = c("Drooglegging (m)", "Waterbreedte (m)", "OS (%)", "Klei (%)")
+)]
+ggplot(afwijking_long, aes(x = factor(clusters), y = afwijking)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(aes(color = gebied), width = 0.2, size = 1.5, alpha = 0.7) +
+  facet_wrap(~variabele, scales = "free_y", nrow = 2) +
+  labs(
+    title = "Afwijking veldmeting t.o.v. GIS-clustermediane per cluster",
+    subtitle = "Elke punt = één locatie (SlootID), gekleurd per gebied",
+    x = "Ruimtelijke cluster", y = "Afwijking (veld − GIS mediaan)", color = "Gebied"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "right", legend.text = element_text(size = 7),
+        legend.key.size = unit(0.4, "cm"))
+
 # 2. clusteranalyse van alle veestvariabelen in abio_proj waar op minstens 3/4 van waarnemingen data van beschikbaar is-------------------------------------------------------------------------
 setDT(abio_proj)
 setDT(pars)
-## ---------- helpers ----------
-norm_name <- function(x) {
-  x <- gsub("[µμ]", "u", x, perl = TRUE)
-  tolower(gsub("[^a-z0-9]", "", x, perl = TRUE))
-}
-
-clean_micro <- function(x) gsub("[µμ]", "u", x, perl = TRUE)
-
-safe_median_num <- function(x) {
-  x <- as.numeric(x)
-  if (all(is.na(x))) NA_real_ else median(x, na.rm = TRUE)
-}
-
-is_constant_within_year <- function(dt, col) {
-  if (is.list(dt[[col]])) return(FALSE)
-  yrs <- dt[!is.na(jaar), unique(jaar)]
-  if (length(yrs) == 0L) return(FALSE)
-  all(vapply(yrs, function(y) {
-    v <- dt[jaar == y, get(col)]
-    uniqueN(v[!is.na(v)]) <= 1L
-  }, logical(1)))
-}
-
-## ---------- 0) basisfilter ----------
+## 1) basisfilter ----------
 abio_base <- copy(abio_proj)[
   WP %in% c("WP1", "WP2") &
     !is.na(SlootID) & !is.na(jaar) &
     !is.na(instanceID_veg) & !is.na(instanceID_abio)
 ]
 
-## ---------- 1) drop: admin + geen variatie + LIAB/M3 via pars ----------
+## 2) drop: admin + geen variatie + LIAB/M3 via pars ----------
 keep_cols <- c("SlootID", "jaar", "WP", "clusters")
 
 admin_pattern <- paste(
@@ -261,12 +391,9 @@ if (length(remaining_liab_m3) > 0L) {
   )
 }
 
-## ---------- 2) kolomnamen normaliseren ----------
-old_nms <- names(abio_proj_clean)
-new_nms <- make.unique(clean_micro(old_nms))
-setnames(abio_proj_clean, old = old_nms, new = new_nms)
 
-## ---------- 3) variabelenselectie >= 75% ----------
+
+## 3) variabelenselectie >= 75% ----------
 id_exclude <- c(
   "SlootID", "jaar", "WP", "instanceID_veg", "instanceID_abio",
   "geom", "geometry", "clusters", "cluster_abio", "cluster_loc"
@@ -291,7 +418,7 @@ if (length(selected_vars) < 3L) {
   stop("Te weinig variabelen met >=75% dekking voor clusteranalyse.")
 }
 
-## ---------- 4) naar SlootID niveau ----------
+## 4) naar SlootID niveau ----------
 abio_sid <- abio_proj_clean[
   ,
   lapply(.SD, safe_median_num),
@@ -317,7 +444,7 @@ if (length(vars_km) < 3L) {
   stop("Te weinig variabelen met variatie na opschonen.")
 }
 
-## ---------- 5) kmeans ----------
+## 5) kmeans ----------
 X <- scale(as.matrix(abio_sid[, ..vars_km]))
 keep <- apply(X, 1, function(r) all(is.finite(r)))
 X_km <- X[keep, , drop = FALSE]
@@ -342,7 +469,7 @@ abio_sid[, cluster_abio := NA_character_]
 abio_sid[which(keep), cluster_abio := as.character(km$cluster)]
 abio_sid[, cluster_abio := factor(cluster_abio)]
 
-## ---------- 6) variabele-invloed (eta²) ----------
+## 6) variabele-invloed (eta²) ----------
 eta2_dt <- rbindlist(lapply(vars_km, function(v) {
   d <- abio_sid[!is.na(cluster_abio), .(y = get(v), g = cluster_abio)]
   y_bar <- mean(d$y, na.rm = TRUE)
@@ -355,7 +482,7 @@ eta2_dt <- rbindlist(lapply(vars_km, function(v) {
 top_n <- min(12L, nrow(eta2_dt))
 top_vars <- eta2_dt[1:top_n, variable]
 
-## ---------- 7) boxplots ----------
+## 7) boxplots ----------
 box_dt <- melt(
   abio_sid[!is.na(cluster_abio), c("SlootID", "cluster_abio", top_vars), with = FALSE],
   id.vars = c("SlootID", "cluster_abio"),
@@ -374,7 +501,7 @@ p_box <- ggplot(box_dt, aes(x = cluster_abio, y = waarde, fill = cluster_abio)) 
   theme_minimal(base_size = 11) +
   theme(legend.position = "none")
 
-## ---------- 8) kaart ----------
+## 8) kaart ----------
 if (inherits(locaties, "sf")) {
   loc_sf <- locaties
 } else if ("geom" %in% names(locaties)) {
@@ -446,7 +573,7 @@ ggsave(
   width = 30, height = 25, units = "cm", dpi = 300
 )
 
-## ---------- 9) output ----------
+## 9) output ----------
 clusteranalyse_veest <- list(
   checks = list(
     n_liab_m3_drop = length(liab_m3_drop),
@@ -473,7 +600,6 @@ clusteranalyse_veest <- list(
     k_used = k_use
   )
 )
-
 clusteranalyse_veest
 
 # 3. XGBoost model --------------------------------------------------------
@@ -591,12 +717,11 @@ create_xgb_model <- function(target_var, predictors, data,
                              gamma             = 0.1, # min gain voor split; hoger = conservatiever
                              lambda            = 2    # L2 regularisatie op gewichten
                              ) {
-
   # Select variables for model
   model_vars <- c("SlootID", target_var, predictors)
   model_data <- data[complete.cases(data[, ..model_vars]), ..model_vars]
 
-# Convert factors to numeric for xgboost ------------------------------
+  # Convert factors to numeric for xgboost ------------------------------
   factor_cols <- unique(c(
     names(model_data)[sapply(model_data, is.character)],
     names(model_data)[sapply(model_data, is.factor)]
@@ -620,20 +745,14 @@ create_xgb_model <- function(target_var, predictors, data,
   val_idx   <- idx[(train_end + 1):val_end]
   test_idx  <- idx[(val_end + 1):n]
 
-  X_train <- matrix(as.numeric(as.matrix(model_data[train_idx, ..predictors_clean])),
-                    nrow = length(train_idx))
-  colnames(X_train) <- predictors_clean
-  y_train <- model_data[train_idx, get(target_var)]
+  X_train <- as.matrix(model_data[train_idx, ..predictors_clean]); storage.mode(X_train) <- "double"
+  y_train <- as.double(model_data[train_idx, get(target_var)])
 
-  X_val   <- matrix(as.numeric(as.matrix(model_data[val_idx, ..predictors_clean])),
-                    nrow = length(val_idx))
-  colnames(X_val) <- predictors_clean
-  y_val   <- model_data[val_idx,   get(target_var)]
+  X_val   <- as.matrix(model_data[val_idx,   ..predictors_clean]); storage.mode(X_val)   <- "double"
+  y_val   <- as.double(model_data[val_idx,   get(target_var)])
 
-  X_test  <- matrix(as.numeric(as.matrix(model_data[test_idx, ..predictors_clean])),
-                    nrow = length(test_idx))
-  colnames(X_test) <- predictors_clean
-  y_test  <- model_data[test_idx,  get(target_var)]
+  X_test  <- as.matrix(model_data[test_idx,  ..predictors_clean]); storage.mode(X_test)  <- "double"
+  y_test  <- as.double(model_data[test_idx,  get(target_var)])
 
   # Create DMatrix
   dtrain <- xgb.DMatrix(data = X_train, label = y_train)
@@ -849,7 +968,6 @@ for(target in unique(all_importance$target_var)) {
   target_data <- all_importance[target_var == target]
   cat(target, ":", unique(target_data$rmse_pct_target), "%\n")
 }
-
 # Voeg ontbrekende kolommen toe als ze niet bestaan
 target_names_dutch_multiline <- c(
   "Soortensamenstelling Hydrofyten" = "Soortensamenstelling\nHydrofyten",
@@ -863,10 +981,7 @@ target_names_dutch_multiline <- c(
   "P-AL mg p2o5/100g_SB" ="P-AL slib (mg P2O5/100g)",
   "max_slib" = "Slibdikte (m)"
 )
-
-
 all_importance[, target_dutch_multiline := target_names_dutch_multiline[target_var]]
-
 if(!"correlation_direction" %in% colnames(all_importance)) {
   all_importance[, correlation_direction := mapply(
     function(target_var, predictor_var) {
@@ -894,12 +1009,10 @@ if(!"correlation_direction" %in% colnames(all_importance)) {
 
 # Definieer Okabe-Ito kleuren voor elke target
 targets_present <- unique(na.omit(all_importance$target_var))
-
 okabe_ito_base <- c(
   "#E69F00", "#56B4E9", "#009E73", "#F0E442",
   "#0072B2", "#D55E00", "#CC79A7", "#999999", "#000000"
 )
-
 okabe_ito_colors <- setNames(
   rep(okabe_ito_base, length.out = length(targets_present)),
   targets_present
@@ -1904,12 +2017,14 @@ for (target in target_vars) {
 
     model_vars <- c("SlootID", target, predictors)
     model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
-    model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
 
-    # Herbereken indices na complete.cases filter
-    test_rows  <- which(abio_proj[complete.cases(abio_proj[, ..model_vars]), waterschap] == ws)
-    train_rows <- which(abio_proj[complete.cases(abio_proj[, ..model_vars]), waterschap] != ws &
-                          !is.na(abio_proj[complete.cases(abio_proj[, ..model_vars]), waterschap]))
+    # complete.cases bepalen op model_vars; waterschap apart ophouden voor fold-toewijzing
+    complete_mask <- complete.cases(abio_proj[, ..model_vars])
+    model_data    <- abio_proj[complete_mask, ..model_vars]
+    ws_complete   <- abio_proj[complete_mask, waterschap]
+
+    test_rows  <- which(ws_complete == ws)
+    train_rows <- which(ws_complete != ws & !is.na(ws_complete))
 
     if (length(test_rows) < 3 || length(train_rows) < 20) next
 
@@ -2001,35 +2116,58 @@ cat("\n=== CV prestatie per waterschap (gemiddeld over targets) ===\n")
 print(cv_ws_summary)
 
 ### Plot: R² per waterschap per target ----------------------------------------
+# Waterschappen met < 10 testlocaties worden weggelaten: te klein voor
+# betrouwbare R²-schatting (toevallige uitschieters domineren anders het beeld).
+min_n_test_cv <- 10
 
-cv_plot_dt <- cv_results[!is.na(r2)]
+cv_plot_dt <- cv_results[!is.na(r2) & n_test >= min_n_test_cv]
 cv_plot_dt[, target_nl := target_names_dutch[target]]
 
-# Gemiddelde R² per waterschap (voor sortering)
-ws_order <- cv_results[, .(mean_r2 = mean(r2, na.rm = TRUE)), by = waterschap][order(mean_r2), waterschap]
-
+ws_order <- cv_plot_dt[, .(mean_r2 = mean(r2, na.rm = TRUE)), by = waterschap][
+  order(mean_r2), waterschap]
 cv_plot_dt[, waterschap := factor(waterschap, levels = ws_order)]
 
-p_cv_r2 <- ggplot(cv_plot_dt, aes(x = waterschap, y = r2, fill = waterschap)) +
+r2_clip_lo_cv <- -2
+r2_clip_hi_cv <-  1
+
+cv_plot_clipped <- copy(cv_plot_dt)
+cv_plot_clipped[, r2_clipped := pmax(r2_clip_lo_cv, pmin(r2_clip_hi_cv, r2))]
+cv_plot_clipped[, is_clipped := r2 < r2_clip_lo_cv | r2 > r2_clip_hi_cv]
+
+p_cv_r2 <- ggplot(cv_plot_clipped, aes(x = waterschap, y = r2_clipped, fill = waterschap)) +
   geom_col() +
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.4) +
   geom_hline(
-    data = cv_results[, .(overall_r2 = mean(r2, na.rm = TRUE)), by = target][
-      , .(target_nl = target_names_dutch[target], overall_r2)],
+    data = cv_plot_clipped[, .(overall_r2 = mean(r2_clipped, na.rm = TRUE)), by = target_nl],
     aes(yintercept = overall_r2),
     linetype = "dashed", color = "grey40", linewidth = 0.5
   ) +
   geom_text(
-    aes(label = n_test, y = 0.02),
-    size = 2.5, color = "white", fontface = "bold", vjust = 0
+    aes(label = n_test, y = r2_clip_lo_cv + 0.05),
+    size = 2.3, color = "grey20", fontface = "bold", vjust = 0
+  ) +
+  geom_text(
+    data = cv_plot_clipped[is_clipped == TRUE],
+    aes(label = paste0("*", round(r2, 1)), y = r2_clip_lo_cv + 0.05),
+    size = 2.4, color = "red", fontface = "bold", vjust = 0, hjust = 0.5
   ) +
   facet_wrap(~ target_nl, scales = "free_y", ncol = 3) +
-  scale_y_continuous(labels = scales::label_percent(), limits = c(0, NA)) +
-  scale_fill_brewer(palette = "Set3", guide = "none") +
+  scale_y_continuous(
+    labels = scales::label_percent(),
+    limits = c(r2_clip_lo_cv, r2_clip_hi_cv),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  scale_fill_brewer(palette = "Set2", guide = "none") +
   labs(
-    title    = "9-fold waterschap cross-validatie: R² per waterschap",
-    subtitle = "Gestippelde lijn = gemiddelde R² over alle waterschappen. Getal in balk = n testset.",
-    x        = NULL,
-    y        = "R² (testset = weggelaten waterschap)"
+    title    = "9-fold waterschap CV (XGBoost, gecorrigeerd): R² per waterschap",
+    subtitle = paste0(
+      "Elk waterschap is één keer weggelaten uit de trainset. ",
+      "Waterschappen met < ", min_n_test_cv, " testlocaties weggelaten (te klein voor betrouwbare R²).\n",
+      "R² > 0: beter dan gemiddelde  |  R² < 0: slechter dan gemiddelde  |  ",
+      "*Getal = werkelijke R² buiten bereik [", r2_clip_lo_cv, ", 1]. Getal in balk = n testlocaties."
+    ),
+    x = NULL,
+    y = "R² (uit trainset weggelaten waterschap als testset)"
   ) +
   theme_minimal(base_size = 10) +
   theme(
@@ -2037,8 +2175,8 @@ p_cv_r2 <- ggplot(cv_plot_dt, aes(x = waterschap, y = r2, fill = waterschap)) +
     strip.text        = element_text(size = 8, face = "bold"),
     strip.background  = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.6),
     panel.border      = element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
-    plot.title        = element_text(size = 13, face = "bold", hjust = 0.5),
-    plot.subtitle     = element_text(size = 9, hjust = 0.5, color = "grey40")
+    plot.title        = element_text(size = 12, face = "bold", hjust = 0.5),
+    plot.subtitle     = element_text(size = 8, hjust = 0.5, color = "grey40")
   )
 
 print(p_cv_r2)
@@ -2135,18 +2273,6 @@ long_dt <- melt(
   variable.name = "predictor",
   value.name    = "waarde"
 )
-long_dt[, predictor_nl := nl_namen[as.character(predictor)]]# Zet om naar long formaat voor plotting
-plot_vars <- preds_avail
-nl_namen  <- nederlandse_namen[plot_vars]
-nl_namen[is.na(nl_namen)] <- plot_vars[is.na(nl_namen)]
-
-long_dt <- melt(
-  compare_dt[, c("waterschap", "groep", plot_vars), with = FALSE],
-  id.vars       = c("waterschap", "groep"),
-  measure.vars  = plot_vars,
-  variable.name = "predictor",
-  value.name    = "waarde"
-)
 long_dt[, predictor_nl := nl_namen[as.character(predictor)]]
 long_dt <- long_dt[is.finite(waarde)]
 # Sorteer groep
@@ -2189,6 +2315,8 @@ ggsave(
   plot = p_ws_pred,
   width = 30, height = 20, units = "cm", dpi = 300
 )
+
+## Doelvariabelen per waterschap ------------------------------------------------
 
 ## Beheervariabelen per waterschap --------------------------------------------
 
@@ -2269,7 +2397,7 @@ ggsave(
 )
 
 
-# GAM met ruimtelijke smoothing per target -----------------------------------
+# 4. GAM met ruimtelijke smoothing per target -----------------------------------
 # Voor de 5 belangrijkste predictoren per target (op basis van permutation importance)
 # + een 2D ruimtelijke smooth (lon/lat) om gebiedseffecten op te vangen.
 # Gebruik mgcv::gam met REML voor optimale smooth-selectie.
@@ -2541,7 +2669,7 @@ for (tgt in target_vars) {
   }
 }
 
-# Overzicht GAM vs XGBoost performance ----------------------------------------
+# 4a. Overzicht GAM vs XGBoost performance ----------------------------------------
 gam_summary <- rbindlist(gam_results)
 gam_summary <- merge(
   gam_summary,
@@ -2559,32 +2687,912 @@ print(gam_summary[, .(target_nl, n,
 
 
 
-# 4. redox XGBOOST----------------------------------------------------------------------------------------
-## versie redox en poriewaterconcentraties erbij-----------------------------------
+# 5. Random Forest analyse met ruimtelijke cross-validatie ----------------------
+## Zelfde target- en predictorvariabelen als sectie 3 (XGBoost)
+## Ruimtelijke CV: leave-one-waterschap-out (analoog aan sectie 3)
+## Package: ranger (snelle RF-implementatie, ondersteunt importance = "permutation")
 
+library(ranger)
+library(patchwork)
+## ---------- herstel target/predictor definities (kunnen overschreven zijn in sectie 4) ----------
+rf_target_vars <- c(
+  "n_soorten_oev_zone2", "oeverindex", "Soortensamenstelling Helofyten",
+  "waterzone_1_subm_tot_perc", "n_soorten_sub_zone1", "Soortensamenstelling Hydrofyten",
+  "draagkracht_oever", "slib_redox_pH7", "P-AL mg p2o5/100g_SB", "max_slib"
+)
+
+rf_target_names_dutch <- c(
+  "waterzone_1_subm_tot_perc"       = "Bedekking ondergedoken planten (%)",
+  "n_soorten_oev_zone2"             = "Aantal oeversoorten",
+  "oeverindex"                      = "Oeverindex",
+  "n_soorten_sub_zone1"             = "Aantal waterplantensoorten",
+  "Soortensamenstelling Helofyten"  = "Soortensamenstelling Helofyten",
+  "Soortensamenstelling Hydrofyten" = "Soortensamenstelling Hydrofyten",
+  "draagkracht_oever"               = "Draagkracht oever (MPa)",
+  "slib_redox_pH7"                  = "Redox slib bij pH7 (mV)",
+  "P-AL mg p2o5/100g_SB"           = "P-AL slib (mg P2O5/100g)",
+  "max_slib"                        = "Slibdikte (m)"
+)
+
+# Identiek aan cols_corr in sectie 3 (XGBoost) zodat beide modellen
+# op dezelfde rijen en predictoren worden vergeleken
+rf_cols_corr <- cols_corr
+
+rf_nederlandse_namen <- c(
+  "drglg"                          = "Drooglegging (m)",
+  "max_wtd"                        = "Maximale waterdiepte (m)",
+  "zichtdiepte"                    = "Doorzicht/waterdiepte",
+  "max_slib"                       = "Maximale slibdikte (m)",
+  "watbte"                         = "Waterbreedte (m)",
+  "oeverzone_2b_breedte_cm"        = "Breedte oevervegetatiezone 2b (cm)",
+  "oeverzone_2b_kaal_perc"         = "Bedekking kale oever zone 2b (%)",
+  "holleoever"                     = "Onderholling (cm)",
+  "tldk_wtrwtr_perc"               = "Taludhoek onder waterlijn (%)",
+  "tldk_oevrwtr_perc"              = "Taludhoek oever (%)",
+  "slib_redox_pH7"                 = "Redox slib bij pH7 (mV)",
+  "slib_pH"                        = "pH slib",
+  "oevbte"                         = "Oeverbreedte (m)",
+  "veentype_num"                   = "Veentype (numeriek)",
+  "Z_CLAY_SA_OR_25"                = "Kleigehalte 25cm (%)",
+  "OS_perc_OR_25"                  = "Organisch stofgehalte 25cm (%)",
+  "CEC_CO_mmol+/kg_OR_25"         = "Cation Exchange Capacity (mmol+/kg)",
+  "draagkracht_oever"              = "Draagkracht oever (MPa)",
+  "dieptebin_min"                  = "Diepte laagste draagkracht (m)",
+  "draagkracht_perceel"            = "Draagkracht perceel (MPa)",
+  "water_pH"                       = "Water pH",
+  "watertemp_C"                    = "Watertemperatuur (°C)",
+  "Cl_µmol/l_PW"                  = "Chloride poriewater (µmol/l)",
+  "NH4_µmol/l_PW"                 = "Ammonium poriewater (µmol/l)",
+  "P-AL mg p2o5/100g_SB"          = "P-AL slib (mg P2O5/100g)",
+  "feP_PW"                         = "FeP (mol/mol)",
+  "Baggerfrequentie_per_jaar"      = "Baggerfrequentie per jaar",
+  "Baggermoment_maand"             = "Baggermoment (maand)",
+  "Maaifrequentie_oever_per_jaar"  = "Maaifrequentie oever per jaar",
+  "Methode_toedienen_dierlijke_mest" = "Methode toedienen dierlijke mest",
+  "koebelasting_drinkende_koeien"  = "Koebelasting drinkende koeien",
+  "koeien_drinken_correctie"       = "Koeien drinken correctie",
+  "vernat_loc"                     = "Vernatting locatie"
+)
+
+rf_rmse_units <- c(
+  "waterzone_1_subm_tot_perc"       = "%",
+  "n_soorten_oev_zone2"             = "soorten",
+  "n_soorten_sub_zone1"             = "soorten",
+  "draagkracht_oever"               = "MPa",
+  "slib_redox_pH7"                  = "mV",
+  "max_slib"                        = "m",
+  "oeverindex"                      = "-",
+  "Soortensamenstelling Helofyten"  = "-",
+  "Soortensamenstelling Hydrofyten" = "-",
+  "P-AL mg p2o5/100g_SB"           = "mg P2O5/100g"
+)
+
+## ---------- hulpfunctie: data voorbereiden voor één target ----------
+rf_prepare_data <- function(target, data, predictors) {
+  model_vars <- c(target, predictors)
+  model_vars <- model_vars[model_vars %in% colnames(data)]
+
+  df <- as.data.frame(data[, ..model_vars])
+
+  # Karakter-/factor-kolommen naar numeriek
+  char_cols <- names(df)[sapply(df, function(x) is.character(x) | is.factor(x))]
+  for (col in char_cols) df[[col]] <- as.numeric(as.factor(df[[col]]))
+
+  # Verwijder rijen met NA in target of predictoren
+  df <- df[complete.cases(df), ]
+  df
+}
+
+## ---------- 1) RF modellen trainen (60 / 20 / 20 split) ----------
+# Split: 60% train → model leren
+#        20% validatie → onafhankelijke tussentijdse evaluatie
+#        20% test      → finale, eenmalige evaluatie
+# De validatieset is hier niet gebruikt voor hyperparameter-tuning,
+# maar maakt het mogelijk om overfit te signaleren vóórdat de testset
+# wordt bekeken (train ≫ val wijst op overfit; val ≈ test is gezond).
+
+set.seed(5823)
+
+rf_models          <- list()
+rf_performance     <- list()
+rf_importance_all  <- list()
+
+rmse_fn <- function(y, yhat) sqrt(mean((y - yhat)^2, na.rm = TRUE))
+r2_fn   <- function(y, yhat) {
+  ss_res <- sum((y - yhat)^2, na.rm = TRUE)
+  ss_tot <- sum((y - mean(y, na.rm = TRUE))^2, na.rm = TRUE)
+  if (ss_tot == 0) NA_real_ else 1 - ss_res / ss_tot
+}
+
+for (target in rf_target_vars) {
+  if (!target %in% colnames(abio_proj)) next
+  cat("RF training voor:", target, "\n")
+
+  preds <- rf_cols_corr[!rf_cols_corr %in% target & rf_cols_corr %in% colnames(abio_proj)]
+  df    <- rf_prepare_data(target, abio_proj, preds)
+  if (nrow(df) < 30) next
+
+  # Drie-weg split
+  n         <- nrow(df)
+  idx       <- sample(n)
+  train_end <- floor(0.6 * n)
+  val_end   <- floor(0.8 * n)
+
+  train_df <- df[idx[1:train_end], ]
+  val_df   <- df[idx[(train_end + 1):val_end], ]
+  test_df  <- df[idx[(val_end + 1):n], ]
+
+  # ranger verwacht kolomnamen zonder speciale tekens in de formula →
+  # gebruik dependent.variable.name + data
+  safe_target <- make.names(target)
+  names(train_df)[names(train_df) == target] <- safe_target
+  names(val_df  )[names(val_df)   == target] <- safe_target
+  names(test_df )[names(test_df)  == target] <- safe_target
+
+  rf_fit <- ranger(
+    dependent.variable.name = safe_target,
+    data                    = train_df,
+    num.trees               = 500,
+    mtry                    = max(1L, floor(sqrt(ncol(train_df) - 1))),
+    min.node.size           = 5,
+    importance              = "permutation",
+    seed                    = 5823
+  )
+
+  pred_val  <- predict(rf_fit, data = val_df )$predictions
+  pred_test <- predict(rf_fit, data = test_df)$predictions
+
+  rf_models[[target]]      <- rf_fit
+  rf_performance[[target]] <- data.table(
+    target     = target,
+    r2_oob     = rf_fit$r.squared,
+    rmse_oob   = sqrt(rf_fit$prediction.error),
+    r2_val     = r2_fn(val_df[[safe_target]],   pred_val),
+    rmse_val   = rmse_fn(val_df[[safe_target]],  pred_val),
+    r2_test    = r2_fn(test_df[[safe_target]],  pred_test),
+    rmse_test  = rmse_fn(test_df[[safe_target]], pred_test),
+    n_train    = nrow(train_df),
+    n_val      = nrow(val_df),
+    n_test     = nrow(test_df)
+  )
+
+  # Variable importance (permutation) → top 10
+  imp_vec <- rf_fit$variable.importance
+  imp_dt  <- data.table(
+    Feature    = names(imp_vec),
+    Importance = imp_vec,
+    target_var = target
+  )[order(-Importance)][1:min(.N, 10)]
+  imp_dt[, Nederlandse_naam := rf_nederlandse_namen[Feature]]
+  imp_dt[is.na(Nederlandse_naam), Nederlandse_naam := Feature]
+  rf_importance_all[[target]] <- imp_dt
+}
+
+rf_perf_summary <- rbindlist(rf_performance)
+cat("\n=== Random Forest – OOB / validatie / testset prestaties ===\n")
+print(rf_perf_summary[, .(
+  target,
+  r2_oob   = round(r2_oob  * 100, 1),
+  r2_val   = round(r2_val  * 100, 1),
+  r2_test  = round(r2_test * 100, 1),
+  rmse_val  = round(rmse_val,  3),
+  rmse_test = round(rmse_test, 3),
+  n_train, n_val, n_test
+)])
+
+## ---------- 2) VIP plot Random Forest ----------
+all_rf_importance <- rbindlist(rf_importance_all)
+all_rf_importance[, target_dutch := rf_target_names_dutch[target_var]]
+all_rf_importance[, rmse_unit    := rf_rmse_units[target_var]]
+all_rf_importance <- merge(
+  all_rf_importance,
+  rf_perf_summary[, .(target, r2_test, rmse_test)],
+  by.x = "target_var", by.y = "target", all.x = TRUE
+)
+all_rf_importance[, plot_title := paste0(
+  target_dutch, "\nR²: ", round(r2_test * 100, 1),
+  "% | RMSE: ", round(rmse_test, 3), " ", rmse_unit
+)]
+
+# Correlatierichting (Pearson) voor kleur
+all_rf_importance[, correlation_direction := mapply(
+  function(tgt, feat) {
+    tryCatch({
+      if (!tgt %in% colnames(abio_proj) || !feat %in% colnames(abio_proj)) return(NA_character_)
+      corr <- cor(as.numeric(abio_proj[[tgt]]), as.numeric(abio_proj[[feat]]), use = "complete.obs")
+      ifelse(corr > 0, "+", "-")
+    }, error = function(e) NA_character_)
+  },
+  tgt  = target_var,
+  feat = Feature,
+  USE.NAMES = FALSE
+)]
+
+# Sorteer per facet op importance
+plot_rf_vip <- all_rf_importance[!is.na(correlation_direction)][
+  order(target_var, Importance)
+][, feat_label := factor(
+  paste0(target_var, "__", Nederlandse_naam),
+  levels = unique(paste0(target_var, "__", Nederlandse_naam))
+)]
+
+p_rf_vip <- ggplot(plot_rf_vip, aes(
+    x    = feat_label,
+    y    = Importance,
+    fill = correlation_direction
+  )) +
+  geom_col() +
+  geom_text(
+    aes(label = correlation_direction),
+    hjust = -0.2, size = 3.5, fontface = "bold", color = "grey20"
+  ) +
+  facet_wrap(~ plot_title, scales = "free", ncol = 3) +
+  scale_x_discrete(labels = function(x) sub(".*__", "", x)) +
+  coord_flip() +
+  scale_fill_manual(
+    values = c("+" = "#0072B2", "-" = "#D55E00"),
+    labels = c("+" = "Positief verband", "-" = "Negatief verband"),
+    name   = "Correlatierichting"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
+  labs(
+    title    = "Belangrijkste verklarende variabelen (Random Forest – permutation importance)",
+    subtitle = "Permutation importance met correlatierichting op basis van Pearson correlatie",
+    x        = NULL,
+    y        = "Permutation importance (ΔMSE)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.y        = element_text(size = 9),
+    axis.text.x        = element_text(size = 8),
+    strip.text         = element_text(size = 8.5, face = "bold", lineheight = 1.1),
+    strip.background   = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.6),
+    panel.border       = element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor   = element_blank(),
+    legend.position    = "bottom",
+    plot.title         = element_text(size = 13, face = "bold", hjust = 0.5),
+    plot.subtitle      = element_text(size = 9.5, hjust = 0.5, color = "grey40"),
+    plot.margin        = margin(10, 15, 10, 10)
+  )
+
+print(p_rf_vip)
+ggsave(
+  "output/AlleGebieden/Tussenrapportage/RF_feature_importance.png",
+  plot  = p_rf_vip,
+  width = 35, height = 30, units = "cm", dpi = 300
+)
+
+## ---------- 3) Ruimtelijke cross-validatie: leave-one-waterschap-out ----------
+# Elke fold: train op alle waterschappen behalve één, test op dat waterschap.
+# Dit test of het model generaliseert naar een ruimtelijk nieuw gebied.
+
+waterschappen_rf <- abio_proj[!is.na(waterschap), unique(waterschap)]
+rf_cv_records    <- list()
+
+for (target in rf_target_vars) {
+  if (!target %in% colnames(abio_proj)) next
+  cat("Ruimtelijke CV (RF) voor:", target, "\n")
+
+  preds <- rf_cols_corr[!rf_cols_corr %in% target & rf_cols_corr %in% colnames(abio_proj)]
+
+  for (ws in waterschappen_rf) {
+
+    train_rows <- which(abio_proj$waterschap != ws & !is.na(abio_proj$waterschap))
+    test_rows  <- which(abio_proj$waterschap == ws)
+
+    if (length(train_rows) < 20 || length(test_rows) < 3) next
+
+    train_df <- rf_prepare_data(
+      target,
+      abio_proj[train_rows],
+      preds
+    )
+    test_df <- rf_prepare_data(
+      target,
+      abio_proj[test_rows],
+      preds
+    )
+
+    # Houd alleen kolommen die in beide sets aanwezig zijn
+    shared_cols <- intersect(names(train_df), names(test_df))
+    train_df    <- train_df[, shared_cols]
+    test_df     <- test_df[, shared_cols]
+
+    if (nrow(train_df) < 20 || nrow(test_df) < 3) next
+
+    safe_target <- make.names(target)
+    names(train_df)[names(train_df) == target] <- safe_target
+    names(test_df )[names(test_df)  == target] <- safe_target
+
+    cv_fit <- tryCatch(
+      ranger(
+        dependent.variable.name = safe_target,
+        data                    = train_df,
+        num.trees               = 300,
+        mtry                    = max(1L, floor(sqrt(ncol(train_df) - 1))),
+        min.node.size           = 5,
+        seed                    = 5823
+      ),
+      error = function(e) NULL
+    )
+
+    if (is.null(cv_fit)) next
+
+    pred_test  <- predict(cv_fit, data = test_df)$predictions
+    y_test     <- test_df[[safe_target]]
+    residuals  <- y_test - pred_test
+    rmse_ws    <- sqrt(mean(residuals^2))
+    r2_ws      <- tryCatch({
+      ss_res <- sum(residuals^2)
+      ss_tot <- sum((y_test - mean(y_test))^2)
+      if (ss_tot == 0) NA_real_ else 1 - ss_res / ss_tot
+    }, error = function(e) NA_real_)
+    mae_ws <- mean(abs(residuals))
+
+    rf_cv_records[[length(rf_cv_records) + 1]] <- data.table(
+      target      = target,
+      target_nl   = rf_target_names_dutch[target],
+      waterschap  = ws,
+      n_test      = length(y_test),
+      n_train     = nrow(train_df),
+      rmse        = rmse_ws,
+      r2          = r2_ws,
+      mae         = mae_ws,
+      mean_actual = mean(y_test, na.rm = TRUE),
+      rmse_pct    = 100 * rmse_ws / mean(abs(y_test), na.rm = TRUE)
+    )
+  }
+}
+
+rf_cv_results <- rbindlist(rf_cv_records, fill = TRUE)
+
+### CV samenvatting per waterschap
+rf_cv_ws_summary <- rf_cv_results[, .(
+  mean_r2       = mean(r2,       na.rm = TRUE),
+  mean_rmse_pct = mean(rmse_pct, na.rm = TRUE),
+  n_targets     = .N
+), by = waterschap][order(-mean_rmse_pct)]
+
+cat("\n=== RF ruimtelijke CV – prestatie per waterschap ===\n")
+print(rf_cv_ws_summary)
+
+### Plot: R² per waterschap per target
+rf_cv_plot_dt <- rf_cv_results[!is.na(r2)]
+rf_cv_plot_dt[, target_nl := rf_target_names_dutch[target]]
+
+ws_order_rf <- rf_cv_results[, .(mean_r2 = mean(r2, na.rm = TRUE)), by = waterschap][
+  order(mean_r2), waterschap
+]
+rf_cv_plot_dt[, waterschap := factor(waterschap, levels = ws_order_rf)]
+
+# Clip y-as per facet op [-5, 1] om extreme uitschieters (bijv. HHSK Hydrofyten = -483)
+# niet de schaal te laten domineren. Geclipt waterschap krijgt een annotatie.
+r2_clip_lo <- -5
+r2_clip_hi  <- 1
+
+rf_cv_plot_clipped <- copy(rf_cv_plot_dt)
+rf_cv_plot_clipped[, r2_clipped  := pmax(r2_clip_lo, pmin(r2_clip_hi, r2))]
+rf_cv_plot_clipped[, is_clipped  := !is.na(r2) & (r2 < r2_clip_lo | r2 > r2_clip_hi)]
+rf_cv_plot_clipped[, clip_label  := fifelse(is_clipped, paste0("R²=", round(r2, 0)), NA_character_)]
+
+p_rf_cv_r2 <- ggplot(rf_cv_plot_clipped, aes(x = waterschap, y = r2_clipped, fill = waterschap)) +
+  geom_col() +
+  geom_hline(
+    data = rf_cv_results[!is.na(r2), .(overall_r2 = mean(r2, na.rm = TRUE)), by = target][
+      , .(target_nl = rf_target_names_dutch[target],
+          overall_r2 = pmax(r2_clip_lo, pmin(r2_clip_hi, overall_r2)))
+    ],
+    aes(yintercept = overall_r2),
+    linetype = "dashed", color = "grey40", linewidth = 0.5
+  ) +
+  geom_text(
+    aes(label = n_test, y = -0.08),
+    size = 2.3, color = "grey20", fontface = "bold", vjust = 1
+  ) +
+  # Rode annotatie voor extreme waarden (buiten y-as bereik)
+  geom_text(
+    data = rf_cv_plot_clipped[is_clipped == TRUE],
+    aes(label = paste0("*", round(r2, 0)), y = -0.05),
+    size = 2.4, color = "red", fontface = "bold", vjust = 0, hjust = 0.5
+  ) +
+  facet_wrap(~ target_nl, scales = "free_y", ncol = 3) +
+  scale_y_continuous(
+    labels = scales::label_percent(),
+    limits = c(r2_clip_lo, r2_clip_hi),
+    expand = expansion(mult = c(0.02, 0.05))
+  ) +
+  scale_fill_brewer(palette = "Set3", guide = "none") +
+  labs(
+    title    = "Ruimtelijke CV (RF): R² per waterschap (leave-one-out)",
+    subtitle = paste0(
+      "Elk waterschap is één keer weggelaten uit de trainset; de balk toont hoe goed het model dat waterschap voorspelt.\n",
+      "R² > 0: beter dan gemiddelde  |  R² < 0: slechter dan gemiddelde  |  *Getal = werkelijke R² als buiten y-as bereik [-5, 1].\n",
+      "Kleine getallen in de balkjes = aantal locaties in de testset."
+    ),
+    x        = NULL,
+    y        = "R² (uit trainset weggelaten waterschap als testset)"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 7),
+    strip.text       = element_text(size = 8, face = "bold"),
+    strip.background = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.6),
+    panel.border     = element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
+    plot.title       = element_text(size = 13, face = "bold", hjust = 0.5),
+    plot.subtitle    = element_text(size = 9, hjust = 0.5, color = "grey40")
+  )
+
+print(p_rf_cv_r2)
+ggsave(
+  "output/AlleGebieden/Tussenrapportage/RF_CV_waterschap_r2.png",
+  plot  = p_rf_cv_r2,
+  width = 35, height = 30, units = "cm", dpi = 300
+)
+
+### Plot: RMSE% per waterschap
+rf_clip_pct    <- 200
+rf_n_outliers  <- rf_cv_results[!is.na(rmse_pct) & rmse_pct > rf_clip_pct, .N]
+rf_ws_rmse_ord <- rf_cv_ws_summary[order(-mean_rmse_pct), waterschap]
+rf_cv_results[, waterschap_f := factor(waterschap, levels = rf_ws_rmse_ord)]
+
+p_rf_cv_rmse <- ggplot(
+    rf_cv_results[!is.na(rmse_pct) & rmse_pct <= rf_clip_pct],
+    aes(x = waterschap_f, y = rmse_pct, fill = waterschap_f)
+  ) +
+  geom_boxplot(alpha = 0.7, outlier.size = 1.5) +
+  geom_hline(yintercept = 100, linetype = "dashed", color = "red", alpha = 0.6) +
+  annotate(
+    "text", x = Inf, y = rf_clip_pct, hjust = 1.1, vjust = -0.4,
+    label  = paste0(rf_n_outliers, " combinaties boven ", rf_clip_pct, "% weggelaten"),
+    size   = 3, color = "grey40", fontface = "italic"
+  ) +
+  scale_fill_brewer(palette = "Set3", guide = "none") +
+  scale_y_continuous(
+    labels = scales::label_percent(scale = 1),
+    limits = c(0, rf_clip_pct)
+  ) +
+  labs(
+    title    = "Ruimtelijke CV (RF): RMSE als % van gemiddelde targetwaarde",
+    subtitle = paste0(
+      "Rode lijn = 100% (RMSE = gemiddelde targetwaarde). Lager = beter. Y-as geclipped op ",
+      rf_clip_pct, "%."
+    ),
+    x = NULL,
+    y = "RMSE (% van gemiddelde)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x   = element_text(angle = 45, hjust = 1),
+    plot.title    = element_text(size = 13, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 9, hjust = 0.5, color = "grey40"),
+    panel.border  = element_rect(colour = "grey80", fill = NA, linewidth = 0.5)
+  )
+
+print(p_rf_cv_rmse)
+ggsave(
+  "output/AlleGebieden/Tussenrapportage/RF_CV_waterschap_rmse.png",
+  plot  = p_rf_cv_rmse,
+  width = 25, height = 15, units = "cm", dpi = 300
+)
+
+## ---------- 4) RF vs XGBoost vergelijking (testset R²) ----------
+# Koppel RF testset R² aan XGBoost testset R² voor alle targets
+rf_vs_xgb <- merge(
+  rf_perf_summary[, .(target, r2_rf = r2_test, rmse_rf = rmse_test)],
+  performance_summary[, .(target, r2_xgb = r2_test, rmse_xgb = rmse_test)],
+  by = "target", all = TRUE
+)
+rf_vs_xgb[, target_nl := rf_target_names_dutch[target]]
+rf_vs_xgb[, rmse_unit := rf_rmse_units[target]]
+
+cat("\n=== RF vs XGBoost (testset R²) ===\n")
+print(rf_vs_xgb[, .(
+  target_nl,
+  r2_rf  = round(r2_rf  * 100, 1),
+  r2_xgb = round(r2_xgb * 100, 1),
+  diff   = round((r2_rf - r2_xgb) * 100, 1)
+)][order(-r2_rf)])
+
+# Vergelijkingsplot: RF vs XGBoost R²
+rf_vs_xgb_long <- melt(
+  rf_vs_xgb[, .(target_nl, r2_rf, r2_xgb)],
+  id.vars       = "target_nl",
+  variable.name = "model",
+  value.name    = "r2"
+)[, model := fifelse(model == "r2_rf", "Random Forest", "XGBoost")]
+
+p_rf_xgb_compare <- ggplot(
+    rf_vs_xgb_long[!is.na(r2)],
+    aes(x = reorder(target_nl, r2), y = r2, fill = model)
+  ) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(
+    values = c("Random Forest" = "#009E73", "XGBoost" = "#0072B2"),
+    name   = "Model"
+  ) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  labs(
+    title    = "Random Forest vs XGBoost: R² op testset",
+    subtitle = "Beide modellen getraind op dezelfde predictoren en 80/20 train-test split",
+    x        = NULL,
+    y        = "R² (testset)"
+  ) +
+  coord_flip() +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    plot.title      = element_text(size = 13, face = "bold", hjust = 0.5),
+    plot.subtitle   = element_text(size = 9.5, hjust = 0.5, color = "grey40"),
+    panel.border    = element_rect(colour = "grey80", fill = NA, linewidth = 0.5)
+  )
+
+print(p_rf_xgb_compare)
+ggsave(
+  "output/AlleGebieden/Tussenrapportage/RF_vs_XGBoost_r2.png",
+  plot  = p_rf_xgb_compare,
+  width = 22, height = 16, units = "cm", dpi = 300
+)
+
+## ---------- 5) Ruimtelijke CV vergelijking RF vs XGBoost ----------
+rf_cv_summary_tgt <- rf_cv_results[!is.na(r2), .(
+  r2_rf_cv = mean(r2, na.rm = TRUE)
+), by = target]
+
+xgb_cv_summary_tgt <- cv_results[!is.na(r2), .(
+  r2_xgb_cv = mean(r2, na.rm = TRUE)
+), by = target]
+
+cv_compare <- merge(rf_cv_summary_tgt, xgb_cv_summary_tgt, by = "target", all = TRUE)
+cv_compare[, target_nl := rf_target_names_dutch[target]]
+
+cat("\n=== Ruimtelijke CV: RF vs XGBoost (gemiddelde R² over waterschappen) ===\n")
+print(cv_compare[, .(
+  target_nl,
+  r2_rf_cv  = round(r2_rf_cv  * 100, 1),
+  r2_xgb_cv = round(r2_xgb_cv * 100, 1),
+  diff      = round((r2_rf_cv - r2_xgb_cv) * 100, 1)
+)][order(-r2_rf_cv)])
+
+cv_compare_long <- melt(
+  cv_compare[, .(target_nl, r2_rf_cv, r2_xgb_cv)],
+  id.vars       = "target_nl",
+  variable.name = "model",
+  value.name    = "r2_cv"
+)[, model := fifelse(model == "r2_rf_cv", "Random Forest", "XGBoost")]
+
+p_cv_compare <- ggplot(
+    cv_compare_long[!is.na(r2_cv)],
+    aes(x = reorder(target_nl, r2_cv), y = r2_cv, fill = model)
+  ) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(
+    values = c("Random Forest" = "#009E73", "XGBoost" = "#0072B2"),
+    name   = "Model"
+  ) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  labs(
+    title    = "Ruimtelijke CV: Random Forest vs XGBoost",
+    subtitle = "Gemiddelde R² over alle leave-one-waterschap-out folds",
+    x        = NULL,
+    y        = "Gemiddelde R² (ruimtelijke CV)"
+  ) +
+  coord_flip() +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    plot.title      = element_text(size = 13, face = "bold", hjust = 0.5),
+    plot.subtitle   = element_text(size = 9.5, hjust = 0.5, color = "grey40"),
+    panel.border    = element_rect(colour = "grey80", fill = NA, linewidth = 0.5)
+  )
+
+print(p_cv_compare)
+ggsave(
+  "output/AlleGebieden/Tussenrapportage/RF_vs_XGBoost_CV_r2.png",
+  plot  = p_cv_compare,
+  width = 22, height = 16, units = "cm", dpi = 300
+)
+
+cat("\nSectie 5 (Random Forest + ruimtelijke CV) voltooid.\n")
+
+# 6. Sla alle benodigde resultaatobjecten op als RDS -----------------------------------------------------
+rds_dir <- paste0(workspace, "output/rapport/")
+dir.create(rds_dir, recursive = TRUE, showWarnings = FALSE)
+
+saveRDS(rf_perf_summary,    paste0(rds_dir, "rf_perf_summary.rds"))
+saveRDS(rf_cv_results,      paste0(rds_dir, "rf_cv_results.rds"))
+saveRDS(cv_results,         paste0(rds_dir, "cv_results.rds"))
+saveRDS(performance_summary,paste0(rds_dir, "performance_summary.rds"))
+saveRDS(all_rf_importance,  paste0(rds_dir, "all_rf_importance.rds"))
+saveRDS(all_importance,     paste0(rds_dir, "all_importance.rds"))
+saveRDS(rf_target_names_dutch, paste0(rds_dir, "rf_target_names_dutch.rds"))
+saveRDS(rf_rmse_units,      paste0(rds_dir, "rf_rmse_units.rds"))
+
+cat("RDS bestanden opgeslagen in:", rds_dir, "\n")
+list.files(rds_dir)
+
+# 7. redox XGBOOST----------------------------------------------------------------------------------------
+## versie redox en poriewaterconcentraties erbij-----------------------------------
 target_vars <- c("slib_redox_pH7")
 # Selecteer alleen poriewater µmol concentraties
 # Selecteer alle kolommen die µmol bevatten
-cols_umol_pw <- colnames(abio_proj)[grepl('µmol/l_PW', colnames(abio_proj), fixed = TRUE)]
+cols_umol_pw <- colnames(abio_proj)[grepl('µmol/l_PW', colnames(abio_proj), fixed = TRUE) | grepl('mmol/l FW', colnames(abio_proj), fixed = TRUE)]
 # Verwijder specifieke kolommen
 cols_umol_pw <- cols_umol_pw[!cols_umol_pw %in% c("Cl_2_µmol/l_PW", "Na_2_µmol/l_PW", "K_2_µmol/l_PW")]
 # Update cols_corr met de gefilterde kolommen
 cols_corr <- c(cols_umol_pw, "P-AL mg p2o5/100g_SB", "pH_CC_SB", "bulk density_kg DW/L FW_SB")
-
 # Update nederlandse_namen mapping
 nederlandse_namen <- c(
-  setNames(paste0(cols_umol_pw, " (µmol/l)"), cols_umol_pw),
+  setNames(cols_corr, cols_corr),
   "P-AL mg p2o5/100g_SB" = "P-AL slib (mg P2O5/100g)",
   "pH_CC_SB" = "pH slib",
   "bulk density_kg DW/L FW_SB" = "Bulk density (kg DW/L FW)"
 )
-# Update target_names_dutch mapping
-target_names_dutch <- c(
-  target_names_dutch,
-  "slib_redox_pH7" = "Redox slib bij pH7 (mV)"
+# Train models for all target variables
+xgb_models <- list()
+model_performance <- list()
+feature_importance_all <- list()
+
+for(target in target_vars) {
+  if(target %in% colnames(abio_proj)) {
+    cat("Training model for:", target, "\n")
+    
+    # Get predictors (exclude current target from predictors)
+    predictors <- cols_corr[!cols_corr %in% target & cols_corr %in% colnames(abio_proj)]
+    
+    # Train model
+    model_result <- create_xgb_model(target, predictors, abio_proj)
+    
+    # Store results
+    xgb_models[[target]] <- model_result$model
+    model_performance[[target]] <- model_result$performance
+    feature_importance_all[[target]] <- model_result$importance[, .(Feature, Nederlandse_naam, Gain)][order(-Gain)][1:10]
+    feature_importance_all[[target]][, target_var := target]
+  }
+}
+
+# Combine performance results
+performance_summary <- rbindlist(model_performance)
+print("Model Performance Summary:")
+print(performance_summary)
+
+
+## VIP plots -------------------------------------------------------
+# Bereken RMSE percentage PER TARGET en sla direct op in all_importance
+for(target in unique(all_importance$target_var)) {
+  if(target %in% colnames(abio_proj)) {
+    predictors <- cols_corr[!cols_corr %in% target & cols_corr %in% colnames(abio_proj)]
+    
+    if(length(predictors) > 0) {
+      rmse_pct <- calculate_rmse_percentage(abio_proj, target, predictors)
+      
+      # Sla DIRECT op in all_importance voor deze specifieke target
+      all_importance[target_var == target, rmse_pct_target := rmse_pct]
+      
+      cat("Target:", target, "- RMSE als % van gemiddelde:", rmse_pct, "%\n")
+    }
+  }
+}
+# Check of het werkt
+print("RMSE percentages per target in all_importance:")
+for(target in unique(all_importance$target_var)) {
+  target_data <- all_importance[target_var == target]
+  cat(target, ":", unique(target_data$rmse_pct_target), "%\n")
+}
+# Voeg ontbrekende kolommen toe als ze niet bestaan
+target_names_dutch_multiline <- c(
+  "Soortensamenstelling Hydrofyten" = "Soortensamenstelling\nHydrofyten",
+  "Soortensamenstelling Helofyten" = "Soortensamenstelling\nHelofyten",
+  "oeverindex" = "Oeverindex",
+  "waterzone_1_subm_tot_perc" = "Bedekking\nondergedoken\nplanten (%)",
+  "n_soorten_oev_zone2" = "Aantal\noeversoorten",
+  "n_soorten_sub_zone1" = "Aantal\nwaterplantensoorten",
+  "draagkracht_oever" = "Draagkracht\noever (MPa)",
+  "slib_redox_pH7" = "Redox slib\nbij pH7 (mV)",
+  "P-AL mg p2o5/100g_SB" ="P-AL slib (mg P2O5/100g)",
+  "max_slib" = "Slibdikte (m)"
+)
+all_importance[, target_dutch_multiline := target_names_dutch_multiline[target_var]]
+if(!"correlation_direction" %in% colnames(all_importance)) {
+  all_importance[, correlation_direction := mapply(
+    function(target_var, predictor_var) {
+      tryCatch({
+        if(!target_var %in% colnames(abio_proj) || !predictor_var %in% colnames(abio_proj)) {
+          return(NA_character_)
+        }
+        
+        target_col <- abio_proj[[target_var]]
+        pred_col <- abio_proj[[predictor_var]]
+        
+        if(is.numeric(target_col) && is.numeric(pred_col)) {
+          corr <- cor(target_col, pred_col, use = "complete.obs")
+          ifelse(corr > 0, "+", "-")
+        } else {
+          NA_character_
+        }
+      }, error = function(e) NA_character_)
+    },
+    target_var = target_var, 
+    predictor_var = Feature,
+    USE.NAMES = FALSE
+  )]
+}
+
+# Definieer Okabe-Ito kleuren voor elke target
+targets_present <- unique(na.omit(all_importance$target_var))
+okabe_ito_base <- c(
+  "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+  "#0072B2", "#D55E00", "#CC79A7", "#999999", "#000000"
+)
+okabe_ito_colors <- setNames(
+  rep(okabe_ito_base, length.out = length(targets_present)),
+  targets_present
 )
 
-## ALE plots voor redox modellen -------------------------------------------------------
+# Maak plot titels met kleinere R² en RMSE tekst
+all_importance[, plot_title_clean := paste0(target_dutch_multiline, 
+                                            "\nR²: ", round(r2_test * 100, 1), "% | RMSE: ", round(rmse_test, 3), " ", rmse_unit)]
+
+# VIP Plot met correlatierichting als kleur (Okabe-Ito), gesorteerd per facet op Gain
+okabe_dir <- c("+" = "#0072B2", "-" = "#D55E00")
+
+plot_data <- all_importance[!is.na(correlation_direction)][
+  order(target_var, Gain)
+][, facet_label := paste0(target_var, "__", Nederlandse_naam)
+][, facet_label := factor(facet_label, levels = unique(facet_label))]
+
+p_vip <- ggplot(plot_data, aes(
+    x = facet_label,
+    y = Gain,
+    fill = correlation_direction
+  )) +
+  geom_col() +
+  geom_text(
+    aes(label = correlation_direction),
+    hjust = -0.2,
+    size = 3.5,
+    fontface = "bold",
+    color = "grey20"
+  ) +
+  facet_wrap(~plot_title_clean, scales = "free", ncol = 3) +
+  scale_x_discrete(labels = function(x) sub(".*__", "", x)) +
+  coord_flip() +
+  scale_fill_manual(
+    values = okabe_dir,
+    labels = c("+" = "Positief verband", "-" = "Negatief verband"),
+    name = "Correlatierichting"
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
+  labs(
+    title = "Belangrijkste verklarende variabelen wensbeelden (XGBoost)",
+    subtitle = "Variable Importance (Gain) met correlatierichting op basis van Pearson correlatie",
+    x = NULL,
+    y = "Informatiewinst (Gain)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.y = element_text(size = 9),
+    axis.text.x = element_text(size = 8),
+    axis.title.x = element_text(size = 10, face = "bold", margin = margin(t = 6)),
+    strip.text = element_text(size = 8.5, lineheight = 1.1, face = "bold"),
+    strip.background = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.6),
+    panel.border = element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 10),
+    plot.title = element_text(size = 13, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 9.5, hjust = 0.5, color = "grey40"),
+    plot.margin = margin(10, 15, 10, 10)
+  )
+
+print(p_vip)
+ggsave(file = 'output/AlleGebieden/Tussenrapportage/XGBoost_feature_importance_okabe_clean.png', 
+       plot = p_vip,
+       width = 35, height = 30, units = 'cm', dpi = 800)
+
+## VIP vergelijkingsplot: Gain vs Permutation importance ---------------------
+
+# Top-10 per methode, daarna union zodat features uit beide lijsten zichtbaar zijn
+perm_top10 <- all_perm_importance[
+  , .SD[order(-delta_rmse)][1:min(.N, 10)], by = target_var
+][, .(target_var, Feature, Nederlandse_naam, delta_rmse)]
+
+gain_top10 <- all_importance[
+  , .SD[order(-Gain)][1:min(.N, 10)], by = target_var
+][, .(target_var, Feature, Nederlandse_naam, Gain)]
+
+# Volle union van features per target
+all_features <- unique(rbind(
+  perm_top10[, .(target_var, Feature, Nederlandse_naam)],
+  gain_top10[, .(target_var, Feature, Nederlandse_naam)]
+))
+
+# Koppel beide scores; ontbrekend = 0 (feature staat niet in die top-10)
+all_features <- merge(all_features, perm_top10[, .(target_var, Feature, delta_rmse)],
+                      by = c("target_var", "Feature"), all.x = TRUE)
+all_features <- merge(all_features, gain_top10[, .(target_var, Feature, Gain)],
+                      by = c("target_var", "Feature"), all.x = TRUE)
+all_features[is.na(delta_rmse), delta_rmse := 0]
+all_features[is.na(Gain),       Gain       := 0]
+
+# Normaliseer binnen target naar 0-1
+all_features[, delta_rmse_norm := delta_rmse / max(delta_rmse, na.rm = TRUE), by = target_var]
+all_features[, gain_norm       := Gain       / max(Gain,       na.rm = TRUE), by = target_var]
+
+# Plottitels koppelen
+all_features[, target_dutch := target_names_dutch[target_var]]
+all_features <- merge(
+  all_features,
+  performance_summary[, .(target, rmse_val, r2_val)],
+  by.x = "target_var", by.y = "target", all.x = TRUE
+)
+all_features[, rmse_unit := rmse_units[target_var]]
+all_features[, plot_title := paste0(
+  target_dutch, "\nR²(val): ", round(r2_val * 100, 1),
+  "% | RMSE(val): ", round(rmse_val, 3), " ", rmse_unit
+)]
+
+# Sorteer op gemiddeld belang over beide methoden
+all_features[, mean_belang := (delta_rmse_norm + gain_norm) / 2]
+
+plot_vip_compare <- melt(
+  all_features[, .(Feature, Nederlandse_naam, plot_title, gain_norm, delta_rmse_norm)],
+  id.vars       = c("Feature", "Nederlandse_naam", "plot_title"),
+  variable.name = "methode",
+  value.name    = "belang_norm"
+)[, methode := fifelse(methode == "gain_norm", "XGBoost Gain", "Permutation (ΔRMSE)")]
+
+# Sorteer features binnen elk facet op gemiddeld belang
+feat_order <- all_features[order(plot_title, mean_belang),
+                            paste0(plot_title, "__", Nederlandse_naam)]
+plot_vip_compare[, feat_label := factor(
+  paste0(plot_title, "__", Nederlandse_naam),
+  levels = unique(feat_order)
+)]
+
+p_vip_compare <- ggplot(plot_vip_compare, aes(
+    x    = feat_label,
+    y    = belang_norm,
+    fill = methode
+  )) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ plot_title, scales = "free_y", ncol = 3) +
+  scale_x_discrete(labels = function(x) sub(".*__", "", x)) +
+  coord_flip() +
+  scale_fill_manual(
+    values = c("XGBoost Gain" = "#0072B2", "Permutation (ΔRMSE)" = "#E69F00"),
+    name   = "Methode"
+  ) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  labs(
+    title    = "VIP vergelijking: XGBoost Gain vs. Permutation Importance",
+    subtitle = "Genormaliseerd binnen target (1 = hoogste belang). Permutation op validatieset. 0% = niet in top-10 van die methode.",
+    x        = NULL,
+    y        = "Relatief belang (genormaliseerd)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    strip.text         = element_text(size = 8, face = "bold", lineheight = 1.1),
+    strip.background   = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.6),
+    panel.border       = element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
+    panel.grid.major.y = element_blank(),
+    axis.text.y        = element_text(size = 8),
+    legend.position    = "bottom",
+    plot.title         = element_text(size = 13, face = "bold", hjust = 0.5),
+    plot.subtitle      = element_text(size = 9.5, hjust = 0.5, color = "grey40")
+  )
+
+print(p_vip_compare)
+ggsave(
+  "output/AlleGebieden/Tussenrapportage/VIP_gain_vs_permutation.png",
+  plot = p_vip_compare,
+  width = 35, height = 30, units = "cm", dpi = 300
+)
+
+
+## ALE plots voor redox modellen-------------------------------------------------------
 
 # Functie om de top predictors voor redox te identificeren en samen te plotten
 create_redox_ale_grid <- function() {
