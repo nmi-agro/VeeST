@@ -153,7 +153,7 @@ abio_proj[, koebelasting_drinkende_koeien := fcase(
   afrastering_flag %in% TRUE, 0,
   drinken_flag %in% FALSE, 0,
   is.na(Aantal_koeien_vee_perceel_dag) | is.na(Aantal_Koedagen_per_jaar), NA_real_,
-  default = pmax(Aantal_koeien_vee_perceel_dag, 0) * (pmax(Aantal_Koedagen_per_jaar, 0)/365)
+  default = pmax(Aantal_koeien_vee_perceel_dag, 0) * (pmax(Aantal_Koedagen_per_jaar, 0)/365) *  pmax(omtrek_nat, 0)
 )]
 abio_proj[, koeien_drinken_correctie := fifelse(
   koebelasting_drinkende_koeien > 0,

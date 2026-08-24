@@ -30,6 +30,15 @@ setnames(cluster.med, c('clusters','drlg','breedtewl','trofie',"A_SOM_LOI" ,"A_C
          c('clusters','drglg','watbte','trofie',"OS_perc_OR_25" ,"Z_CLAY_SA_OR_25"))
 cluster <- st_as_sf(cluster)
 aan <- read_sf(paste0(workspace,"./GIS/AAN_niveau3b.shp"))
+aan_drglg_peil <- st_read(paste0(workspace,"./GIS/Peil_maaivel_drooglegging_veenpercelen.gpkg")) 
+# clust_aan_drglg_peil <- st_join(st_buffer(cluster, 0), aan_drglg_peil,
+#                join = st_intersects,
+#                largest = TRUE, 
+#                left = TRUE)
+#peil versus peil 
+#maaiveld versus maaiveld
+# plot(clust_aan_drglg_peil$drlg, clust_aan_drglg_peil$Maaiveld_niveau_m_NAP-clust_aan_drglg_peil$Zomerpeil_m_NAP)
+
 
 ## 1.2 load was/ wordt locaties-----------------------------------------
 locaties <- readxl::read_excel(paste0(workspace2, 'analysePlan/wp_locaties_naam_correcties.xlsx'), sheet = 'locaties')
@@ -47,7 +56,7 @@ locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
 clusters_locs <- st_join(locaties[!is.na(locaties$instanceID_veg) & !is.na(locaties$instanceID_abio) & !locaties$WP %in% 'WP2-prenul',], cluster, st_nearest_feature, left = TRUE)
 # sel verschillende indicatoren
 # afwatopp: oppvl/ (omtrek_nat/ 2) brede percelen met weinig sloten is een hoog getal, smalle percelen met veel sloten is laag
-clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort',"Sloot_nr","sloot","Behandeling","Oeverzijde","jaar",'Slibmonster_Bware','Oevermonster_AgroCares','WP','MeenemenDataAnalyse_totaal','clusters','trofie','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text')])
+clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort',"Sloot_nr","sloot","Behandeling","Oeverzijde","jaar",'Slibmonster_Bware','Oevermonster_AgroCares','WP','MeenemenDataAnalyse_totaal','clusters','trofie','omtrek_nat','omtrek_length','GEOMETRIE_Area','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text')])
 clusters_locs <- st_join(clusters_locs, aan, st_nearest_feature, left = TRUE)
 setDT(clusters_locs)
 # clusters_locs <- clusters_locs[WP %in% c('WP1','WP2','WP3'),]
@@ -1092,7 +1101,7 @@ watbod_ac_25[, jaar := 2025]
 # merge 24 and 25 data
 watbod_ac <- rbind(watbod_ac, watbod_ac_25, fill = TRUE)
 ## process data bodem
-#calc ratios
+# calc ratios
 watbod_ac[, feP_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
 watbod_ac[, feP_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`P2O5_xrf_g/kg`/ 70.97)]
 watbod_ac[, feS_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`S_CC_mg/kg`/ 3206.5)]
@@ -1247,7 +1256,7 @@ oever_ac[, feS_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`SO3_xrf_g/kg`/ 80.063)]
 oever_ac[, `P_CC_org_mg/kg` := `P_CC_mg/kg` - `P-PO4_CC_mg/kg`]
 oever_ac[, basen_bez := (`CA_CO_mmol+/kg` + `MG_CO_mmol+/kg` + `NA_CO_mmol+/kg` + `K_CO_mmol+/kg`) / `CEC_CO_mmol+/kg` * 100]
 #calculate os from c
-oever_ac[, OS_perc := 0.01 + 0.172 * `TOC [g/kg]`]
+oever_ac[, OS_perc := 0.01 + 0.172 * `TOC [g/kg]`] #dit is niet liab
 # reformat based on sample depth
 oever_ac_25 <- oever_ac[monsterdiepte <= 25,]
 colnames(oever_ac_25) <- paste0(colnames(oever_ac_25),'_OR_25')

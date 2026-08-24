@@ -1,4 +1,5 @@
-## ---------- helpers ----------
+
+## helpers ---------------------------------------------------------------------
 norm_name <- function(x) {
   x <- gsub("[µμ]", "u", x, perl = TRUE)
   tolower(gsub("[^a-z0-9]", "", x, perl = TRUE))
@@ -23,16 +24,14 @@ is_constant_within_year <- function(dt, col) {
 
 
 # 0. filter correct data 4 analysis ----------------------------------------------------
-# abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
-# abio_proj <- abio_proj[!is.na(SlootID) & !is.na(jaar) & !is.na(instanceID_veg) & !is.na(instanceID_abio) , ]
-# abio_proj_complete <- abio_proj
-abio_proj <- abio_proj_complete #reset
+abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
+abio_proj <- abio_proj[!is.na(SlootID) & !is.na(jaar) & !is.na(instanceID_veg) & !is.na(instanceID_abio) , ]
 abio_proj <- abio_proj[MeenemenDataAnalyse_totaal == 'ja',] # voor xgboost
-# 1. cluster analyse vergelijking met kaart clusters uit verkenningsfase--------------------------------------------------------
+# 1a. cluster analyse vergelijking met kaart clusters uit verkenningsfase--------------------------------------------------------
 setDT(abio_proj)
 # abio variabelen volgens jouw mapping:
 # drglg -> drlg, watbte -> breedtewl, OS_perc_OR_25 -> SOM_LOI, Z_CLAY_SA_OR_25 -> A_CLAY_MI
-# 1. Cluster vergelijking: variabele-gebaseerd vs ruimtelijk per SlootID ----------------
+# 1b. Cluster vergelijking: variabele-gebaseerd vs ruimtelijk per SlootID ----------------
 vars_clust  <- c("drglg", "watbte", "OS_perc_OR_25", "Z_CLAY_SA_OR_25") # in abio_proj
 scale_means <- sapply(vars_clust, function(v) mean(abio_proj[[v]], na.rm = TRUE))
 scale_sds   <- sapply(vars_clust, function(v) sd(abio_proj[[v]],   na.rm = TRUE))
@@ -158,7 +157,11 @@ p_clusters_nl <- ggplot() +
     alpha = 0.95
   ) +
   coord_sf(crs = st_crs(28992), xlim = xlim, ylim = ylim, expand = FALSE) +
-  scale_fill_brewer(palette = "Set2", name = "Cluster abio") +
+  scale_fill_manual(
+    values = c("#7b2d8b", "#2166ac", "#1a7d3a", "#74c476", "#fdae61", "#d73027", "#5f5e5e", "#535252"),
+    guide = guide_legend(title = "Clusters verkenningsfase")
+  ) +
+  labs(title = "Clusters uit de verkenningsfase (ruimtelijk bepaald)") +
   theme_minimal(base_size = 14)
 
 print(p_clusters_nl)
@@ -556,7 +559,11 @@ p_clusters_nl <- ggplot() +
     alpha = 0.95
   ) +
   coord_sf(crs = st_crs(28992), xlim = xlim, ylim = ylim, expand = FALSE) +
-  scale_fill_brewer(palette = "Set2", name = "Cluster abio") +
+  scale_fill_manual(
+    values = c("#7b2d8b", "#2166ac", "#1a7d3a", "#74c476", "#fdae61", "#d73027", "#5f5e5e", "#535252"),
+    guide = guide_legend(title = "Clusters abiotisch")
+  ) +
+  labs(title = "Clusters berekend op basis van gemeten abiotische variabelen") +
   theme_minimal(base_size = 13)
 
 print(p_box)
@@ -602,7 +609,9 @@ clusteranalyse_veest <- list(
 )
 clusteranalyse_veest
 
-# 3. XGBoost model --------------------------------------------------------
+
+
+# 3. XGBoost model -------------------------------------------------------------------------------------------
 ## versie met meerdere target variabelen tegelijk ---------------------------------
 target_vars <- c("n_soorten_oev_zone2","oeverindex","Soortensamenstelling Helofyten","waterzone_1_subm_tot_perc","n_soorten_sub_zone1","Soortensamenstelling Hydrofyten","draagkracht_oever", 
                  "slib_redox_pH7","P-AL mg p2o5/100g_SB","max_slib")
@@ -719,7 +728,7 @@ create_xgb_model <- function(target_var, predictors, data,
                              ) {
   # Select variables for model
   model_vars <- c("SlootID", target_var, predictors)
-  model_data <- data[complete.cases(data[, ..model_vars]), ..model_vars]
+  model_data <- copy(data[complete.cases(data[, ..model_vars]), ..model_vars])
 
   # Convert factors to numeric for xgboost ------------------------------
   factor_cols <- unique(c(
@@ -745,14 +754,24 @@ create_xgb_model <- function(target_var, predictors, data,
   val_idx   <- idx[(train_end + 1):val_end]
   test_idx  <- idx[(val_end + 1):n]
 
-  X_train <- as.matrix(model_data[train_idx, ..predictors_clean]); storage.mode(X_train) <- "double"
-  y_train <- as.double(model_data[train_idx, get(target_var)])
+  make_xgb_matrix <- function(dt, rows, cols) {
+    df <- as.data.frame(lapply(as.data.frame(dt[rows, ..cols]), as.double))
+    nr <- nrow(df); nc <- ncol(df)
+    m  <- matrix(unlist(df, use.names = FALSE), nrow = nr, ncol = nc)
+    colnames(m) <- cols
+    # `+ 0` forces R to allocate a new REALSXP, breaking any ALTREP chain
+    # that causes XGBoost's pointer-alignment check to fail on Windows
+    m + 0
+  }
 
-  X_val   <- as.matrix(model_data[val_idx,   ..predictors_clean]); storage.mode(X_val)   <- "double"
-  y_val   <- as.double(model_data[val_idx,   get(target_var)])
+  X_train <- make_xgb_matrix(model_data, train_idx, predictors_clean)
+  y_train <- as.double(model_data[train_idx, get(target_var)]) + 0
 
-  X_test  <- as.matrix(model_data[test_idx,  ..predictors_clean]); storage.mode(X_test)  <- "double"
-  y_test  <- as.double(model_data[test_idx,  get(target_var)])
+  X_val   <- make_xgb_matrix(model_data, val_idx,   predictors_clean)
+  y_val   <- as.double(model_data[val_idx,   get(target_var)]) + 0
+
+  X_test  <- make_xgb_matrix(model_data, test_idx,  predictors_clean)
+  y_test  <- as.double(model_data[test_idx,  get(target_var)]) + 0
 
   # Create DMatrix
   dtrain <- xgb.DMatrix(data = X_train, label = y_train)
@@ -891,7 +910,7 @@ for (target in names(xgb_models)) {
   # Bouw validatieset opnieuw op (zelfde seed als in create_xgb_model)
   model_vars <- c("SlootID", target, cols_corr)
   model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
-  model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
+  model_data <- copy(abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars])
 
   factor_cols <- unique(c(
     names(model_data)[sapply(model_data, is.character)],
@@ -1340,9 +1359,7 @@ for (target in names(xgb_models)) {
   # target MOET in model_data blijven
   model_vars <- c("SlootID", target, cols_corr)
   model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
-  model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
-  
-  factor_cols <- names(model_data)[sapply(model_data, is.character)]
+  model_data <- copy(abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars])
   factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
   factor_cols <- c(factor_cols, factor_cols_2)
   model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
@@ -1399,9 +1416,7 @@ create_combined_ale_plots <- function() {
 
       model_vars <- c("SlootID", tgt, cols_corr)
       model_vars <- model_vars[!model_vars %in% tgt & model_vars %in% colnames(abio_proj)]
-      model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
-
-      factor_cols <- names(model_data)[sapply(model_data, is.character) | sapply(model_data, is.factor)]
+      model_data <- copy(abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars])
       if (length(factor_cols) > 0) {
         model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
         model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
@@ -1770,7 +1785,7 @@ for (tgt in names(all_ale_plots)) {
       )
     )
 
-  outfile <- paste0("output/AlleGebieden/Tussenrapportage/ALE_tipping_", tgt, ".png")
+  outfile <- paste0(workspace, "output/AlleGebieden/Tussenrapportage/ALE_tipping_", tgt, ".png")
   print(panel)
   ggsave(outfile, panel, width = 35, height = 12, units = "cm", dpi = 200)
   cat("Opgeslagen:", outfile, "\n")
@@ -1781,7 +1796,7 @@ tipping_points_summary <- rbindlist(tipping_records, fill = TRUE)
 print(tipping_points_summary)
 write.csv(
   tipping_points_summary,
-  file = "output/AlleGebieden/Tussenrapportage/ALE_tipping_points_summary.csv",
+  file = paste0(workspace, "output/AlleGebieden/Tussenrapportage/ALE_tipping_points_summary.csv"),
   row.names = FALSE
 )
 
@@ -1803,7 +1818,7 @@ create_xgb_diagnostics <- function(xgb_models, abio_proj, target_vars, target_na
       # Verzamel model data
       model_vars <- c("SlootID", target, cols_corr)
       model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
-      model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
+      model_data <- copy(abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars])
       
       # Convert factors
       factor_cols <- names(model_data)[sapply(model_data, is.character)]
@@ -2020,7 +2035,7 @@ for (target in target_vars) {
 
     # complete.cases bepalen op model_vars; waterschap apart ophouden voor fold-toewijzing
     complete_mask <- complete.cases(abio_proj[, ..model_vars])
-    model_data    <- abio_proj[complete_mask, ..model_vars]
+    model_data    <- copy(abio_proj[complete_mask, ..model_vars])
     ws_complete   <- abio_proj[complete_mask, waterschap]
 
     test_rows  <- which(ws_complete == ws)
@@ -2399,6 +2414,7 @@ ggsave(
 
 # 4. GAM met ruimtelijke smoothing per target -----------------------------------
 # Voor de 5 belangrijkste predictoren per target (op basis van permutation importance)
+
 # + een 2D ruimtelijke smooth (lon/lat) om gebiedseffecten op te vangen.
 # Gebruik mgcv::gam met REML voor optimale smooth-selectie.
 library(mgcv)
@@ -3310,447 +3326,4 @@ saveRDS(rf_rmse_units,      paste0(rds_dir, "rf_rmse_units.rds"))
 
 cat("RDS bestanden opgeslagen in:", rds_dir, "\n")
 list.files(rds_dir)
-
-# 7. redox XGBOOST----------------------------------------------------------------------------------------
-## versie redox en poriewaterconcentraties erbij-----------------------------------
-target_vars <- c("slib_redox_pH7")
-# Selecteer alleen poriewater µmol concentraties
-# Selecteer alle kolommen die µmol bevatten
-cols_umol_pw <- colnames(abio_proj)[grepl('µmol/l_PW', colnames(abio_proj), fixed = TRUE) | grepl('mmol/l FW', colnames(abio_proj), fixed = TRUE)]
-# Verwijder specifieke kolommen
-cols_umol_pw <- cols_umol_pw[!cols_umol_pw %in% c("Cl_2_µmol/l_PW", "Na_2_µmol/l_PW", "K_2_µmol/l_PW")]
-# Update cols_corr met de gefilterde kolommen
-cols_corr <- c(cols_umol_pw, "P-AL mg p2o5/100g_SB", "pH_CC_SB", "bulk density_kg DW/L FW_SB")
-# Update nederlandse_namen mapping
-nederlandse_namen <- c(
-  setNames(cols_corr, cols_corr),
-  "P-AL mg p2o5/100g_SB" = "P-AL slib (mg P2O5/100g)",
-  "pH_CC_SB" = "pH slib",
-  "bulk density_kg DW/L FW_SB" = "Bulk density (kg DW/L FW)"
-)
-# Train models for all target variables
-xgb_models <- list()
-model_performance <- list()
-feature_importance_all <- list()
-
-for(target in target_vars) {
-  if(target %in% colnames(abio_proj)) {
-    cat("Training model for:", target, "\n")
-    
-    # Get predictors (exclude current target from predictors)
-    predictors <- cols_corr[!cols_corr %in% target & cols_corr %in% colnames(abio_proj)]
-    
-    # Train model
-    model_result <- create_xgb_model(target, predictors, abio_proj)
-    
-    # Store results
-    xgb_models[[target]] <- model_result$model
-    model_performance[[target]] <- model_result$performance
-    feature_importance_all[[target]] <- model_result$importance[, .(Feature, Nederlandse_naam, Gain)][order(-Gain)][1:10]
-    feature_importance_all[[target]][, target_var := target]
-  }
-}
-
-# Combine performance results
-performance_summary <- rbindlist(model_performance)
-print("Model Performance Summary:")
-print(performance_summary)
-
-
-## VIP plots -------------------------------------------------------
-# Bereken RMSE percentage PER TARGET en sla direct op in all_importance
-for(target in unique(all_importance$target_var)) {
-  if(target %in% colnames(abio_proj)) {
-    predictors <- cols_corr[!cols_corr %in% target & cols_corr %in% colnames(abio_proj)]
-    
-    if(length(predictors) > 0) {
-      rmse_pct <- calculate_rmse_percentage(abio_proj, target, predictors)
-      
-      # Sla DIRECT op in all_importance voor deze specifieke target
-      all_importance[target_var == target, rmse_pct_target := rmse_pct]
-      
-      cat("Target:", target, "- RMSE als % van gemiddelde:", rmse_pct, "%\n")
-    }
-  }
-}
-# Check of het werkt
-print("RMSE percentages per target in all_importance:")
-for(target in unique(all_importance$target_var)) {
-  target_data <- all_importance[target_var == target]
-  cat(target, ":", unique(target_data$rmse_pct_target), "%\n")
-}
-# Voeg ontbrekende kolommen toe als ze niet bestaan
-target_names_dutch_multiline <- c(
-  "Soortensamenstelling Hydrofyten" = "Soortensamenstelling\nHydrofyten",
-  "Soortensamenstelling Helofyten" = "Soortensamenstelling\nHelofyten",
-  "oeverindex" = "Oeverindex",
-  "waterzone_1_subm_tot_perc" = "Bedekking\nondergedoken\nplanten (%)",
-  "n_soorten_oev_zone2" = "Aantal\noeversoorten",
-  "n_soorten_sub_zone1" = "Aantal\nwaterplantensoorten",
-  "draagkracht_oever" = "Draagkracht\noever (MPa)",
-  "slib_redox_pH7" = "Redox slib\nbij pH7 (mV)",
-  "P-AL mg p2o5/100g_SB" ="P-AL slib (mg P2O5/100g)",
-  "max_slib" = "Slibdikte (m)"
-)
-all_importance[, target_dutch_multiline := target_names_dutch_multiline[target_var]]
-if(!"correlation_direction" %in% colnames(all_importance)) {
-  all_importance[, correlation_direction := mapply(
-    function(target_var, predictor_var) {
-      tryCatch({
-        if(!target_var %in% colnames(abio_proj) || !predictor_var %in% colnames(abio_proj)) {
-          return(NA_character_)
-        }
-        
-        target_col <- abio_proj[[target_var]]
-        pred_col <- abio_proj[[predictor_var]]
-        
-        if(is.numeric(target_col) && is.numeric(pred_col)) {
-          corr <- cor(target_col, pred_col, use = "complete.obs")
-          ifelse(corr > 0, "+", "-")
-        } else {
-          NA_character_
-        }
-      }, error = function(e) NA_character_)
-    },
-    target_var = target_var, 
-    predictor_var = Feature,
-    USE.NAMES = FALSE
-  )]
-}
-
-# Definieer Okabe-Ito kleuren voor elke target
-targets_present <- unique(na.omit(all_importance$target_var))
-okabe_ito_base <- c(
-  "#E69F00", "#56B4E9", "#009E73", "#F0E442",
-  "#0072B2", "#D55E00", "#CC79A7", "#999999", "#000000"
-)
-okabe_ito_colors <- setNames(
-  rep(okabe_ito_base, length.out = length(targets_present)),
-  targets_present
-)
-
-# Maak plot titels met kleinere R² en RMSE tekst
-all_importance[, plot_title_clean := paste0(target_dutch_multiline, 
-                                            "\nR²: ", round(r2_test * 100, 1), "% | RMSE: ", round(rmse_test, 3), " ", rmse_unit)]
-
-# VIP Plot met correlatierichting als kleur (Okabe-Ito), gesorteerd per facet op Gain
-okabe_dir <- c("+" = "#0072B2", "-" = "#D55E00")
-
-plot_data <- all_importance[!is.na(correlation_direction)][
-  order(target_var, Gain)
-][, facet_label := paste0(target_var, "__", Nederlandse_naam)
-][, facet_label := factor(facet_label, levels = unique(facet_label))]
-
-p_vip <- ggplot(plot_data, aes(
-    x = facet_label,
-    y = Gain,
-    fill = correlation_direction
-  )) +
-  geom_col() +
-  geom_text(
-    aes(label = correlation_direction),
-    hjust = -0.2,
-    size = 3.5,
-    fontface = "bold",
-    color = "grey20"
-  ) +
-  facet_wrap(~plot_title_clean, scales = "free", ncol = 3) +
-  scale_x_discrete(labels = function(x) sub(".*__", "", x)) +
-  coord_flip() +
-  scale_fill_manual(
-    values = okabe_dir,
-    labels = c("+" = "Positief verband", "-" = "Negatief verband"),
-    name = "Correlatierichting"
-  ) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
-  labs(
-    title = "Belangrijkste verklarende variabelen wensbeelden (XGBoost)",
-    subtitle = "Variable Importance (Gain) met correlatierichting op basis van Pearson correlatie",
-    x = NULL,
-    y = "Informatiewinst (Gain)"
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(
-    axis.text.y = element_text(size = 9),
-    axis.text.x = element_text(size = 8),
-    axis.title.x = element_text(size = 10, face = "bold", margin = margin(t = 6)),
-    strip.text = element_text(size = 8.5, lineheight = 1.1, face = "bold"),
-    strip.background = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.6),
-    panel.border = element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
-    panel.grid.major.y = element_blank(),
-    panel.grid.minor = element_blank(),
-    legend.position = "bottom",
-    legend.title = element_text(size = 10, face = "bold"),
-    legend.text = element_text(size = 10),
-    plot.title = element_text(size = 13, face = "bold", hjust = 0.5),
-    plot.subtitle = element_text(size = 9.5, hjust = 0.5, color = "grey40"),
-    plot.margin = margin(10, 15, 10, 10)
-  )
-
-print(p_vip)
-ggsave(file = 'output/AlleGebieden/Tussenrapportage/XGBoost_feature_importance_okabe_clean.png', 
-       plot = p_vip,
-       width = 35, height = 30, units = 'cm', dpi = 800)
-
-## VIP vergelijkingsplot: Gain vs Permutation importance ---------------------
-
-# Top-10 per methode, daarna union zodat features uit beide lijsten zichtbaar zijn
-perm_top10 <- all_perm_importance[
-  , .SD[order(-delta_rmse)][1:min(.N, 10)], by = target_var
-][, .(target_var, Feature, Nederlandse_naam, delta_rmse)]
-
-gain_top10 <- all_importance[
-  , .SD[order(-Gain)][1:min(.N, 10)], by = target_var
-][, .(target_var, Feature, Nederlandse_naam, Gain)]
-
-# Volle union van features per target
-all_features <- unique(rbind(
-  perm_top10[, .(target_var, Feature, Nederlandse_naam)],
-  gain_top10[, .(target_var, Feature, Nederlandse_naam)]
-))
-
-# Koppel beide scores; ontbrekend = 0 (feature staat niet in die top-10)
-all_features <- merge(all_features, perm_top10[, .(target_var, Feature, delta_rmse)],
-                      by = c("target_var", "Feature"), all.x = TRUE)
-all_features <- merge(all_features, gain_top10[, .(target_var, Feature, Gain)],
-                      by = c("target_var", "Feature"), all.x = TRUE)
-all_features[is.na(delta_rmse), delta_rmse := 0]
-all_features[is.na(Gain),       Gain       := 0]
-
-# Normaliseer binnen target naar 0-1
-all_features[, delta_rmse_norm := delta_rmse / max(delta_rmse, na.rm = TRUE), by = target_var]
-all_features[, gain_norm       := Gain       / max(Gain,       na.rm = TRUE), by = target_var]
-
-# Plottitels koppelen
-all_features[, target_dutch := target_names_dutch[target_var]]
-all_features <- merge(
-  all_features,
-  performance_summary[, .(target, rmse_val, r2_val)],
-  by.x = "target_var", by.y = "target", all.x = TRUE
-)
-all_features[, rmse_unit := rmse_units[target_var]]
-all_features[, plot_title := paste0(
-  target_dutch, "\nR²(val): ", round(r2_val * 100, 1),
-  "% | RMSE(val): ", round(rmse_val, 3), " ", rmse_unit
-)]
-
-# Sorteer op gemiddeld belang over beide methoden
-all_features[, mean_belang := (delta_rmse_norm + gain_norm) / 2]
-
-plot_vip_compare <- melt(
-  all_features[, .(Feature, Nederlandse_naam, plot_title, gain_norm, delta_rmse_norm)],
-  id.vars       = c("Feature", "Nederlandse_naam", "plot_title"),
-  variable.name = "methode",
-  value.name    = "belang_norm"
-)[, methode := fifelse(methode == "gain_norm", "XGBoost Gain", "Permutation (ΔRMSE)")]
-
-# Sorteer features binnen elk facet op gemiddeld belang
-feat_order <- all_features[order(plot_title, mean_belang),
-                            paste0(plot_title, "__", Nederlandse_naam)]
-plot_vip_compare[, feat_label := factor(
-  paste0(plot_title, "__", Nederlandse_naam),
-  levels = unique(feat_order)
-)]
-
-p_vip_compare <- ggplot(plot_vip_compare, aes(
-    x    = feat_label,
-    y    = belang_norm,
-    fill = methode
-  )) +
-  geom_col(position = "dodge") +
-  facet_wrap(~ plot_title, scales = "free_y", ncol = 3) +
-  scale_x_discrete(labels = function(x) sub(".*__", "", x)) +
-  coord_flip() +
-  scale_fill_manual(
-    values = c("XGBoost Gain" = "#0072B2", "Permutation (ΔRMSE)" = "#E69F00"),
-    name   = "Methode"
-  ) +
-  scale_y_continuous(labels = scales::label_percent()) +
-  labs(
-    title    = "VIP vergelijking: XGBoost Gain vs. Permutation Importance",
-    subtitle = "Genormaliseerd binnen target (1 = hoogste belang). Permutation op validatieset. 0% = niet in top-10 van die methode.",
-    x        = NULL,
-    y        = "Relatief belang (genormaliseerd)"
-  ) +
-  theme_minimal(base_size = 11) +
-  theme(
-    strip.text         = element_text(size = 8, face = "bold", lineheight = 1.1),
-    strip.background   = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.6),
-    panel.border       = element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
-    panel.grid.major.y = element_blank(),
-    axis.text.y        = element_text(size = 8),
-    legend.position    = "bottom",
-    plot.title         = element_text(size = 13, face = "bold", hjust = 0.5),
-    plot.subtitle      = element_text(size = 9.5, hjust = 0.5, color = "grey40")
-  )
-
-print(p_vip_compare)
-ggsave(
-  "output/AlleGebieden/Tussenrapportage/VIP_gain_vs_permutation.png",
-  plot = p_vip_compare,
-  width = 35, height = 30, units = "cm", dpi = 300
-)
-
-
-## ALE plots voor redox modellen-------------------------------------------------------
-
-# Functie om de top predictors voor redox te identificeren en samen te plotten
-create_redox_ale_grid <- function() {
-  
-  # Haal de top variabelen op voor redox uit importance data
-  redox_importance <- feature_importance_all[["slib_redox_pH7"]]
-  top_redox_vars <- redox_importance[order(-Gain)][1:8]$Feature  # Top 6 meest belangrijke
-  
-  cat("Top variabelen voor redox:", paste(top_redox_vars, collapse = ", "), "\n")
-  
-  # Maak ALE plots voor alleen deze top variabelen
-  redox_ale_plots <- list()
-  
-  target <- "slib_redox_pH7"
-  
-  # Get model data
-  model_vars <- c("SlootID", target, cols_corr)
-  model_vars <- model_vars[!model_vars %in% target & model_vars %in% colnames(abio_proj)]
-  model_data <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
-  
-  # Convert factors to numeric
-  factor_cols <- names(model_data)[sapply(model_data, is.character)]
-  factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
-  factor_cols <- c(factor_cols, factor_cols_2)
-  if(length(factor_cols) > 0) {
-    model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
-    model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
-  }
-  
-  # Remove SlootID and target for X_data
-  predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
-  X_data <- as.matrix(model_data[, ..predictors_clean])
-  
-  # Maak ALE plots voor top variabelen
-  for(var in top_redox_vars) {
-    if(var %in% colnames(X_data)) {
-      
-      cat("Creating ALE plot for:", var, "\n")
-      
-      feature_idx <- which(colnames(X_data) == var)
-      
-      # Calculate ALE
-      ale_result <- calculate_ale_manual(xgb_models[[target]], X_data, feature_idx, K = 30)
-      
-      # Create ALE data frame
-      ale_df <- data.frame(
-        x = ale_result$x_values,
-        ale_effect = ale_result$ale_effects
-      )
-      
-      # Get real data for scatter plot
-      real_data <- abio_proj[!is.na(get(var)) & !is.na(get(target)), 
-                            .(x = get(var), y = get(target))]
-      
-      # Get Dutch variable name
-      var_name_dutch <- nederlandse_namen[var]
-      if(is.na(var_name_dutch)) var_name_dutch <- var
-      
-      # Get importance rank and value
-      var_rank <- which(top_redox_vars == var)
-      var_importance <- round(redox_importance[Feature == var]$Gain, 3)
-      
-      # Scale ALE effect voor visualisatie
-      target_median <- median(real_data$y, na.rm = TRUE)
-      y_range <- max(real_data$y, na.rm = TRUE) - min(real_data$y, na.rm = TRUE)
-      ale_range <- max(ale_df$ale_effect, na.rm = TRUE) - min(ale_df$ale_effect, na.rm = TRUE)
-      
-      if(ale_range > 0) {
-        scale_factor <- (y_range * 0.3) / ale_range
-        ale_df$ale_scaled <- target_median + ale_df$ale_effect * scale_factor
-      } else {
-        ale_df$ale_scaled <- target_median
-      }
-      
-      # Get correlation direction
-      correlation_direction <- ifelse(cor(real_data$x, real_data$y, use = "complete.obs") > 0, "+", "-")
-      
-      # Create plot
-      p <- ggplot() +
-        # Real data points
-        geom_point(data = real_data, 
-                  aes(x = x, y = y), 
-                  alpha = 0.6, size = 1.5, color = "#56B4E9") +
-        # Median reference line
-        geom_hline(yintercept = target_median, 
-                  linetype = "dashed", color = "#CC79A7", alpha = 0.8, linewidth = 0.8) +
-        # ALE line
-        geom_line(data = ale_df, 
-                 aes(x = x, y = ale_scaled), 
-                 linewidth = 1.5, color = "black") +
-        # Min/Max labels
-        annotate("text", 
-                x = ale_df$x[which.min(ale_df$ale_effect)], 
-                y = ale_df$ale_scaled[which.min(ale_df$ale_effect)],
-                label = paste("Min:", round(min(ale_df$ale_effect), 3)),
-                color = "#0072B2", fontface = "bold", size = 3.5, vjust = -0.5) +
-        annotate("text", 
-                x = ale_df$x[which.max(ale_df$ale_effect)], 
-                y = ale_df$ale_scaled[which.max(ale_df$ale_effect)],
-                label = paste("Max:", round(max(ale_df$ale_effect), 3)),
-                color = "#009E73", fontface = "bold", size = 3.5, vjust = 1.5) +
-        labs(
-          title = paste0("#", var_rank, ": ", var_name_dutch),
-          subtitle = paste0("Importance: ", var_importance, " | Correlatie: ", correlation_direction),
-          x = var_name_dutch,
-          y = "Redox slib bij pH7 (mV)"
-        ) +
-        theme_minimal() +
-        theme(
-          plot.title = element_text(size = 12, face = "bold"),
-          plot.subtitle = element_text(size = 10),
-          axis.title = element_text(size = 11),
-          axis.text = element_text(size = 10),
-          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.8)
-        )
-      
-      redox_ale_plots[[var]] <- p
-    }
-  }
-  
-  return(redox_ale_plots)
-}
-
-## Maak de redox ALE plots voor redoxmodel-------------------------------------------------
-
-redox_ale_plots <- create_redox_ale_grid()
-# Combineer in een grid
-library(gridExtra)
-if(length(redox_ale_plots) > 0) {
-  
-  # Maak grid met 2 rijen, 3 kolommen
-  grid_plot <- do.call(grid.arrange, c(redox_ale_plots, list(ncol = 3)))
-  
-  # Toon de plot
-  print(grid_plot)
-  
-  # Save de gecombineerde plot
-  ggsave(
-    filename = 'output/AlleGebieden/Tussenrapportage/Redox_ALE_top_predictors.png',
-    plot = grid_plot,
-    width = 45, height = 30, units = 'cm', dpi = 300
-  )
-  
-  cat("\nRedox ALE grid plot opgeslagen!\n")
-}
-
-# Optioneel: Maak ook individuele plots voor grotere details
-for(var_name in names(redox_ale_plots)) {
-  var_clean <- gsub("[^A-Za-z0-9]", "_", var_name)
-  
-  ggsave(
-    filename = paste0('output/AlleGebieden/Tussenrapportage/Redox_ALE_', var_clean, '.png'),
-    plot = redox_ale_plots[[var_name]],
-    width = 15, height = 12, units = 'cm', dpi = 300
-  )
-}
-
-cat("Alle individuele redox ALE plots opgeslagen!\n")
-
-
 

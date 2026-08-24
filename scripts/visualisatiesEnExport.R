@@ -13,12 +13,10 @@
 # 6. **5.5 Penetrometer** – draagkrachtprofielen per gebied
 # 7. **5.6 Overig** – beheer, vegetatie, taludhoek, onderholling
 
-# ## Setup
-#
+# Setup ---------------------------------------------------------
 # Kleuren voor veentypen (Okabe-Ito), data-filters (WP1/WP2, analyse-selectie), slootcluster-indeling, sorteervolgorde SlootID en gedeelde hulpfuncties.
 
-# Visualisaties ---------------------------------------------------------
-### Kleuren voor veentypen (Okabe-Ito palette)-------------------------------------------
+## Kleuren voor veentypen (Okabe-Ito palette)-------------------------------------------
 okabe_ito_colors <- c(
   "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999",
   "#661100", "#332288", "#88CCEE", "#44AA99", "#117733", "#999933", "#DDCC77", "#CC6677",
@@ -35,12 +33,12 @@ veentype_colors <- c(
   "bagger_verslagenveen_gyttja_anders" = okabe_ito_colors[8] # grijs
 )
 
-### Filter data 4 analyse omstandigheden, beheer en vegetatie-------------
+## Filter data 4 analyse omstandigheden, beheer en vegetatie-------------
 melt <- melt[WP %in% c('WP1','WP2'),]
 melt_orig <- melt  # bewaar originele melt voor gebruik in loops verderop
 abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
 
-### Filter data voor ronde hoep----------------------------------------------------
+## Filter data voor ronde hoep----------------------------------------------------
 # melt <- melt[Gebiedsnaam == "Ronde Hoep",]
 # abio_proj <- abio_proj[Gebiedsnaam == "Ronde Hoep",]
 # add clusters
@@ -71,15 +69,13 @@ penmerge[, sloot_cluster := fcase(
   sloot == 10,       "6",
   sloot %in% c(14,13,12,9.1), "reservaat"
 )]
-### zet volgorde slootID----------------------------------------------------------------
+## zet volgorde slootID----------------------------------------------------------------
 library(gtools)
 # Natural sort van SlootID in abio_proj
 abio_proj[, SlootID := factor(SlootID, levels = mixedsort(unique(SlootID)))]
 # Natural sort van SlootID in melt
 melt[, SlootID := factor(SlootID, levels = mixedsort(unique(SlootID)))]
-
-
-# Gedeelde hulpfuncties (hier gedefinieerd om herhaling verderop te voorkomen)
+## Gedeelde hulpfuncties (hier gedefinieerd om herhaling verderop te voorkomen)--------------------------------------------------------
 
 # Berekent R² met foutafhandeling; vereist minimaal 3 observaties
 get_r_squared_safe <- function(dt, x_col, y_col) {
@@ -106,14 +102,11 @@ theme_figuur <- theme_minimal(base_size = 15) +
   )
 
 
-# ## 5.1 Tussenrapportage plots
-#
+# 5.1 Tussenrapportage plots -----------------------------------------------------------------------------------------
 # Grafieken voor de tussenrapportage, gegroepeerd naar thema. Outputs worden opgeslagen in `output/AlleGebieden/Tussenrapportage/`.
 
-# ### 5.1.1 Slootprofiel
-#
+## 5.1.1 Slootprofiel -------------------------------------------------------------
 # Relaties tussen waterbreedte, vegetatiezones (zone 1, 2a, 2b), waterdiepte, slibdikte en doorzicht per gebied.
-
 ### Slootprofiel (drooglegging, waterdiepte midden sloot en langs de oever, slibdikte, doorzicht, breedte zones, talud oevers, onderholling)--------------------------
 ##### Plot relatie breedtes vegetatie en profiel ---------------------------
 # geom_jitter(data = abio_proj, aes(x = watbte, max_wtd, drglg, oeverzone_2a_breedte_cm)) 
@@ -6140,7 +6133,7 @@ ggplot() +
 #
 # Relatie drooglegging en taludhoek; individuele profielplaatjes per sloot (loop).
 
-## 5.2 plot profiel----------------------------------------------------
+# 5.2 plot profiel----------------------------------------------------
 ### uitleg variabelen:
 # "tldk_bvwtr_perc" = 3 meter van de oeverlijn/ waterlijn de oever op (niet verder dan insteek)
 # "tldk_ondwtr_perc" = 1 meter het water in bovenkant slib
@@ -6267,7 +6260,7 @@ for(i in unique(profiel$ID)){
 }
 
 
-# ## 5.3 Clusteranalyse
+# 5.3 Clusteranalyse -------------------------------------------------------------------------
 # Eerst main_veest draaien en daarna analyses_dev_db
 # Boxplots van clustervariabelen voor alle gebieden (NL), data-gedreven clusters en ruimtelijke vergelijking.
 
@@ -6450,8 +6443,8 @@ ggplot() +
 #
 # Loop per parameter, compartiment en monsterdiepte voor alle gebieden. Fingerprints voor P en Fe/S.
 
-## 5.4a abio alle gebieden en per parameter -----------------------
-# fingerprint per par, eenheid en methode alle gebieden
+# 5.4a abio alle gebieden en per parameter -----------------------
+## fingerprint per par, eenheid en methode alle gebieden -----------------------------------
 for(j in unique(melt$par_eenheid)){
   # j <- unique(melt$par_eenheid)[158]
   melt_sel <- melt[par_eenheid %in% j,]
@@ -6479,7 +6472,7 @@ for(j in unique(melt$par_eenheid)){
   ggsave(file=paste0('output/AlleGebieden/fingerprints/',var_folder ,'.png'), width = 35,height = 15,units='cm',dpi=800)
   } 
 }
-### loop per parameter, compartiment, monsterdiepte alle gebieden
+## loop per parameter, compartiment, monsterdiepte alle gebieden -----------------------------------
 for(i in unique(melt$variable)){
   # i <- unique(melt$variable)[306]
   melt_sel <- melt[variable %in% i,]
@@ -6526,8 +6519,7 @@ for(i in unique(melt$variable)){
 
 
 }
-
-### fingerprints p ALLE gebieden ---------------------------------------------------
+## fingerprints p ALLE gebieden ---------------------------------------------------
 melt_sel <- melt[parameter == "Fe/P",]
 ggplot(melt_sel, aes(x = compartiment, y = value, fill = paste0(compartiment, ' ',monsterdiepte))) +
     facet_wrap(methode~parameter+eenheid, scales = "free",
@@ -6620,13 +6612,9 @@ ggsave(file=paste0('output/AlleGebieden/fingerprints/AlleGebieden_ca_fe_SO.png')
 melt <- melt_orig
 
 
-# ## 5.4b Abiotiek – loop per gebied
-#
-# Fingerprints per gebied; specifieke parameters (ammonium, S-toxiciteit, Fe/P-ratio's, redox); abiotiek per meetlocatie.
-
-## 5.4b loop per parameter en gebied en waterbodemdata---------------
-### loop per parameter, compartiment, monsterdiepte alle gebieden - uitgelicht per gebied
-### loop fingerprints per gebied-------------
+# 5.4b Abiotiek – loop per gebied-------------------------------------------------------------------------------
+## loop per parameter, compartiment, monsterdiepte alle gebieden - uitgelicht per gebied
+## loop fingerprints per gebied-------------
 for(i in unique(melt$gebied)){
   # i <- unique(melt$gebied)[8]
   melt_sel <- unique(melt[gebied %in% i,])
@@ -6721,7 +6709,8 @@ for(i in unique(melt$gebied)){
     ggtitle(paste0(unique(melt_sel_fp$parameter),collapse = ', ')) 
   ggsave(file=paste0(workspace,'output/',i,'/fingerprints/',i,'_cafeSO.png'), width = 35,height = 15,units='cm',dpi=800)
 }
- ### DEZE DUURT HEEL ERG LANG - NIET DRAAIEN!
+
+### DEZE DUURT HEEL ERG LANG - NIET DRAAIEN!
 # for(i in unique(melt$variable)){
 #   # i <- unique(melt$variable)[148]
 #   melt_sel <- melt[variable %in% i,]
@@ -6784,8 +6773,8 @@ for(i in unique(melt$gebied)){
 #   }
 
 # }
-### loop per gebied voor specifieke parameters in waterbodem die relevant zijn voor veensloten
-### AMMONIUM, S TOX EN fE/P RATIOS
+
+## AMMONIUM, S TOX EN fE/P RATIOS----------------------------------
 for(i in unique(melt$gebied)){
 # i <- unique(melt$gebied)[1] # ronde hoep
 sel1 <- c("P-PO4_CC_mg/kg_SB", "Fe_CC_mg/kg_SB","feP_CC_SB_SB",
@@ -7003,7 +6992,7 @@ ggplot() +
   labs(x= 'Fe/S ratio slib (molbasis)' , y= 'P poriewater (µmol/l)', col = 'Sloot nummer' )
 ggsave(file=paste0(workspace,'output/',i,'/waterbodem/',i,'_PversusFeS_Bware.png'), width = 25,height = 15,units='cm',dpi=800)
 }
-### loop abiotiek (WATERDIEPTE, SLIBDICHTE, DOORZICHT, REDOX) per gebied----------------
+## loop abiotiek (WATERDIEPTE, SLIBDICHTE, DOORZICHT, REDOX) per gebied----------------
 for(i in unique(melt$gebied)){
   # i <- unique(melt$gebied)[8]
   melt_sel <- unique(melt[gebied %in% i,])
@@ -7018,8 +7007,8 @@ for(i in unique(melt$gebied)){
     geom_col(data = melt_sel_agg[variable %in% c('max_slib')], aes(x= Sloot_nr, y = -1*slibdiepte, fill = 'slibdikte (m)'),alpha = 0.7) +
     geom_col(data = melt_sel_agg[variable %in% c('max_wtd')], aes(x= Sloot_nr, y = -1*`.`, fill = 'maximale waterdiepte (m)'),alpha = 0.8) +
     geom_col(data = melt_sel_agg[variable %in% c('doorzicht2_mid_cm')], aes(x= Sloot_nr, y = -1*`.`, fill = 'doorzicht (m)'),alpha = 0.8) +
-     scale_fill_manual(values = c("darkblue","skyblue","brown"), na.value = "#A6761D")+
-    facet_grid(.~ Gebiedsnaam, space = 'free_x', scales = 'free_x', switch = 'x')+
+    scale_fill_manual(values = c("darkblue","skyblue","brown"), na.value = "#A6761D")+
+    facet_grid(jaar ~ Gebiedsnaam, space = 'free_x', scales = 'free_x', switch = 'x')+
     theme_minimal(base_size = 15)+
     theme(
       strip.background = element_blank(),
@@ -7091,13 +7080,8 @@ for(i in unique(melt$gebied)){
   ggsave(file=paste0(workspace,'output/',i,'/abiotiek/',i, '_redox','.png'), width = 25,height = 15,units='cm',dpi=800)
     
      }
-
-
-
-# ## 5.5 Penetrometer
-#
-# Draagkrachtprofielen (indringingsweerstand vs. diepte) per gebied, jaar en sectie. Loop genereert grafieken per gebied.
-
+# 5.5 Penetrometer---------------------------------------------------------------------------
+## Draagkrachtprofielen (indringingsweerstand vs. diepte) per gebied, jaar en sectie. Loop genereert grafieken per gebied.
 ## 5.5 plot penetrometer-------------------------
 # calc draagkracht per diepte
 # dist id 1 (perceel) en 2 (insteek) weg
@@ -7264,12 +7248,7 @@ for(gb in unique(penmerge$Gebiedsnaam)){
 }
 
 
-
-# ## 5.6 Overig
-#
-# Relaties tussen beheer (maaifrequentie, vertrappingsschade), vegetatie, taludhoek, draagkracht, onderholling en redox.
-
-## 5.6 overig----------------------
+# 5.6 overig----------------------
 ### waterbodem ----------------
 p<- ggplot(data = abio_proj[], aes(x= `P_µmol/l_PW`, y=`P-AL mg/kg_SB`))+
   geom_jitter(aes(col= gebied))+
@@ -7890,71 +7869,7 @@ ggplot(abio_proj) +
 
 
 
-# 6. Export the data ---------------------------------------------------------# Visualisaties ---------------------------------------------------------
-### Kleuren voor veentypen (Okabe-Ito palette)-------------------------------------------
-okabe_ito_colors <- c(
-  "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999",
-  "#661100", "#332288", "#88CCEE", "#44AA99", "#117733", "#999933", "#DDCC77", "#CC6677",
-  "#882255", "#AA4499", "#DDDDDD", "#000000", "#AA4466", "#4477AA", "#66CCEE", "#228833",
-  "#CCBB44", "#EE6677", "#AA3377", "#BBBBBB", "#EE3377", "#11AA99", "#3366CC", "#CCAA44",
-  "#EE7733", "#5588FF", "#99DDFF", "#44BB66", "#228844", "#AAAA00", "#FF5544", "#CC3399"
-)
-veentype_colors <- c(
-  "kleiig veen" = okabe_ito_colors[1],                      # oranje
-  "veenmosveen" = okabe_ito_colors[2],                     # lichtblauw 
-  "zeggerietveen_rietveen" = okabe_ito_colors[3],          # groen
-  "zeggeveen_rietzeggeveen_broekveen" = okabe_ito_colors[3], # groen (zelfde als zeggerietveen)
-  "broekveen" = okabe_ito_colors[6],                       # oranje
-  "bagger_verslagenveen_gyttja_anders" = okabe_ito_colors[8] # grijs
-)
-
-### Filter data 4 analyse omstandigheden, beheer en vegetatie-------------
-melt <- melt[WP %in% c('WP1','WP2'),]
-melt_orig <- melt  # bewaar originele melt voor gebruik in loops verderop
-abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
-
-### Filter data voor ronde hoep----------------------------------------------------
-# melt <- melt[Gebiedsnaam == "Ronde Hoep",]
-# abio_proj <- abio_proj[Gebiedsnaam == "Ronde Hoep",]
-# add clusters
-abio_proj[, sloot_cluster := fcase(
-  Sloot_nr == 1,        "1",
-  Sloot_nr %in% c(2,3), "2",
-  Sloot_nr %in% c(4,5), "3",
-  Sloot_nr %in% c(7,8), "4",
-  Sloot_nr %in% c(9,11),"5",
-  Sloot_nr == 10,       "6",
-  Sloot_nr %in% c(14,13,12,9.1), "reservaat"
-)]
-melt[, sloot_cluster := fcase(
-  sloot == 1,        "1",
-  sloot %in% c(2,3), "2",
-  sloot %in% c(4,5), "3",
-  sloot %in% c(7,8), "4",
-  sloot %in% c(9,11),"5",
-  sloot == 10,       "6",
-  sloot %in% c(14,13,12,9.1), "reservaat"
-)]
-penmerge[, sloot_cluster := fcase(
-  sloot == 1,        "1",
-  sloot %in% c(2,3), "2",
-  sloot %in% c(4,5), "3",
-  sloot %in% c(7,8), "4",
-  sloot %in% c(9,11),"5",
-  sloot == 10,       "6",
-  sloot %in% c(14,13,12,9.1), "reservaat"
-)]
-### zet volgorde slootID----------------------------------------------------------------
-library(gtools)
-# Natural sort van SlootID in abio_proj
-abio_proj[, SlootID := factor(SlootID, levels = mixedsort(unique(SlootID)))]
-# Natural sort van SlootID in melt
-melt[, SlootID := factor(SlootID, levels = mixedsort(unique(SlootID)))]
-
-
-
-# ## 5.7 Export data
-
+# 6. Export the data ---------------------------------------------------------
 ## locaties---------------------------------------------------------
 locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
 st_write(locaties, paste0(workspace,  "output/GIS/geo_locaties.gpkg"), append = FALSE)
