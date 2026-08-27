@@ -26,6 +26,7 @@ locaties[, c('instanceID_abio', 'instanceID_veg') := NULL]
 locaties[!WP == 'WP2-prenul',]
 ## aggregated abio data ---------------
 abio_proj <- abio_hier
+abio_proj[, jaar := as.integer(jaar)]
 # check welke locaties missen in data abiotiek
 check_db <- locaties[!SlootID %in% unique(abio_proj$SlootID),]
 ## slootprofielen ---------------
@@ -41,6 +42,7 @@ list(
   over = nrow(locs_prof_unique),
   geom_in_cmp = "geom" %in% cmp_cols
 )
+locs_prof[, jaar := as.integer(jaar)]
 abio_proj <- merge(abio_proj, locs_prof[,-c('SlootID-kort','gebied','sloot','Sloot_nr','Gebiedsnaam','Behandeling','oever','instanceID_abio','instanceID_veg','datum','WP')], by = c('SlootID','jaar'), all.x = T, suffixes = c('','_prof'))
 # 34 locaties missen in profielen en abiotiek omdat pre-nul en demmerik en Mijnden
 check_db <- locaties[!SlootID %in% unique(locs_prof$SlootID),] # 349 unieke slootIDs in locaties en niet in data (pre-nul en demmerik)
@@ -55,6 +57,7 @@ check_db <- locaties[!SlootID %in% unique(penmerge_wide$SlootID),]
 # slootid jaar niet uniek?
 veg[, jaar := as.integer(jaar)]
 abio_proj <- merge(abio_proj, veg, by.x = c('instanceID_veg'), by.y = c('instanceID'), all.x = T, suffixes = c('','_veg'))
+abio_proj[, jaar := as.integer(jaar)]
 check_db <- locaties[!SlootID %in% unique(veg$SlootID),]
 ## vegetatie aantal soorten------------------
 veg_nsoorten[, jaar := as.integer(jaar)]
@@ -63,6 +66,7 @@ abio_proj <- merge(abio_proj, veg_nsoorten, by = c('SlootID','jaar'), all.x = T,
 abio_proj <- merge(abio_proj, veg_ekr_oev, by.x = c('SlootID','jaar'), by.y = c('SlootID','jaar'), all.x = T, suffixes = c('','_veg_ekr'))
 ## clusters en locatiedata --------------------------------------------------------
 #!!! check slootID jaar combinatie uniek (is nu niet het geval in clusters_locs)
+clusters_locs[, jaar := as.integer(jaar)]
 abio_proj <- merge(abio_proj, clusters_locs[,-c('geom')], by = c('SlootID','jaar'), all.x = T, suffixes = c('','_clust'))
 abio_proj <- abio_proj[!is.na(SlootID),]
 check_db <- locaties[!SlootID %in% unique(clusters_locs$SlootID),]
@@ -171,6 +175,73 @@ abio_proj[, .(
   n = .N,
   median_koebelasting = median(koebelasting_drinkende_koeien, na.rm = TRUE)
 ), by = .(afrastering_flag, drinken_flag)][order(afrastering_flag, drinken_flag)]
+
+## indices berekenen -------------------------------
+
+# Kraggevorming vlag: groeiende oever als kraggen*breedte > 10 OF sluiting zone 2a én 2b > 90%
+abio_proj[, kraggevorming_flag := (
+  (fifelse(is.na(oeverzone_2b_kraggen_perc), 0, oeverzone_2b_kraggen_perc) * fifelse(is.na(oeverzone_2b_breedte_cm), 0, oeverzone_2b_breedte_cm) +
+   fifelse(is.na(oeverzone_2a_kraggen_perc), 0, oeverzone_2a_kraggen_perc) * fifelse(is.na(oeverzone_2a_breedte_cm), 0, oeverzone_2a_breedte_cm)) > 10 |
+  (fifelse(is.na(oeverzone_2a_emers_perc), 0, oeverzone_2a_emers_perc) > 90 &
+   fifelse(is.na(oeverzone_2b_emers_perc), 0, oeverzone_2b_emers_perc) > 90)
+)]
+
+# Erosieindex: hoog = meer erosie
+# Componenten: afscheur (hoog = meer erosie), onderholling (hoog = meer erosie),
+#   kraggevorming (groeiende oever = minder erosie, verlaagt index),
+#   kale oever (hoog = meer erosie)
+# Alle componenten genormaliseerd naar 0-1 schaal (percentages gedeeld door 100)
+abio_proj[, erosieindex := {
+  afscheur_norm   <- fifelse(is.na(afscheur_veg_lengte_perc), NA_real_, afscheur_veg_lengte_perc / 100)
+  # Onderholling: cm, normaliseer op max 150 cm (gecorrigeerde waarde) en cap op 1
+  onderholling_norm <- fifelse(is.na(holleoever), NA_real_, pmin(holleoever / 150, 1))
+  # Kraggevorming verlaagt index: 1 als geen kraggevorming, 0 als kraggevorming
+  kragg_factor    <- fifelse(is.na(kraggevorming_flag), 1, fifelse(kraggevorming_flag, 0, 1))
+  kaal_norm       <- fifelse(is.na(oeverzone_2b_kaal_perc), NA_real_, oeverzone_2b_kaal_perc / 100)
+  rowMeans(cbind(afscheur_norm, onderholling_norm, kaal_norm), na.rm = TRUE) * kragg_factor
+}]
+
+# Oevervormindex: geometrie oever
+# Flauwer talud (lage taludhoek rond waterlijn) = hogere index
+# Grilliger oeverlijn (oeverzone_2b_grillig) = hogere index
+# tldk_oevrwtr_perc: hoek rand waterlijn als % (lager = flauwer = beter)
+abio_proj[, oevervormindex := {
+  # Inverteer taludhoek: flauwe helling = hoge score
+  talud_boven_norm <- fifelse(is.na(tldk_oevrwtr_perc), NA_real_, 1 - pmin(tldk_oevrwtr_perc / 100, 1))
+  # Grilligheid: ordinale score (1-3 verwacht); normaliseer naar 0-1
+  grillig_norm     <- fifelse(is.na(oeverzone_2b_grillig), NA_real_,
+                              pmin((as.numeric(oeverzone_2b_grillig) - 1) / 2, 1))
+  rowMeans(cbind(talud_boven_norm, grillig_norm), na.rm = TRUE)
+}]
+
+# Stabiliteitsindex: hoog = stabielere oever
+# Componenten: sluiting emers zone 2a (hoog = stabiel), sluiting emers zone 2b,
+#   draagkracht oever (hoog = stabiel), breedte oeverzone (breder = stabieler),
+#   oevervormindex (flauwer/grilliger = stabieler)
+# Normalisaties op max van dataset worden vooraf berekend (buiten := blok)
+.dk_max      <- max(abio_proj$draagkracht_oever, na.rm = TRUE)
+.breedte_max <- max(
+  fifelse(is.na(abio_proj$oevbte), 0, abio_proj$oevbte * 100) +
+  fifelse(is.na(abio_proj$oeverzone_2b_breedte_cm), 0, abio_proj$oeverzone_2b_breedte_cm),
+  na.rm = TRUE
+)
+abio_proj[, stabiliteitsindex := {
+  emers_2a_norm <- fifelse(
+    is.na(oeverzone_2a_emers_perc) | is.na(oeverzone_2a_breedte_cm), NA_real_,
+    fifelse(oeverzone_2a_emers_perc > 90 & (oeverzone_2a_breedte_cm / 100) > 0.5, 1,
+            oeverzone_2a_emers_perc / 100)
+  )
+  emers_2b_norm <- fifelse(
+    is.na(oeverzone_2b_emers_perc) | is.na(oeverzone_2b_breedte_cm), NA_real_,
+    fifelse(oeverzone_2b_emers_perc > 90 & (oeverzone_2b_breedte_cm / 100) > 0.5, 1,
+            oeverzone_2b_emers_perc / 100)
+  )
+  dk_norm      <- fifelse(is.na(draagkracht_oever), NA_real_, draagkracht_oever / .dk_max)
+  breedte_norm <- (fifelse(is.na(oevbte), 0, oevbte * 100) +
+                   fifelse(is.na(oeverzone_2b_breedte_cm), 0, oeverzone_2b_breedte_cm)) / .breedte_max
+  rowMeans(cbind(emers_2a_norm, emers_2b_norm, dk_norm, breedte_norm, oevervormindex), na.rm = TRUE)
+}]
+rm(.dk_max, .breedte_max)
 
 ## add grouping vars -------------------------------
 abio_proj[text == "Hoogheemraadschap De Stichtse Rijnlanden",waterschap := 'HDSR']
@@ -321,6 +392,7 @@ abio_proj[, Cl_mg_l_PW := `Cl_µmol/l_PW` * 35.45 / 1000]
 abio_proj[, names(abio_proj) := lapply(.SD, function(x) {
   if (is.character(x)) gsub(";", ":", iconv(x, to = "UTF-8", sub = "byte")) else x
 })]
+
 ## reformat data for plot loop------------------------------------------------------------------
 cols_num <- colnames(abio_proj)[sapply(abio_proj, is.numeric)]
 dup_cols <- names(abio_proj)[duplicated(names(abio_proj))]

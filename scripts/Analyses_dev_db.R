@@ -27,11 +27,11 @@ is_constant_within_year <- function(dt, col) {
 abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
 abio_proj <- abio_proj[!is.na(SlootID) & !is.na(jaar) & !is.na(instanceID_veg) & !is.na(instanceID_abio) , ]
 abio_proj <- abio_proj[MeenemenDataAnalyse_totaal == 'ja',] # voor xgboost
-# 1a. cluster analyse vergelijking met kaart clusters uit verkenningsfase--------------------------------------------------------
+# 1 cluster analyse vergelijking met kaart clusters uit verkenningsfase--------------------------------------------------------
 setDT(abio_proj)
 # abio variabelen volgens jouw mapping:
 # drglg -> drlg, watbte -> breedtewl, OS_perc_OR_25 -> SOM_LOI, Z_CLAY_SA_OR_25 -> A_CLAY_MI
-# 1b. Cluster vergelijking: variabele-gebaseerd vs ruimtelijk per SlootID ----------------
+## Cluster vergelijking: variabele-gebaseerd vs ruimtelijk per SlootID ----------------
 vars_clust  <- c("drglg", "watbte", "OS_perc_OR_25", "Z_CLAY_SA_OR_25") # in abio_proj
 scale_means <- sapply(vars_clust, function(v) mean(abio_proj[[v]], na.rm = TRUE))
 scale_sds   <- sapply(vars_clust, function(v) sd(abio_proj[[v]],   na.rm = TRUE))
@@ -93,8 +93,8 @@ ggplot(conf, aes(x = factor(cluster_var), y = factor(cluster_ruimtelijk))) +
   geom_text(aes(label = N), size = 4) +
   scale_fill_gradient(low = "white", high = "#2166ac") +
   labs(
-    x     = "Cluster o.b.v. variabelen (abio_proj)",
-    y     = "Cluster ruimtelijk",
+    x     = "Cluster o.b.v. variabelen (Veest data)",
+    y     = "Cluster ruimtelijk (GIS data)",
     title = "Vergelijking ruimtelijk vs. variabele-gebaseerde cluster",
     fill  = "Aantal locaties"
   ) +
@@ -161,61 +161,106 @@ p_clusters_nl <- ggplot() +
     values = c("#7b2d8b", "#2166ac", "#1a7d3a", "#74c476", "#fdae61", "#d73027", "#5f5e5e", "#535252"),
     guide = guide_legend(title = "Clusters verkenningsfase")
   ) +
-  labs(title = "Clusters uit de verkenningsfase (ruimtelijk bepaald)") +
+  labs(title = "Clusters uit de verkenningsfase (bepaald op basis van Veest data)") +
   theme_minimal(base_size = 14)
 
 print(p_clusters_nl)
 ggsave(
-  "output/AlleGebieden/Tussenrapportage/Clusters_kaart_sectie1.png",
+  "output/AlleGebieden/Tussenrapportage/Clusters_Veestdata.png",
   plot = p_clusters_nl,
   width = 30, height = 25, units = "cm", dpi = 300
 )
 
 # Bereik in cluster (GIS-laag) vs abio_proj per variabele
-# cluster gebruikt: drlg, breedtewl, A_SOM_LOI, A_CLAY_MI (voor cluster.med)
-# abio_proj gebruikt: drglg, watbte, OS_perc_OR_25, Z_CLAY_SA_OR_25
+# Drooglegging: drie bronnen in één facet (GIS drlg, NOBV zomerdrooglegging, VeeST drglg)
+# Overige variabelen: twee bronnen (GIS vs veld)
 
-vars_info <- list(
-  list(label = "Drooglegging",  cluster_col = "drlg",        abio_col = "drglg"),
-  list(label = "Waterbreedte",  cluster_col = "breedtewl",   abio_col = "watbte"),
-  list(label = "OS (%)",        cluster_col = "A_SOM_LOI",   abio_col = "OS_perc_OR_25"),
-  list(label = "Klei (%)",      cluster_col = "A_CLAY_MI",   abio_col = "Z_CLAY_SA_OR_25")
+# Drooglegging apart: drie bronnen
+drglg_rows <- rbindlist(list(
+  data.table(
+    variabele = "Drooglegging (m)",
+    bron      = "GIS-laag (clusteranalyse)",
+    p10       = quantile(cluster[["drlg"]],                      0.10, na.rm = TRUE),
+    mediaan   = median(cluster[["drlg"]],                      na.rm = TRUE),
+
+    p90       = quantile(cluster[["drlg"]],                    0.90, na.rm = TRUE)
+  ),
+  data.table(
+    variabele = "Drooglegging (m)",
+    bron      = "GIS-laag (NOBV)",
+    p10       = quantile(cluster[["Zomerdrooglegging_m_NOBV"]], 0.10, na.rm = TRUE),
+    mediaan   = median(cluster[["Zomerdrooglegging_m_NOBV"]],  na.rm = TRUE),
+    p90       = quantile(cluster[["Zomerdrooglegging_m_NOBV"]], 0.90, na.rm = TRUE)
+  ),
+  data.table(
+    variabele = "Drooglegging (m)",
+    bron      = "Velddata VeeST",
+    p10       = quantile(abio_proj[["drglg"]],                 0.10, na.rm = TRUE),
+    mediaan   = median(abio_proj[["drglg"]],                   na.rm = TRUE),
+    p90       = quantile(abio_proj[["drglg"]],                 0.90, na.rm = TRUE)
+  )
+))
+
+# Overige variabelen: twee bronnen
+vars_info_overig <- list(
+  list(label = "Waterbreedte (m)",   cluster_col = "breedtewl",               abio_col = "watbte"),
+  list(label = "OS (%)",             cluster_col = "A_SOM_LOI",               abio_col = "OS_perc_OR_25"),
+  list(label = "Klei (%)",           cluster_col = "A_CLAY_MI",               abio_col = "Z_CLAY_SA_OR_25"),
+  list(label = "Zomerpeil (m NAP)",  cluster_col = "Zomerpeil_m_NAP",         abio_col = "wl"),
+  list(label = "Maaiveld (m NAP)",   cluster_col = "Maaiveld_niveau_m_NAP",   abio_col = "max_hgt_or")
 )
 
-rows <- rbindlist(lapply(vars_info, function(v) {
+overig_rows <- rbindlist(lapply(vars_info_overig, function(v) {
   cl <- cluster[[v$cluster_col]]
   ab <- abio_proj[[v$abio_col]]
   data.table(
     variabele = v$label,
-    bron      = c("GIS-laag (cluster)", "Velddata (abio_proj)"),
-    p10       = c(quantile(cl, 0.10, na.rm=TRUE), quantile(ab, 0.10, na.rm=TRUE)),
-    mediaan   = c(median(cl, na.rm=TRUE),          median(ab, na.rm=TRUE)),
-    p90       = c(quantile(cl, 0.90, na.rm=TRUE),  quantile(ab, 0.90, na.rm=TRUE))
+    bron      = c("GIS-laag (clusteranalyse)", "Velddata VeeST"),
+    p10       = c(quantile(cl, 0.10, na.rm = TRUE), quantile(ab, 0.10, na.rm = TRUE)),
+    mediaan   = c(median(cl, na.rm = TRUE),          median(ab, na.rm = TRUE)),
+    p90       = c(quantile(cl, 0.90, na.rm = TRUE),  quantile(ab, 0.90, na.rm = TRUE))
   )
 }))
+overig_rows[variabele %in% c("Zomerpeil (m NAP)", "Maaiveld (m NAP)") & bron == "GIS-laag (clusteranalyse)", bron := "GIS-laag (NOBV)"]
 
+rows <- rbind(drglg_rows, overig_rows, fill = TRUE)
 rows[, bereik_p10_p90 := p90 - p10]
 
-# Ratio van bereiken als maat voor schaalbereik-verschil
-ratio <- rows[, .(ratio = bereik_p10_p90[bron == "GIS-laag (cluster)"] /
-                          bereik_p10_p90[bron == "Velddata (abio_proj)"]), by = variabele]
+# Ratio van bereiken (alleen voor variabelen met twee bronnen)
+ratio <- overig_rows[, bereik_p10_p90 := p90 - p10][
+  , .(ratio = bereik_p10_p90[bron %in% c("GIS-laag (NOBV)","GIS-laag (clusteranalyse)","GIS-laag NOBV (Zomerdrooglegging)")] /
+              bereik_p10_p90[bron == "Velddata VeeST"]), by = variabele]
 print(ratio)
+
+# Kleurpalet: drie bronnen voor drooglegging, twee voor de rest
+bron_kleuren <- c(
+  "GIS-laag (clusteranalyse)" = "#D55E00",
+  "GIS-laag NOBV (Zomerdrooglegging)" = "#E69F00",
+  "GIS-laag (NOBV)" = "#E69F00",
+  "Velddata VeeST"         = "#0072B2"
+)
 
 # Visualisatie: P10-mediaan-P90 per bron per variabele
 ggplot(rows, aes(x = bron, y = mediaan, color = bron)) +
   geom_point(size = 3) +
   geom_errorbar(aes(ymin = p10, ymax = p90), width = 0.2, linewidth = 0.8) +
   facet_wrap(~variabele, scales = "free_y") +
+  scale_color_manual(values = bron_kleuren, name = NULL) +
   labs(
-    title = "Schaalbereik GIS-laag vs. velddata (P10–P90)",
-    x = NULL, y = NULL, color = NULL
+    title    = "Schaalbereik GIS-laag vs. velddata (P10–P90)",
+    subtitle = "Drooglegging: GIS (drlg), Zomerdrooglegging NOBV en VeeST veldmeting in één facet",
+    x = NULL, y = NULL
   ) +
   theme_minimal(base_size = 13) +
-  theme(legend.position = "bottom", axis.text.x = element_blank())
+  theme(
+    legend.position  = "bottom",
+    axis.text.x      = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    strip.background = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.5)
+  )
 
 # Voeg gebiedsnaam toe aan vergelijking via SlootID (eerste deel voor underscore)
 locs_analysis <- copy(locs)
-locs_analysis[, gebied := sub("_.*", "", SlootID)]
 # Voeg ruimtelijke clusterinfo toe
 locs_analysis <- locs_analysis[vergelijking[, .(SlootID, cluster_ruimtelijk, cluster_var, match)], on = "SlootID"]
 
@@ -223,54 +268,74 @@ locs_analysis <- locs_analysis[vergelijking[, .(SlootID, cluster_ruimtelijk, clu
 # Gebruik abio_proj met gebied
 abio_var <- abio_proj[
   !is.na(drglg) & !is.na(watbte) & !is.na(OS_perc_OR_25) & !is.na(Z_CLAY_SA_OR_25),
-  .(SlootID, clusters,
-    drglg        = drglg,
-    watbte       = watbte,
-    OS_perc      = OS_perc_OR_25,
-    klei         = Z_CLAY_SA_OR_25)
+  .(SlootID, gebied, clusters,
+    drglg             = drglg,
+    drlg              = drlg,
+    zomerdrglg        = Zomerdrooglegging_m_NOBV,
+    watbte            = watbte,
+    OS_perc           = OS_perc_OR_25,
+    klei              = Z_CLAY_SA_OR_25,
+    zomerpeil         = wl,
+    maaiveld          = max_hgt_or)
 ] |> unique(by = "SlootID")
-abio_var[, gebied := sub("_.*", "", SlootID)]
 
 # Spreiding per cluster: SD per variabele
 spreiding <- abio_var[, .(
-  n            = .N,
-  drglg_sd     = sd(drglg,   na.rm=TRUE),
-  watbte_sd    = sd(watbte,  na.rm=TRUE),
-  OS_sd        = sd(OS_perc, na.rm=TRUE),
-  klei_sd      = sd(klei,    na.rm=TRUE)
+  n              = .N,
+  drglg_sd       = sd(drglg,      na.rm=TRUE),
+  drlg_sd        = sd(drlg,      na.rm=TRUE),
+  zomerdrglg_sd  = sd(zomerdrglg, na.rm=TRUE),
+  watbte_sd      = sd(watbte,     na.rm=TRUE),
+  OS_sd          = sd(OS_perc,    na.rm=TRUE),
+  klei_sd        = sd(klei,       na.rm=TRUE),
+  zomerpeil_sd   = sd(zomerpeil,  na.rm=TRUE),
+  maaiveld_sd    = sd(maaiveld,   na.rm=TRUE)
 ), by = clusters][order(clusters)]
-
-spreiding# Afwijking per locatie per variabele tov GIS-clustermediane (ongestandaardiseerd)
+spreiding
+# Afwijking per locatie per variabele tov GIS-clustermediane (ongestandaardiseerd)
 # Voeg clustermediane toe op basis van ruimtelijke cluster
-med_orig <- cluster.med[, .(clusters, drglg_med = drglg, watbte_med = watbte,
-                             OS_med = OS_perc_OR_25, klei_med = Z_CLAY_SA_OR_25)]
+med_orig <- cluster.med[, .(clusters,
+  drglg_med      = drglg,
+  zomerdrglg_med = Zomerdrooglegging_m_NOBV,
+  watbte_med     = watbte,
+  OS_med         = OS_perc_OR_25,
+  klei_med       = Z_CLAY_SA_OR_25,
+  zomerpeil_med  = Zomerpeil_m_NAP,
+  maaiveld_med   = Maaiveld_niveau_m_NAP)]
 
 afwijking <- abio_var[med_orig, on = c(clusters = "clusters"), nomatch = 0]
 afwijking[, `:=`(
-  drglg_afw = drglg   - drglg_med,
-  watbte_afw= watbte  - watbte_med,
-  OS_afw    = OS_perc - OS_med,
-  klei_afw  = klei    - klei_med
+  drglg_afw      = drglg      - drglg_med,
+  zomerdrglg_afw = zomerdrglg - zomerdrglg_med,
+  watbte_afw     = watbte     - watbte_med,
+  OS_afw         = OS_perc    - OS_med,
+  klei_afw       = klei       - klei_med,
+  zomerpeil_afw  = zomerpeil  - zomerpeil_med,
+  maaiveld_afw   = maaiveld   - maaiveld_med
 )]
+
 # Gemiddelde absolute afwijking per gebied
 afw_gebied <- afwijking[, .(
-  drglg_mae  = mean(abs(drglg_afw),  na.rm=TRUE),
-  watbte_mae = mean(abs(watbte_afw), na.rm=TRUE),
-  OS_mae     = mean(abs(OS_afw),     na.rm=TRUE),
-  klei_mae   = mean(abs(klei_afw),   na.rm=TRUE),
-  drglg_bias = mean(drglg_afw,       na.rm=TRUE),  # systematisch te hoog/laag
-  OS_bias    = mean(OS_afw,          na.rm=TRUE)
+  drglg_mae      = mean(abs(drglg_afw),      na.rm=TRUE),
+  zomerdrglg_mae = mean(abs(zomerdrglg_afw), na.rm=TRUE),
+  watbte_mae     = mean(abs(watbte_afw),     na.rm=TRUE),
+  OS_mae         = mean(abs(OS_afw),         na.rm=TRUE),
+  klei_mae       = mean(abs(klei_afw),       na.rm=TRUE),
+  zomerpeil_mae  = mean(abs(zomerpeil_afw),  na.rm=TRUE),
+  maaiveld_mae   = mean(abs(maaiveld_afw),   na.rm=TRUE),
+  drglg_bias     = mean(drglg_afw,           na.rm=TRUE),
+  OS_bias        = mean(OS_afw,              na.rm=TRUE)
 ), by = gebied][order(-drglg_mae)]
 
-afw_gebied# Long format voor plot: afwijking per variabele per gebied
+afw_gebied # Long format voor plot: afwijking per variabele per gebied
 afw_long <- melt(afw_gebied, 
   id.vars = "gebied",
-  measure.vars = c("drglg_mae", "OS_mae", "watbte_mae", "klei_mae"),
+  measure.vars = c("drglg_mae", "zomerdrglg_mae", "watbte_mae", "OS_mae", "klei_mae", "zomerpeil_mae", "maaiveld_mae"),
   variable.name = "variabele", value.name = "mae"
 )
 afw_long[, variabele := factor(variabele,
-  levels = c("drglg_mae", "watbte_mae", "OS_mae", "klei_mae"),
-  labels = c("Drooglegging (m)", "Waterbreedte (m)", "OS (%)", "Klei (%)")
+  levels = c("drglg_mae", "zomerdrglg_mae", "watbte_mae", "OS_mae", "klei_mae", "zomerpeil_mae", "maaiveld_mae"),
+  labels = c("Drooglegging GIS (m)", "Zomerdrooglegging NOBV (m)", "Waterbreedte (m)", "OS (%)", "Klei (%)", "Zomerpeil (m NAP)", "Maaiveld (m NAP)")
 )]
 # Schaal per variabele zodat vergelijking visueel zinvol is
 afw_long[, mae_scaled := mae / max(mae), by = variabele]
@@ -288,22 +353,21 @@ ggplot(afw_long, aes(x = mae_scaled, y = reorder(gebied, mae_scaled))) +
 # Toon ook OS bias: negatief = veldmeting lager dan GIS
 afw_gebied[, .(gebied, drglg_bias = round(drglg_bias, 3), OS_bias = round(OS_bias, 1))][order(drglg_bias)]
 
-
 # Spreiding binnen ruimtelijke cluster: boxplot per cluster per variabele
 afwijking_long <- melt(afwijking,
   id.vars = c("SlootID", "gebied", "clusters"),
-  measure.vars = c("drglg_afw", "watbte_afw", "OS_afw", "klei_afw"),
+  measure.vars = c("drglg_afw", "zomerdrglg_afw", "watbte_afw", "OS_afw", "klei_afw", "zomerpeil_afw", "maaiveld_afw"),
   variable.name = "variabele", value.name = "afwijking"
 )
 afwijking_long[, variabele := factor(variabele,
-  levels = c("drglg_afw", "watbte_afw", "OS_afw", "klei_afw"),
-  labels = c("Drooglegging (m)", "Waterbreedte (m)", "OS (%)", "Klei (%)")
+  levels = c("drglg_afw", "zomerdrglg_afw", "watbte_afw", "OS_afw", "klei_afw", "zomerpeil_afw", "maaiveld_afw"),
+  labels = c("Drooglegging GIS (m)", "Zomerdrooglegging NOBV (m)", "Waterbreedte (m)", "OS (%)", "Klei (%)", "Zomerpeil (m NAP)", "Maaiveld (m NAP)")
 )]
 ggplot(afwijking_long, aes(x = factor(clusters), y = afwijking)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
   geom_boxplot(outlier.shape = NA) +
   geom_jitter(aes(color = gebied), width = 0.2, size = 1.5, alpha = 0.7) +
-  facet_wrap(~variabele, scales = "free_y", nrow = 2) +
+  facet_wrap(~variabele, scales = "free_y", nrow = 2, ncol = 4) +
   labs(
     title = "Afwijking veldmeting t.o.v. GIS-clustermediane per cluster",
     subtitle = "Elke punt = één locatie (SlootID), gekleurd per gebied",
@@ -312,6 +376,71 @@ ggplot(afwijking_long, aes(x = factor(clusters), y = afwijking)) +
   theme_minimal(base_size = 12) +
   theme(legend.position = "right", legend.text = element_text(size = 7),
         legend.key.size = unit(0.4, "cm"))
+
+# Spreiding werkelijke waarden per cluster: drooglegging GIS + NOBV + VeeST in één facet
+drglg_long <- rbindlist(list(
+  abio_var[!is.na(drlg),     .(clusters, gebied, waarde = drlg,      bron = "GIS-laag (clusteranalyse)")],
+  abio_var[!is.na(zomerdrglg),.(clusters, gebied, waarde = zomerdrglg, bron = "Zomerdrooglegging NOBV")],
+  abio_var[!is.na(drglg),     .(clusters, gebied, waarde = drglg,      bron = "VeeST veldmeting (drglg)")]
+))
+
+# Gebruik clustermediane als referentielijn per bron
+drglg_med_lines <- data.table(
+  bron    = c("GIS-laag NOBV", "Zomerdrooglegging NOBV", "VeeST veldmeting (drglg)"),
+  med_ref = c(
+    median(cluster[["drlg"]],                    na.rm = TRUE),
+    median(cluster[["Zomerdrooglegging_m_NOBV"]], na.rm = TRUE),
+    median(abio_proj[["drglg"]],                 na.rm = TRUE)
+  )
+)
+
+drglg_kleuren <- c(
+  "GIS-laag (clusteranalyse)"            = "#D55E00",
+  "Zomerdrooglegging NOBV"   = "#E69F00",
+  "VeeST veldmeting (drglg)" = "#0072B2"
+)
+
+p_drglg_spread <- ggplot(drglg_long, aes(x = factor(clusters), y = waarde, fill = bron)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7, position = position_dodge(0.8)) +
+  geom_jitter(aes(color = bron), position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.8),
+              size = 1.2, alpha = 0.4) +
+  scale_fill_manual(values  = drglg_kleuren, name = "Bron") +
+  scale_color_manual(values = drglg_kleuren, guide = "none") +
+  labs(
+    title    = "Drooglegging per cluster: GIS, NOBV en VeeST veldmeting",
+    subtitle = "Werkelijke waarden per locatie, drie bronnen naast elkaar",
+    x = "Ruimtelijke cluster", y = "Drooglegging (m)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position  = "bottom",
+    strip.text       = element_text(face = "bold"),
+    panel.border     = element_rect(colour = "grey80", fill = NA, linewidth = 0.4)
+  )
+
+print(p_drglg_spread)
+ggsave(
+  "output/AlleGebieden/Tussenrapportage/Drooglegging_spreiding_per_cluster.png",
+  plot = p_drglg_spread, width = 30, height = 18, units = "cm", dpi = 300
+)
+
+# Sla objecten op voor rapport
+rds_dir_rapport <- paste0(workspace, "output/rapport/")
+if (!dir.exists(rds_dir_rapport)) dir.create(rds_dir_rapport, recursive = TRUE)
+saveRDS(rows,           paste0(rds_dir_rapport, "cluster_vergelijk.rds"))
+saveRDS(afw_long,       paste0(rds_dir_rapport, "cluster_afw_long.rds"))
+saveRDS(afwijking_long, paste0(rds_dir_rapport, "cluster_afwijking_long.rds"))
+saveRDS(conf,           paste0(rds_dir_rapport, "cluster_conf.rds"))
+saveRDS(drglg_long,     paste0(rds_dir_rapport, "drglg_long.rds"))
+
+# Koppeling wl vs Zomerpeil_m_NAP met Gebiedsnaam
+peil_koppel <- abio_proj[
+  !is.na(wl) & !is.na(Zomerpeil_m_NAP),
+  .(SlootID, jaar, wl, Zomerpeil_m_NAP,
+    verschil    = wl - Zomerpeil_m_NAP,
+    Gebiedsnaam = Gebiedsnaam)
+]
+saveRDS(peil_koppel,    paste0(rds_dir_rapport, "peil_koppel.rds"))
 
 # 2. clusteranalyse van alle veestvariabelen in abio_proj waar op minstens 3/4 van waarnemingen data van beschikbaar is-------------------------------------------------------------------------
 setDT(abio_proj)
@@ -628,6 +757,50 @@ target_names_dutch <- c(
   "slib_redox_pH7" = "Redox slib bij pH7 (mV)",
   "P-AL mg p2o5/100g_SB" ="P-AL slib (mg P2O5/100g)",
   "max_slib" = "Slibdikte (m)")
+
+## Boxplot alle targetvariabelen per waterschap ----------------------------------
+avail_targets <- target_vars[target_vars %in% colnames(abio_proj)]
+
+box_ws_long <- melt(
+  abio_proj[!is.na(waterschap), c("waterschap", avail_targets), with = FALSE],
+  id.vars       = "waterschap",
+  measure.vars  = avail_targets,
+  variable.name = "target_var",
+  value.name    = "waarde"
+)[!is.na(waarde)]
+
+box_ws_long[, target_dutch := target_names_dutch[as.character(target_var)]]
+box_ws_long[, target_dutch := factor(target_dutch, levels = target_names_dutch[avail_targets])]
+
+# Sorteer waterschap op mediaan per target voor leesbaarheid
+box_ws_long[, waterschap := factor(waterschap)]
+
+p_box_ws <- ggplot(box_ws_long, aes(x = waterschap, y = waarde)) +
+  geom_boxplot(outlier.size = 0.8, outlier.alpha = 0.4) +
+  geom_jitter(width = 0.2, size = 0.6, alpha = 0.25) +
+  facet_wrap(~target_dutch, scales = "free_y", ncol = 2) +
+  labs(
+    title    = "Spreiding doelvariabelen per waterschap",
+    subtitle = "Elke punt = één meting; boxplot toont mediaan en IQR",
+    x        = NULL,
+    y        = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    axis.text.x      = element_text(angle = 35, hjust = 1, size = 9),
+    strip.text       = element_text(face = "bold", size = 9),
+    strip.background = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.5),
+    panel.border     = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(size = 9, color = "grey40")
+  )
+
+print(p_box_ws)
+ggsave(
+  "output/AlleGebieden/Tussenrapportage/Targetvariabelen_per_waterschap.png",
+  plot   = p_box_ws,
+  width  = 35, height = 50, units = "cm", dpi = 300
+)
 # Define predictor variables with readable Dutch names
 cols_corr <- c("drglg", "max_wtd", "zichtdiepte", "max_slib", "watbte","oeverzone_2b_breedte_cm", "oeverzone_2b_kaal_perc", 
                "holleoever", "tldk_wtrwtr_perc", "tldk_oevrwtr_perc", "slib_redox_pH7","slib_pH",
@@ -697,8 +870,9 @@ abio_proj[,Methode_toedienen_dierlijke_mest := fcase(
   Methode_toedienen_dierlijke_mest == "n.v.t",            0,
   Methode_toedienen_dierlijke_mest == "sleepslang",          1,
   Methode_toedienen_dierlijke_mest == "sleepslang en mesttank", 2,
-  Methode_toedienen_dierlijke_mest == "bovengronds_strooier", 3,
-  Methode_toedienen_dierlijke_mest == "mesttank",            4,
+  Methode_toedienen_dierlijke_mest == "mesttank",            3,
+  Methode_toedienen_dierlijke_mest == "bovengronds_strooier", 4,
+  
   Methode_toedienen_dierlijke_mest == "injecteren",          5,
   default = NA_real_
 )]
@@ -2332,7 +2506,36 @@ ggsave(
 )
 
 ## Doelvariabelen per waterschap ------------------------------------------------
+ggplot(abio_proj, aes(x = text, y = waarde, fill = groep)) +
+  geom_boxplot(alpha = 0.75, outlier.alpha = 0.3, outlier.size = 0.8) +
+  facet_wrap(~ variabele_nl, scales = "free_y", ncol = 2) +
+  scale_fill_manual(
+    values = c(
+      "Goed voorspeld"   = "#0072B2",
+      "Gemiddeld"        = "#009E73",
+      "Slecht voorspeld" = "#D55E00",
+      "Klein (n=4)"      = "#999999"
+    ),
+    name = "CV prestatie"
+  ) +
+  labs(
+    title    = "Beheervariabelen per waterschap",
+    subtitle = "Oranje = slecht voorspeld (WDOD, HDL), blauw = goed voorspeld (AGV, HHNK, Rijnland)",
+    x        = NULL,
+    y        = "Waarde"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 8),
+    strip.text       = element_text(size = 8.5, face = "bold"),
+    strip.background = element_rect(fill = "grey95", colour = "grey70", linewidth = 0.5),
+    panel.border     = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+    legend.position  = "bottom",
+    plot.title       = element_text(size = 12, face = "bold", hjust = 0.5),
+    plot.subtitle    = element_text(size = 9, hjust = 0.5, color = "grey40")
+  )
 
+print(p_beheer)
 ## Beheervariabelen per waterschap --------------------------------------------
 
 beheer_vars <- c(
@@ -3323,6 +3526,7 @@ saveRDS(all_rf_importance,  paste0(rds_dir, "all_rf_importance.rds"))
 saveRDS(all_importance,     paste0(rds_dir, "all_importance.rds"))
 saveRDS(rf_target_names_dutch, paste0(rds_dir, "rf_target_names_dutch.rds"))
 saveRDS(rf_rmse_units,      paste0(rds_dir, "rf_rmse_units.rds"))
+saveRDS(cluster_afwijking_long, paste0(rds_dir, "cluster_afwijking_long.rds"))
 
 cat("RDS bestanden opgeslagen in:", rds_dir, "\n")
 list.files(rds_dir)

@@ -104,7 +104,6 @@ theme_figuur <- theme_minimal(base_size = 15) +
 
 # 5.1 Tussenrapportage plots -----------------------------------------------------------------------------------------
 # Grafieken voor de tussenrapportage, gegroepeerd naar thema. Outputs worden opgeslagen in `output/AlleGebieden/Tussenrapportage/`.
-
 ## 5.1.1 Slootprofiel -------------------------------------------------------------
 # Relaties tussen waterbreedte, vegetatiezones (zone 1, 2a, 2b), waterdiepte, slibdikte en doorzicht per gebied.
 ### Slootprofiel (drooglegging, waterdiepte midden sloot en langs de oever, slibdikte, doorzicht, breedte zones, talud oevers, onderholling)--------------------------
@@ -6776,7 +6775,7 @@ for(i in unique(melt$gebied)){
 
 ## AMMONIUM, S TOX EN fE/P RATIOS----------------------------------
 for(i in unique(melt$gebied)){
-# i <- unique(melt$gebied)[1] # ronde hoep
+# i <- unique(melt$gebied)[6] # ronde hoep
 sel1 <- c("P-PO4_CC_mg/kg_SB", "Fe_CC_mg/kg_SB","feP_CC_SB_SB",
           "Fe2O3_xrf_g/kg_SB","SO3_xrf_g/kg_SB", "feS_XRF_SB_SB",
           "P_µmol/l_PW", "Fe_µmol/l_PW", "FeP_PW",
@@ -7948,6 +7947,7 @@ write.table(unique(abio_proj[,c('SlootID','instanceID_veg','drlg','max_wtd','max
 ## alles db ---------------------------------------------------------
 # Find duplicate SlootID-jaar combinations
 abio_proj <- abio_proj[WP %in% c('WP1','WP2','Oukoop'),]
+# LET OP: met intanceID filter worden ook opnamen zonder vegetatie weggefilterd
 abio_proj <- abio_proj[!is.na(SlootID) & !is.na(jaar) & !is.na(instanceID_veg) & !is.na(instanceID_abio) , ]
 dubbelen <- abio_proj[, .N, by = c('SlootID','jaar','instanceID_veg','instanceID_abio')][N > 1]
 # wegschrijven tabel

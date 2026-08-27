@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 
-<title>Modellering w beelden VeeST: XGBoost, Random Forest en GAM</title>
+<title>Modellering VeeST: XGBoost, Random Forest en GAM</title>
 <style>
 /* Default styles provided by pandoc.
 ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
@@ -116,7 +116,7 @@ window.Quarto = {
 
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
-<h1 class="title">Modellering w beelden VeeST: XGBoost, Random Forest en GAM</h1>
+<h1 class="title">Modellering VeeST: XGBoost, Random Forest en GAM</h1>
 </div>
 
 
@@ -160,38 +160,39 @@ The contents have been reviewed and validated by [Your Name], [Your Role] on [Da
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Pas workspace aan indien nodig</span></span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>workspace <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="fu">Sys.getenv</span>(<span class="st">"NMI-SITE"</span>), <span class="st">'O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Data/'</span>)</span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>rds_dir <span class="ot">&lt;-</span> <span class="fu">paste0</span>(workspace, <span class="st">"output/rapport/"</span>)</span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>performance_summary  <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"performance_summary.rds"</span>))</span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>rf_perf_summary      <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"rf_perf_summary.rds"</span>))</span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>cv_results           <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"cv_results.rds"</span>))</span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>rf_cv_results        <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"rf_cv_results.rds"</span>))</span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>all_importance       <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"all_importance.rds"</span>))</span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>all_rf_importance    <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"all_rf_importance.rds"</span>))</span>
-<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>rf_target_names_dutch <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"rf_target_names_dutch.rds"</span>))</span>
-<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>rf_rmse_units        <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"rf_rmse_units.rds"</span>))</span>
-<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="co"># Vergelijkingstabel RF vs XGBoost</span></span>
-<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>rf_vs_xgb <span class="ot">&lt;-</span> <span class="fu">merge</span>(</span>
-<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  rf_perf_summary[, .(target, <span class="at">r2_rf =</span> r2_test, <span class="at">rmse_rf =</span> rmse_test)],</span>
-<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  performance_summary[, .(target, <span class="at">r2_xgb =</span> r2_test, <span class="at">rmse_xgb =</span> rmse_test)],</span>
-<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">by =</span> <span class="st">"target"</span>, <span class="at">all =</span> <span class="cn">TRUE</span></span>
-<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>rf_vs_xgb[, target_nl <span class="sc">:</span><span class="er">=</span> rf_target_names_dutch[target]]</span>
-<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>rf_vs_xgb[, rmse_unit <span class="sc">:</span><span class="er">=</span> rf_rmse_units[target]]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>kantelpunten_ale <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(<span class="fu">paste0</span>(workspace, <span class="st">"output/AlleGebieden/Tussenrapportage/ALE_tipping_points_summary.csv"</span>))</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>performance_summary  <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"performance_summary.rds"</span>))</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>rf_perf_summary      <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"rf_perf_summary.rds"</span>))</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>cv_results           <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"cv_results.rds"</span>))</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>rf_cv_results        <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"rf_cv_results.rds"</span>))</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>all_importance       <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"all_importance.rds"</span>))</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>all_rf_importance    <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"all_rf_importance.rds"</span>))</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>rf_target_names_dutch <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"rf_target_names_dutch.rds"</span>))</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>rf_rmse_units        <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(rds_dir, <span class="st">"rf_rmse_units.rds"</span>))</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Vergelijkingstabel RF vs XGBoost</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>rf_vs_xgb <span class="ot">&lt;-</span> <span class="fu">merge</span>(</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  rf_perf_summary[, .(target, <span class="at">r2_rf =</span> r2_test, <span class="at">rmse_rf =</span> rmse_test)],</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  performance_summary[, .(target, <span class="at">r2_xgb =</span> r2_test, <span class="at">rmse_xgb =</span> rmse_test)],</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">by =</span> <span class="st">"target"</span>, <span class="at">all =</span> <span class="cn">TRUE</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>rf_vs_xgb[, target_nl <span class="sc">:</span><span class="er">=</span> rf_target_names_dutch[target]]</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>rf_vs_xgb[, rmse_unit <span class="sc">:</span><span class="er">=</span> rf_rmse_units[target]]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <section id="inleiding" class="level1">
 <h1>Inleiding</h1>
-<p>Dit rapport beschrijft de resultaten van de modelleringsanalyse uitgevoerd binnen het VeeST-project (Veenweiden Sloot Transitie), een samenwerking tussen meerdere Nederlandse waterschappen. Het doel van de modellering is het kwantificeren van de relaties tussen abiotische en beheersvariabelen enerzijds en ecologische wensbeeldparameters anderzijds — met als eindperspectief het kunnen sturen op beheermaatregelen om die wensbeelden te realiseren.</p>
-<p>De analyses zijn uitgevoerd op een gecombineerde dataset van veldmetingen uit deelnemende waterschappen (WP1 en WP2), gefilterd op meetjaren met complete abiotische én vegetatieopnamen. Per locatie (SlootID) zijn metingen gemiddeld naar jaarmedianen.</p>
+<p>Dit rapport beschrijft de resultaten van de modelleringsanalyse uitgevoerd binnen het VeeST-project (Veenweiden Sloot van de Toekomst). Het doel van de modellering is het kwantificeren van de relaties tussen abiotische en beheersvariabelen enerzijds en ecologische wensbeeldparameters anderzijds — met als eindperspectief het kunnen sturen op beheermaatregelen om die wensbeelden te realiseren.</p>
+<p>De analyses zijn uitgevoerd op een gecombineerde dataset van veldmetingen (WP1 en WP2), gefilterd op monsters (meettraject en meetmoment) met complete abiotische én vegetatieopnamen.</p>
 </section>
 <section id="methoden" class="level1">
 <h1>Methoden</h1>
 <section id="data-en-predictoren" class="level2">
 <h2 class="anchored" data-anchor-id="data-en-predictoren">Data en predictoren</h2>
-<p>De dataset (<code>abio_proj</code>) bevat locatiemetingen van meerdere waterschappen. Na kwaliteitsfiltering op volledigheid (<code>MeenemenDataAnalyse_totaal == 'ja'</code>) zijn 33 predictorvariabelen geselecteerd (<code>cols_corr</code>), verdeeld over:</p>
+<p>De dataset bevat locatiemetingen van meerdere waterschappen. Na kwaliteitsfiltering op volledigheid en unieke trajecten per sloot (slechts één behandeling per sloot is meegenomen, waarbij de proefbehandelingen zijn weggelaten) zijn 33 predictorvariabelen geselecteerd, verdeeld over:</p>
 <ul>
 <li><strong>Hydrologische variabelen</strong>: drooglegging, maximale waterdiepte, doorzicht, waterbreedte</li>
-<li><strong>Oeverstructuur</strong>: breedte oevervegetatiezone, taludhoek, onderholling, oeverbreedte</li>
+<li><strong>Oeverstructuur</strong>: breedte oevervegetatiezone 2a en 2b, taludhoek, onderholling, oeverbreedte</li>
 <li><strong>Bodemchemie (0–25 cm)</strong>: kleigehalte, organisch stofgehalte, CEC, draagkracht</li>
 <li><strong>Waterchemie en slibkwaliteit</strong>: water-pH, chloride, ammonium, P-AL, redox, FeP-verhouding</li>
 <li><strong>Beheersvariabelen</strong>: baggerfrequentie en -moment, maaifrequentie, mestmethode, koebelasting</li>
@@ -282,10 +283,25 @@ Table&nbsp;1: Overzicht van gemodelleerde doelvariabelen
 </figure>
 </div>
 </div>
+<section id="toegepaste-datatransformaties-of-standaardisaties" class="level3">
+<h3 class="anchored" data-anchor-id="toegepaste-datatransformaties-of-standaardisaties">Toegepaste datatransformaties of standaardisaties</h3>
+<p><strong>Methode toedienen mest</strong>: Deze mestmethode is gecategoriseerd naar verwachtte belasting van het perceel, waarbij een hoge belasting (door zwaardere machines of frequentere bemesting) een hogere waarde heeft dan geen belasting. De belasting is vertaald naar vijf klassen: - “n.v.t./onbekend” of “n.v.t” = 0, - “sleepslang” = 1, - “sleepslang en mesttank” = 2, - “mesttank” = 3, - “bovengronds_strooier” = 4, - “injecteren” = 5 <strong>Redox genormaliseerd voor pH7</strong>: De formule stamt uit de&nbsp;Nernst-vergelijking. De redoxpotentiaal (Eh) is pH-afhankelijk omdat bij veel redoxreacties in de bodem waterstofionen (H⁺) betrokken zijn. Per pH-eenheid stijging daalt Eh met ~59 mV (bij 25°C). Door te normaliseren naar pH 7 maak je metingen van locaties met verschillende pH vergelijkbaar: 𝐸ℎ_7=𝐸ℎ_𝑔𝑒𝑚𝑒𝑡𝑒𝑛+(7−𝑝𝐻_𝑔𝑒𝑚𝑒𝑡𝑒𝑛 )×59 <strong>FeP-verhouding</strong>: is berekend als molverhoudingen</p>
 </section>
-<section id="xgboost" class="level2">
-<h2 class="anchored" data-anchor-id="xgboost">XGBoost</h2>
-<p>XGBoost (eXtreme Gradient Boosting) is een ensemblemethode gebaseerd op sequentieel opgebouwde beslisbomen. De implementatie maakt gebruik van de <code>xgboost</code>-package met de volgende instellingen:</p>
+</section>
+<section id="vergelijking-meting-met-veensloottypen" class="level2">
+<h2 class="anchored" data-anchor-id="vergelijking-meting-met-veensloottypen">Vergelijking meting met veensloottypen</h2>
+<p>De VeeST-meetlocaties zijn geselecteerd op basis van acht veensloottypen (clusters) die in de verkenningsfase ruimtelijk zijn bepaald op basis van vier GIS-variabelen: drooglegging (AHN3 maaiveld minus jaarrondstreefpeil uit NHI), waterbreedte, organisch stofgehalte (25 cm) en kleigehalte (25 cm). Om te beoordelen hoe representatief de veldmetingen zijn voor deze typen, zijn de gemeten abiotische waarden vergeleken met de GIS-clusterwaarden via twee complementaire analyses:</p>
+<ol type="1">
+<li><strong>Schaalbereik-vergelijking</strong>: per variabele worden de P10, mediaan en P90 vergeleken tussen GIS-laag (NOBV) en VeeST-velddata.</li>
+<li><strong>Clusterovereenkomst</strong>: per VeeST-locatie wordt bepaald bij welk GIS-cluster de gemeten waarden het beste passen en dit wordt vergeleken met het ruimtelijk toegewezen cluster uit de verkenningsfase. Elk GIS-cluster heeft een centroïde: de gemiddelde waarde van de vier clustervariabelen (drooglegging, waterbreedte, OS, klei) over alle locaties in dat cluster. De gemeten waarden van een VeeST-locatie worden vervolgens vergeleken met de centroïden van alle acht clusters. Omdat de variabelen in heel verschillende eenheden zijn uitgedrukt (meters vs.&nbsp;procenten), worden ze eerst gestandaardiseerd: elke waarde wordt uitgedrukt als het aantal standaarddeviaties ten opzichte van het gemiddelde van de GIS-populatie. Op die manier wegen alle vier variabelen even zwaar mee in de vergelijking. De “afstand” van een locatie tot een cluster is dan de rechte lijn in deze gestandaardiseerde ruimte — vergelijkbaar met hoe je de afstand tussen twee punten op een kaart berekent, maar dan in vier dimensies tegelijk. De locatie wordt toegewezen aan het cluster waar die afstand het kleinst is.</li>
+</ol>
+<p>Een algemene kanttekening: een deel van de VeeST-gebieden valt buiten de geografische dekking van de oorspronkelijke clusterkaart. Voor deze gebieden is het cluster toegewezen op basis van <strong>ruimtelijke nabijheid</strong> — het dichtstbijzijnde cluster, niet per se een representatief referentietype. De gerapporteerde bias voor zulke gebieden zegt meer over hoe goed het toegewezen cluster past dan over een echte afwijking ten opzichte van een representatief type, en is daardoor minder informatief.</p>
+</section>
+<section id="xgboost-extreme-gradient-boosting" class="level2">
+<h2 class="anchored" data-anchor-id="xgboost-extreme-gradient-boosting">XGBoost (eXtreme Gradient Boosting)</h2>
+<p>XGBoost (eXtreme Gradient Boosting) is een ensemblemethode gebaseerd op sequentieel opgebouwde beslisbomen. Gradiënt boosting analyse (XG-Boost) houdt rekening met complexe relaties tussen meerdere variabelen (type beheer, beheerfrequentie én omgevingsvariabelen). Dit type analyse doet recht aan het feit dat in de natuur relaties complex zijn waardoor het resultaat betrouwbaarder is dan een (multiple) regressieanalyse. Er wordt bijvoorbeeld geen effect verwacht van beheer op ondergedoken waterplanten in zeer voedselrijke watersystemen waar geen ondergedoken waterplanten voorkomen.</p>
+<p>Voor deze studie is een XGBoost-model getraind op basis van omgevings- en beheer gerelateerde variabelen en doelvariabelen die representatief zijn voor de veenweidesloot van de toekomst.</p>
+<p>De implementatie maakt gebruik van de <code>xgboost</code>-package met de volgende instellingen:</p>
 <ul>
 <li>Splitsing: <strong>60% train / 20% validatie / 20% test</strong></li>
 <li>Early stopping na 20 rondes zonder verbetering op de <strong>validatieset</strong> (niet de testset)</li>
@@ -293,7 +309,7 @@ Table&nbsp;1: Overzicht van gemodelleerde doelvariabelen
 <li>Regularisatie: L2 (lambda = 2), minimaal bladgewicht (min_child_weight = 5), minimale splitwinst (gamma = 0.1)</li>
 <li>Subsampling: 80% rijen en kolommen per boom</li>
 </ul>
-<p>Predictorimportantie is bepaald op twee manieren: via de ingebouwde <strong>Gain</strong>-maatstaf (informatiewinst per splitsing) en via <strong>permutation importance</strong> op de validatieset (gemiddelde RMSE-stijging bij het willekeurig permuteren van een kolom, herhaald over 5 replicaties).</p>
+<p>De predictorimportantie is bepaald op twee manieren: via de ingebouwde <strong>Gain</strong>-maatstaf (informatiewinst per splitsing) en via <strong>permutation importance</strong> op de validatieset (gemiddelde RMSE-stijging bij het willekeurig permuteren van een kolom, herhaald over 5 replicaties).</p>
 </section>
 <section id="random-forest" class="level2">
 <h2 class="anchored" data-anchor-id="random-forest">Random Forest</h2>
@@ -326,18 +342,204 @@ Table&nbsp;1: Overzicht van gemodelleerde doelvariabelen
 </section>
 <section id="resultaten" class="level1">
 <h1>Resultaten</h1>
+<section id="veenslootypen-clusteranalyse-en-vergelijking-cluster-variabelen" class="level2">
+<h2 class="anchored" data-anchor-id="veenslootypen-clusteranalyse-en-vergelijking-cluster-variabelen">Veenslootypen, clusteranalyse en vergelijking cluster variabelen</h2>
+<section id="overeenkomst-ruimtelijke-clusters-vs.-variabele-gebaseerde-clusters" class="level3">
+<h3 class="anchored" data-anchor-id="overeenkomst-ruimtelijke-clusters-vs.-variabele-gebaseerde-clusters">Overeenkomst ruimtelijke clusters vs.&nbsp;variabele-gebaseerde clusters</h3>
+<p>Per VeeST-locatie is op basis van de vier gemeten variabelen (drooglegging, waterbreedte, OS, klei) het dichtstbijzijnde GIS-cluster bepaald via de Euclidische afstand in de gestandaardiseerde variabelenruimte (z-scores op basis van de GIS-populatieparameters). Dit variabele-gebaseerde cluster is vervolgens vergeleken met het ruimtelijk toegewezen cluster uit de verkenningsfase.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>cluster_conf_rds <span class="ot">&lt;-</span> <span class="fu">paste0</span>(rds_dir, <span class="st">"cluster_conf.rds"</span>)</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">file.exists</span>(cluster_conf_rds)) {</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  conf <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(cluster_conf_rds)</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(conf, <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">factor</span>(cluster_var), <span class="at">y =</span> <span class="fu">factor</span>(cluster_ruimtelijk))) <span class="sc">+</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_tile</span>(<span class="fu">aes</span>(<span class="at">fill =</span> N), <span class="at">color =</span> <span class="st">"white"</span>) <span class="sc">+</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_text</span>(<span class="fu">aes</span>(<span class="at">label =</span> N), <span class="at">size =</span> <span class="dv">4</span>) <span class="sc">+</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">scale_fill_gradient</span>(<span class="at">low =</span> <span class="st">"white"</span>, <span class="at">high =</span> <span class="st">"#2166ac"</span>) <span class="sc">+</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">labs</span>(</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>      <span class="at">x    =</span> <span class="st">"Cluster o.b.v. gemeten variabelen (VeeST)"</span>,</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>      <span class="at">y    =</span> <span class="st">"Cluster ruimtelijk (verkenningsfase)"</span>,</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>      <span class="at">fill =</span> <span class="st">"Aantal locaties"</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">13</span>)</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"cluster_conf.rds niet gevonden — voer Analyses_dev_db.R eerst uit en sla op via saveRDS(conf, ...)."</span>)</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div id="fig-cluster-vergelijking" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cluster-vergelijking-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="rapport_modellering_VeeST_files/figure-html/fig-cluster-vergelijking-1.png" class="img-fluid figure-img" width="672">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cluster-vergelijking-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1: Verwarringsmatrix: ruimtelijk bepaald cluster op basis van GIS-data (y-as) versus clusters op basis van in VeeST gemeten variabelen (x-as). Diagonaal = overeenkomst.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>De overeenkomst tussen ruimtelijk en variabele-gebaseerde clusterindeling geeft aan in hoeverre de GIS-clustertypen ook in de gemeten data onderscheidbaar zijn. Een lage overeenkomst wijst op systematische afwijkingen tussen GIS-laag en veldmeting (zoals de OS- en droogleggingsverschillen die hieronder worden besproken), of op grote variatie binnen clusters.</p>
+<p>De overall overeenkomst bedraagt slechts <strong>18.7%</strong> — veel lager dan bij een willekeurige toewijzing zou worden verwacht. Dit lage percentage is te verklaren door twee samenhangende effecten die elkaar versterken:</p>
+<ul>
+<li><strong>Hoge OS in VeeST</strong>: de veldmetingen hebben structureel hogere OS-waarden (mediaan 36%) dan de GIS-laag (mediaan 21%). Cluster 2 heeft in de GIS-indeling de hoogste OS-waarde (30%) en trekt daardoor de meeste VeeST-locaties aan.</li>
+<li><strong>Kleine drooglegging in VeeST</strong>: de gemeten drooglegging in VeeST (mediaan 0.33 m) past het best bij cluster 1 (GIS-mediaan 0.21 m) en cluster 2 (0.37 m) — de clusters met de kleinste drooglegging in de GIS-indeling. Clusters 3 t/m 8 hebben hogere droogleggingen (0.44–1.36 m) en vallen daardoor af.</li>
+</ul>
+<p>Doordat beide effecten in dezelfde richting wijzen — hoge OS én kleine drooglegging leiden beiden naar cluster 1 of 2 — komen vrijwel alle locaties bij die twee clusters terecht. Dit is zichtbaar in de verwarringsmatrix als een concentratie van getallen in de eerste twee kolommen.</p>
+<p>Dit betekent <strong>niet</strong> dat de clusterindeling uit de verkenningsfase onjuist is, maar dat de GIS-laag en de veldmeting verschillende schaalniveaus beschrijven en zijn gebaseerd op verschillende bronnen, waarbij de relatieve waarde van variabelen vergelijkbaar is maar de absolute waarde niet. De GIS-laag representeert een gemiddeld perceel binnen een gemiddeld peilvak in het Nederlandse veenweidegebied, terwijl de VeeST-metingen oevers en sloten op standplaatsniveau in beeld heeft gebracht. De clusterindeling blijft zinvol als ruimtelijk kader, maar de absolute drempelwaarden voor OS, klei en drooglegging zijn niet direct vergelijkbaar tussen GIS en veld.</p>
+</section>
+<section id="schaalbereik-gis-laag-vs.-veldmeting" class="level3">
+<h3 class="anchored" data-anchor-id="schaalbereik-gis-laag-vs.-veldmeting">Schaalbereik GIS-laag vs.&nbsp;veldmeting</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Laad benodigde objecten</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>cluster_vergelijk_rds <span class="ot">&lt;-</span> <span class="fu">paste0</span>(rds_dir, <span class="st">"cluster_vergelijk.rds"</span>)</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">file.exists</span>(cluster_vergelijk_rds)) {</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  rows_plot <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(cluster_vergelijk_rds)</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  rows_plot <span class="ot">&lt;-</span> rows  <span class="co"># fallback op sessieobject</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>bron_kleuren <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="st">"GIS-laag (clusteranalyse)"</span>          <span class="ot">=</span> <span class="st">"#D55E00"</span>,</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="st">"GIS-laag (NOBV)"</span> <span class="ot">=</span> <span class="st">"#E69F00"</span>,</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Velddata VeeST"</span>         <span class="ot">=</span> <span class="st">"#0072B2"</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(rows_plot, <span class="fu">aes</span>(<span class="at">x =</span> bron, <span class="at">y =</span> mediaan, <span class="at">color =</span> bron)) <span class="sc">+</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">size =</span> <span class="dv">3</span>) <span class="sc">+</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_errorbar</span>(<span class="fu">aes</span>(<span class="at">ymin =</span> p10, <span class="at">ymax =</span> p90), <span class="at">width =</span> <span class="fl">0.2</span>, <span class="at">linewidth =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>variabele, <span class="at">scales =</span> <span class="st">"free_y"</span>) <span class="sc">+</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> bron_kleuren, <span class="at">name =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">11</span>) <span class="sc">+</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(</span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">legend.position  =</span> <span class="st">"bottom"</span>,</span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">axis.text.x      =</span> <span class="fu">element_blank</span>(),</span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>    <span class="at">strip.text       =</span> <span class="fu">element_text</span>(<span class="at">face =</span> <span class="st">"bold"</span>),</span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">strip.background =</span> <span class="fu">element_rect</span>(<span class="at">fill =</span> <span class="st">"grey95"</span>, <span class="at">colour =</span> <span class="st">"grey70"</span>, <span class="at">linewidth =</span> <span class="fl">0.5</span>)</span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div id="fig-cluster-bereik" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cluster-bereik-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="rapport_modellering_VeeST_files/figure-html/fig-cluster-bereik-1.png" class="img-fluid figure-img" width="672">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cluster-bereik-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2: Schaalbereik (P10–mediaan–P90) van GIS-laag (NOBV) en VeeST velddata per variabele. Drooglegging toont drie bronnen: GIS-clusteranalyse (drooglegging obv jaarrondpeil en ahn3), GIS-laag (NOBV) met zomerdrooglegging die in het SOMERS-model wordt gebruikt en VeeST veldmetingen.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Voor de meeste variabelen (waterbreedte, klei, OS, maaiveld, zomerpeil) verschilt het schaalbereik van de GIS-laag en de veldmeting. Opvallende systematische verschillen:</p>
+<p><strong>Organisch stofgehalte (OS)</strong> is in de VeeST-veldmetingen structureel hoger dan in de GIS-laag: mediaan VeeST 36% vs.&nbsp;GIS 21% — een verschil van +15 procentpunt. Dit is te verwachten: de GIS-laag (obv NMI bodemSchat5) is een bredere representatie van alle bodemtypen, ook bodems met een laag OS gehalte. Het ruimtelijk model waarmee deze kaart is gemaakt is getraind op een dataset die niet specifiek is geselecteerd op veenweidelocaties, waardoor hoge OS-waarden worden onderschat in het model.</p>
+<p><strong>Kleigehalte</strong> is in VeeST lager dan in de GIS-laag: mediaan VeeST 15% vs.&nbsp;GIS 23% — een verschil van −8 procentpunt. Dit hangt samen met de hogere OS in VeeST: locaties met veel organisch materiaal hebben doorgaans minder klei. De selectie op veenweidelocaties leidt dus tegelijkertijd tot hogere OS én lagere klei ten opzichte van de brede GIS-populatie.</p>
+<p><strong>Drooglegging</strong> toont in VeeST een systematisch verschil tussen de drie bronnen: - GIS-clusteranalyse (drlg): mediaan ~0.49 m, gebaseerd op AHN3 maaiveld minus jaarrondstreefpeil uit NHI. - Zomerdrooglegging NOBV: mediaan ~0.47 m, gebaseerd op maaiveld minus zomerpeil. - VeeST veldmeting (drglg): mediaan ~0.33 m, berekend als gemeten maaiveld (<code>max_hgt_or</code>) minus gemeten waterpeil (<code>wl</code>) tijdens het veldbezoek.</p>
+<p>Het verschil tussen de GIS-clusteranalyse en de Zomerdrooglegging NOBV (~0.02 m) is klein en te verklaren doordat beide methoden vergelijkbare peilen gebruiken — het verschil dat resteert is vooral het gevolg van het gebruik van een jaarrondpeil (GIS-cluster) versus een zomerpeil (NOBV). Een zomerpeil is doorgaans hoger dan het jaargemiddelde, waardoor de zomerdrooglegging iets kleiner uitvalt dan de GIS-clusterdrooglegging.</p>
+<p>Het verschil tussen de NOBV zomerdrooglegging (~0.47 m) en de VeeST veldmeting (~0.33 m) bedraagt ~0.14 m. Dit is consistent met het verschil in maaiveld (GIS − VeeST: +0.34 m) minus het verschil in peil (GIS − VeeST: +0.20 m): 0.34 − 0.20 = 0.14 m, wat bevestigt dat de meting intern consistent is.</p>
+<p>De spreiding (P10–P90) in de VeeST-veldmeting van drooglegging (0.32 m) is opvallend veel kleiner dan de spreiding in maaiveld (~1.86 m) en zomerpeil (~1.77 m) afzonderlijk. Dit is wiskundig te verwachten: <strong>maaiveld en waterpeil covariëren sterk</strong> (r = 0.98 in VeeST). Binnen individuele peilgebieden volgt het peil het maaiveld grotendeels, waardoor hun verschil — de drooglegging — weinig varieert. De variatie die wel bestaat in maaiveld en peil is grotendeels gedeelde regionale variatie die wegvalt bij aftrekking. De NOBV-zomerdrooglegging heeft een grotere spreiding (0.68 m) dan de VeeST-meting (0.32 m), omdat de NOBV-dataset een groter geografisch bereik dekt en de correlatie tussen maaiveld en peil iets lager is in deze NOBV-dataset (r = 0.95) dan de dataset van VeeST (r = 0.98). Dit kleine correlatieverschil leidt tot een substantieel grotere spreiding in het verschil; In de VeeST-dataset bewegen waterpeil en maaiveld perfect met elkaar mee, terwijl in de NOBV-dataset het waterpeil het maaiveld iets minder goed volgt, waardoor er meer spreiding in het verschil (drooglegging) ontstaat. In de NOBV-dataset kan het maaiveld binnen één peilvak behoorlijk variëren, terwijl het op papier vastgestelde peil gelijk is in ruimte en tijd en niet gelijk hoeft te zijn aan het werkelijke gemiddelde peil.</p>
+</section>
+<section id="afwijking-per-cluster-en-per-gebied" class="level3">
+<h3 class="anchored" data-anchor-id="afwijking-per-cluster-en-per-gebied">Afwijking per cluster en per gebied</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>cluster_afwijking_rds <span class="ot">&lt;-</span> <span class="fu">paste0</span>(rds_dir, <span class="st">"cluster_afwijking_long.rds"</span>)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">file.exists</span>(cluster_afwijking_rds)) {</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  afwijking_long_plot <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(cluster_afwijking_rds)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(afwijking_long_plot, <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">factor</span>(clusters), <span class="at">y =</span> afwijking)) <span class="sc">+</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_hline</span>(<span class="at">yintercept =</span> <span class="dv">0</span>, <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">color =</span> <span class="st">"grey50"</span>) <span class="sc">+</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_boxplot</span>(<span class="at">outlier.shape =</span> <span class="cn">NA</span>) <span class="sc">+</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">geom_jitter</span>(<span class="fu">aes</span>(<span class="at">color =</span> gebied), <span class="at">width =</span> <span class="fl">0.2</span>, <span class="at">size =</span> <span class="fl">1.5</span>, <span class="at">alpha =</span> <span class="fl">0.7</span>) <span class="sc">+</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    <span class="fu">facet_wrap</span>(<span class="sc">~</span>variabele, <span class="at">scales =</span> <span class="st">"free_y"</span>, <span class="at">nrow =</span> <span class="dv">2</span>, <span class="at">ncol =</span> <span class="dv">4</span>) <span class="sc">+</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="fu">labs</span>(</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>      <span class="at">x      =</span> <span class="st">"Ruimtelijke cluster"</span>,</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>      <span class="at">y      =</span> <span class="st">"Afwijking (veld − GIS mediaan)"</span>,</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>      <span class="at">color  =</span> <span class="st">"Gebied"</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    ) <span class="sc">+</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">11</span>) <span class="sc">+</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">theme</span>(</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>      <span class="at">legend.position  =</span> <span class="st">"right"</span>,</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>      <span class="at">legend.text      =</span> <span class="fu">element_text</span>(<span class="at">size =</span> <span class="dv">7</span>),</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>      <span class="at">legend.key.size  =</span> <span class="fu">unit</span>(<span class="fl">0.4</span>, <span class="st">"cm"</span>),</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>      <span class="at">strip.text       =</span> <span class="fu">element_text</span>(<span class="at">face =</span> <span class="st">"bold"</span>),</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>      <span class="at">strip.background =</span> <span class="fu">element_rect</span>(<span class="at">fill =</span> <span class="st">"grey95"</span>, <span class="at">colour =</span> <span class="st">"grey70"</span>, <span class="at">linewidth =</span> <span class="fl">0.5</span>),</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>      <span class="at">panel.border     =</span> <span class="fu">element_rect</span>(<span class="at">colour =</span> <span class="st">"grey80"</span>, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">linewidth =</span> <span class="fl">0.4</span>)</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"cluster_afwijking_long.rds niet gevonden — voer Analyses_dev_db.R eerst uit en sla op via saveRDS()."</span>)</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>Warning: Removed 2 rows containing non-finite outside the scale range
+(`stat_boxplot()`).</code></pre>
+</div>
+<div class="cell-output cell-output-stderr">
+<pre><code>Warning: Removed 2 rows containing missing values or values outside the scale range
+(`geom_point()`).</code></pre>
+</div>
+<div class="cell-output-display">
+<div id="fig-cluster-afwijking" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cluster-afwijking-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="rapport_modellering_VeeST_files/figure-html/fig-cluster-afwijking-1.png" class="img-fluid figure-img" width="672">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cluster-afwijking-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3: Afwijking veldmeting t.o.v. GIS-clustermediane per cluster. Elke punt = één locatie (SlootID), gekleurd per gebied. Stippellijn = geen afwijking.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>De afwijkingen per gebied zijn niet gelijkmatig verdeeld over de clusters: sommige gebieden wijken systematisch af voor drooglegging (negatieve bias: veldmeting lager dan GIS), wat wijst op (lokale) peilafwijkingen of peilwijzigingen die niet in de GIS-laag met peilvakken staan.</p>
+<p>De drooglegging-bias is voor de meeste gebieden negatief: de VeeST-veldmeting geeft een kleinere drooglegging dan de GIS-clusterwaarde. De sterkste negatieve bias zit bij Idzegea (IG, −0.42 m), gevolgd door Hegewarren (HW, −0.41 m) en Blesdijke (BD, −0.27 m). In Hegewarren en Stein Noord is de oorzaak dat de gemeten waterpeilen hoger zijn dan het mediane zomerpeil van het veenslootype — waterpeilen zijn hier recent verhoogd en deze verhoging staat nog niet geregistreerd in de gebruikte ruimtelijke bestanden van het NOBV. Ook in veel andere gebieden is het gemeten peil hoger dan de mediane peilwaarde van het GIS-cluster; in de meeste gevallen is de afwijking echter klein (−0.05 tot −0.15 m) en hangt dit samen met de variatie in het waterpeil binnen het GIS-cluster (deze variatie is niet te zien in bovenstaand figuur). Het maaiveld is in de meeste gebieden juist lager dan het GIS-clustermediaan. De combinatie van een hoger peil en een lager maaiveld leidt tot een grotere negatieve bias in de drooglegging.</p>
+<p>Het maaiveld verschilt sterk in Aarlanderveen (AR), Assendelft (AD) en Akkerdijkse polder (DP): het gemeten maaiveld aan de slootkant (~−3.2 tot −4.3 m NAP) ligt ~2 m lager dan de clustermediaan (~−1 tot −1.9 m NAP). Belangrijk hierbij is dat de clustermediaan de <strong>mediane waarde van alle locaties in dat GIS-cluster</strong> is, verspreid over het hele veenweidegebied — er zit dus ook spreiding in de GIS-data zelf. De grote afwijking voor AD en AR betekent niet per se dat de GIS-laag fout is, maar dat deze locaties aan de onderkant van de spreiding van hun cluster vallen: ze liggen in diepere polders of onderbemalingen. Zowel maaiveld als peil zijn ~2 m lager dan de clustermediaan, waardoor de twee afwijkingen elkaar grotendeels compenseren en de drooglegging-bias klein blijft (−0.03 tot −0.16 m).</p>
+<p>De OS-bias is voor vrijwel alle gebieden positief (VeeST hoger dan GIS), zoals hierboven besproken.</p>
+</section>
+<section id="oppervlaktewaterpeilen-veest-meting-tov-praktijkpeilen-in-gis-laag-nobv" class="level3">
+<h3 class="anchored" data-anchor-id="oppervlaktewaterpeilen-veest-meting-tov-praktijkpeilen-in-gis-laag-nobv">Oppervlaktewaterpeilen VeeST meting tov praktijkpeilen in GIS laag (NOBV)</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>peil_koppel <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="fu">paste0</span>(workspace, <span class="st">"output/rapport/peil_koppel.rds"</span>))</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Boxplot met Gebiedsnaam, gesorteerd op mediaan</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(peil_koppel, <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">reorder</span>(Gebiedsnaam, verschil, median), <span class="at">y =</span> verschil)) <span class="sc">+</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_hline</span>(<span class="at">yintercept =</span> <span class="dv">0</span>, <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">color =</span> <span class="st">"red"</span>, <span class="at">alpha =</span> <span class="fl">0.7</span>) <span class="sc">+</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_boxplot</span>(<span class="at">outlier.shape =</span> <span class="cn">NA</span>, <span class="at">fill =</span> <span class="st">"grey90"</span>) <span class="sc">+</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_jitter</span>(<span class="fu">aes</span>(<span class="at">color =</span> <span class="fu">factor</span>(jaar)), <span class="at">width =</span> <span class="fl">0.2</span>, <span class="at">size =</span> <span class="fl">1.8</span>, <span class="at">alpha =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_brewer</span>(<span class="at">palette =</span> <span class="st">"Set2"</span>, <span class="at">name =</span> <span class="st">"Jaar"</span>) <span class="sc">+</span></span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">title    =</span> <span class="st">"Verschil gemeten waterpeil (VeeST) vs. NOBV zomerpeil per gebied"</span>,</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Positief = gemeten peil hoger dan NOBV zomerpeil | gesorteerd op mediaan"</span>,</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Gemeten peil − NOBV zomerpeil (m)"</span></span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span></span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">11</span>) <span class="sc">+</span></span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(</span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">panel.border =</span> <span class="fu">element_rect</span>(<span class="at">colour =</span> <span class="st">"grey80"</span>, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">linewidth =</span> <span class="fl">0.4</span>),</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">plot.title   =</span> <span class="fu">element_text</span>(<span class="at">face =</span> <span class="st">"bold"</span>, <span class="at">size =</span> <span class="dv">11</span>),</span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">axis.text.y  =</span> <span class="fu">element_text</span>(<span class="at">size =</span> <span class="dv">9</span>)</span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="rapport_modellering_VeeST_files/figure-html/unnamed-chunk-1-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Het mediaan verschil over alle locaties is slechts −0.035 m — over het algemeen klopt het NOBV zomerpeil dus goed. Maar er is duidelijke gebiedsspecifieke variatie:</p>
+<p>Positief verschil (gemeten hoger dan NOBV, peilopzet): Hegwewarren, Poppenhuizen, Olde Maten staan bovenaan — waterpeilen zijn hier in werkelijkheid hoger dan het NOBV-zomerpeil aangeeft, mede omdat peilen hier recent zijn verhoogd en dit nog niet op de kaart staat. Negatief verschil (gemeten lager dan NOBV): Eempolder, polder Westzaan, Zuiderveen, Blesdijke en het Wormer- en Jisperveld vallen op. In Westzaan en het Wormer- en Jisperveld komt dit omdat er veel onderbemalingen zijn die niet in de kaart van het NOBV staan. In de andere gebieden is het niet duidelijk waar het verschil door wordt veroorzaakt; wat wel opvallend is, is dat het peil in Blesdijke volgens de deelnemer verhoogd is (waar kan ik info vinden over de GLB pilot?) terwijl het peil op deze locaties ongeveer gelijk is aan het praktijkpeil, terwijl het peil op andere locaties in hetzelfde gebied veel lager liggen dan het praktijkpeil.</p>
+<p>Waterpeilen zijn in werkelijkheid vaak lager dan het peilbesluit. Dit kan komen omdat peilen recent zijn verlaagd en dit niet op de kaart staat of omdat peilen in praktijk lager worden gehouden/ er meer onderbemalingen zijn. Lage peilen zijn onwenselijk voor veenafbraak en broeikasgasemissies en deze worden dus onderschat als oppervlaktewaterpeilen in de basisdata van het NOBV hoger zijn dan in werkelijkheid.</p>
+</section>
+</section>
 <section id="modelperformantie-op-de-testset" class="level2">
 <h2 class="anchored" data-anchor-id="modelperformantie-op-de-testset">Modelperformantie op de testset</h2>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>perf_tbl <span class="ot">&lt;-</span> rf_vs_xgb[<span class="sc">!</span><span class="fu">is.na</span>(target_nl), .(</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Doelvariabele</span><span class="st">`</span>  <span class="ot">=</span> target_nl,</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">R² XGBoost (%)</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">round</span>(r2_xgb <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>),</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">RMSE XGBoost</span><span class="st">`</span>   <span class="ot">=</span> <span class="fu">paste0</span>(<span class="fu">round</span>(rmse_xgb, <span class="dv">3</span>), <span class="st">" "</span>, rmse_unit),</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">R² RF (%)</span><span class="st">`</span>      <span class="ot">=</span> <span class="fu">round</span>(r2_rf <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>),</span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">RMSE RF</span><span class="st">`</span>        <span class="ot">=</span> <span class="fu">paste0</span>(<span class="fu">round</span>(rmse_rf, <span class="dv">3</span>), <span class="st">" "</span>, rmse_unit),</span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Beste model</span><span class="st">`</span>    <span class="ot">=</span> <span class="fu">fifelse</span>(r2_rf <span class="sc">&gt;=</span> r2_xgb, <span class="st">"RF"</span>, <span class="st">"XGBoost"</span>)</span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>)][<span class="fu">order</span>(<span class="sc">-</span><span class="st">`</span><span class="at">R² RF (%)</span><span class="st">`</span>)]</span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(perf_tbl)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>perf_tbl <span class="ot">&lt;-</span> rf_vs_xgb[<span class="sc">!</span><span class="fu">is.na</span>(target_nl), .(</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Doelvariabele</span><span class="st">`</span>  <span class="ot">=</span> target_nl,</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">R² XGBoost (%)</span><span class="st">`</span> <span class="ot">=</span> <span class="fu">round</span>(r2_xgb <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>),</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">RMSE XGBoost</span><span class="st">`</span>   <span class="ot">=</span> <span class="fu">paste0</span>(<span class="fu">round</span>(rmse_xgb, <span class="dv">3</span>), <span class="st">" "</span>, rmse_unit),</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">R² RF (%)</span><span class="st">`</span>      <span class="ot">=</span> <span class="fu">round</span>(r2_rf <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>),</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">RMSE RF</span><span class="st">`</span>        <span class="ot">=</span> <span class="fu">paste0</span>(<span class="fu">round</span>(rmse_rf, <span class="dv">3</span>), <span class="st">" "</span>, rmse_unit),</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Beste model</span><span class="st">`</span>    <span class="ot">=</span> <span class="fu">fifelse</span>(r2_rf <span class="sc">&gt;=</span> r2_xgb, <span class="st">"RF"</span>, <span class="st">"XGBoost"</span>)</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>)][<span class="fu">order</span>(<span class="sc">-</span><span class="st">`</span><span class="at">R² RF (%)</span><span class="st">`</span>)]</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(perf_tbl)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div id="tbl-performance" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-performance-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -453,28 +655,28 @@ Table&nbsp;2: Testset R² (%) voor XGBoost en Random Forest per doelvariabele
 </div>
 </div>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>rf_vs_xgb_long <span class="ot">&lt;-</span> <span class="fu">melt</span>(</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  rf_vs_xgb[<span class="sc">!</span><span class="fu">is.na</span>(target_nl), .(target_nl, r2_rf, r2_xgb)],</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">id.vars       =</span> <span class="st">"target_nl"</span>,</span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">variable.name =</span> <span class="st">"model"</span>,</span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">value.name    =</span> <span class="st">"r2"</span></span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>)[, model <span class="sc">:</span><span class="er">=</span> <span class="fu">fifelse</span>(model <span class="sc">==</span> <span class="st">"r2_rf"</span>, <span class="st">"Random Forest"</span>, <span class="st">"XGBoost"</span>)]</span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(</span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  rf_vs_xgb_long[<span class="sc">!</span><span class="fu">is.na</span>(r2)],</span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">reorder</span>(target_nl, r2), <span class="at">y =</span> r2, <span class="at">fill =</span> model)</span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>) <span class="sc">+</span></span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>(<span class="at">position =</span> <span class="st">"dodge"</span>) <span class="sc">+</span></span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(</span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> <span class="fu">c</span>(<span class="st">"Random Forest"</span> <span class="ot">=</span> <span class="st">"#009E73"</span>, <span class="st">"XGBoost"</span> <span class="ot">=</span> <span class="st">"#0072B2"</span>),</span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">name   =</span> <span class="st">"Model"</span></span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">labels =</span> scales<span class="sc">::</span><span class="fu">label_percent</span>()) <span class="sc">+</span></span>
-<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span></span>
-<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"R² (testset)"</span>) <span class="sc">+</span></span>
-<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">11</span>) <span class="sc">+</span></span>
-<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"bottom"</span>,</span>
-<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.border =</span> <span class="fu">element_rect</span>(<span class="at">colour =</span> <span class="st">"grey80"</span>, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">linewidth =</span> <span class="fl">0.5</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>rf_vs_xgb_long <span class="ot">&lt;-</span> <span class="fu">melt</span>(</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  rf_vs_xgb[<span class="sc">!</span><span class="fu">is.na</span>(target_nl), .(target_nl, r2_rf, r2_xgb)],</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">id.vars       =</span> <span class="st">"target_nl"</span>,</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">variable.name =</span> <span class="st">"model"</span>,</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">value.name    =</span> <span class="st">"r2"</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>)[, model <span class="sc">:</span><span class="er">=</span> <span class="fu">fifelse</span>(model <span class="sc">==</span> <span class="st">"r2_rf"</span>, <span class="st">"Random Forest"</span>, <span class="st">"XGBoost"</span>)]</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>  rf_vs_xgb_long[<span class="sc">!</span><span class="fu">is.na</span>(r2)],</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">reorder</span>(target_nl, r2), <span class="at">y =</span> r2, <span class="at">fill =</span> model)</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>) <span class="sc">+</span></span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>(<span class="at">position =</span> <span class="st">"dodge"</span>) <span class="sc">+</span></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> <span class="fu">c</span>(<span class="st">"Random Forest"</span> <span class="ot">=</span> <span class="st">"#009E73"</span>, <span class="st">"XGBoost"</span> <span class="ot">=</span> <span class="st">"#0072B2"</span>),</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">name   =</span> <span class="st">"Model"</span></span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">labels =</span> scales<span class="sc">::</span><span class="fu">label_percent</span>()) <span class="sc">+</span></span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span></span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"R² (testset)"</span>) <span class="sc">+</span></span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">11</span>) <span class="sc">+</span></span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"bottom"</span>,</span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a>        <span class="at">panel.border =</span> <span class="fu">element_rect</span>(<span class="at">colour =</span> <span class="st">"grey80"</span>, <span class="at">fill =</span> <span class="cn">NA</span>, <span class="at">linewidth =</span> <span class="fl">0.5</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div id="fig-model-compare" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
@@ -482,7 +684,7 @@ Table&nbsp;2: Testset R² (%) voor XGBoost en Random Forest per doelvariabele
 <img src="rapport_modellering_VeeST_files/figure-html/fig-model-compare-1.png" class="img-fluid figure-img" width="672">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-model-compare-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;1: Vergelijking R² op testset: Random Forest vs XGBoost
+Figure&nbsp;4: Vergelijking R² op testset: Random Forest vs XGBoost
 </figcaption>
 </figure>
 </div>
@@ -497,31 +699,31 @@ Figure&nbsp;1: Vergelijking R² op testset: Random Forest vs XGBoost
 <section id="predictorimportantie" class="level2">
 <h2 class="anchored" data-anchor-id="predictorimportantie">Predictorimportantie</h2>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>plot_data <span class="ot">&lt;-</span> all_importance[<span class="sc">!</span><span class="fu">is.na</span>(correlation_direction)][</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">order</span>(target_var, Gain)</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>][, feat_label <span class="sc">:</span><span class="er">=</span> <span class="fu">factor</span>(</span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste0</span>(target_var, <span class="st">"__"</span>, Nederlandse_naam),</span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">unique</span>(<span class="fu">paste0</span>(target_var, <span class="st">"__"</span>, Nederlandse_naam))</span>
-<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>)]</span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(plot_data, <span class="fu">aes</span>(<span class="at">x =</span> feat_label, <span class="at">y =</span> Gain, <span class="at">fill =</span> correlation_direction)) <span class="sc">+</span></span>
-<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>() <span class="sc">+</span></span>
-<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>plot_title_clean, <span class="at">scales =</span> <span class="st">"free"</span>, <span class="at">ncol =</span> <span class="dv">3</span>) <span class="sc">+</span></span>
-<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_discrete</span>(<span class="at">labels =</span> <span class="cf">function</span>(x) <span class="fu">sub</span>(<span class="st">".*__"</span>, <span class="st">""</span>, x)) <span class="sc">+</span></span>
-<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span></span>
-<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(</span>
-<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> <span class="fu">c</span>(<span class="st">"+"</span> <span class="ot">=</span> <span class="st">"#0072B2"</span>, <span class="st">"-"</span> <span class="ot">=</span> <span class="st">"#D55E00"</span>),</span>
-<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"+"</span> <span class="ot">=</span> <span class="st">"Positief verband"</span>, <span class="st">"-"</span> <span class="ot">=</span> <span class="st">"Negatief verband"</span>),</span>
-<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">name   =</span> <span class="st">"Correlatierichting"</span></span>
-<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">expand =</span> <span class="fu">expansion</span>(<span class="at">mult =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="fl">0.18</span>))) <span class="sc">+</span></span>
-<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Informatiewinst (Gain)"</span>) <span class="sc">+</span></span>
-<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">9</span>) <span class="sc">+</span></span>
-<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(</span>
-<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">strip.text =</span> <span class="fu">element_text</span>(<span class="at">size =</span> <span class="fl">7.5</span>, <span class="at">face =</span> <span class="st">"bold"</span>),</span>
-<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">panel.grid.major.y =</span> <span class="fu">element_blank</span>(),</span>
-<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">legend.position =</span> <span class="st">"bottom"</span></span>
-<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>plot_data <span class="ot">&lt;-</span> all_importance[<span class="sc">!</span><span class="fu">is.na</span>(correlation_direction)][</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">order</span>(target_var, Gain)</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>][, feat_label <span class="sc">:</span><span class="er">=</span> <span class="fu">factor</span>(</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste0</span>(target_var, <span class="st">"__"</span>, Nederlandse_naam),</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">unique</span>(<span class="fu">paste0</span>(target_var, <span class="st">"__"</span>, Nederlandse_naam))</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>)]</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(plot_data, <span class="fu">aes</span>(<span class="at">x =</span> feat_label, <span class="at">y =</span> Gain, <span class="at">fill =</span> correlation_direction)) <span class="sc">+</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>() <span class="sc">+</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>plot_title_clean, <span class="at">scales =</span> <span class="st">"free"</span>, <span class="at">ncol =</span> <span class="dv">3</span>) <span class="sc">+</span></span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_discrete</span>(<span class="at">labels =</span> <span class="cf">function</span>(x) <span class="fu">sub</span>(<span class="st">".*__"</span>, <span class="st">""</span>, x)) <span class="sc">+</span></span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span></span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(</span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> <span class="fu">c</span>(<span class="st">"+"</span> <span class="ot">=</span> <span class="st">"#0072B2"</span>, <span class="st">"-"</span> <span class="ot">=</span> <span class="st">"#D55E00"</span>),</span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"+"</span> <span class="ot">=</span> <span class="st">"Positief verband"</span>, <span class="st">"-"</span> <span class="ot">=</span> <span class="st">"Negatief verband"</span>),</span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">name   =</span> <span class="st">"Correlatierichting"</span></span>
+<span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb12-18"><a href="#cb12-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">expand =</span> <span class="fu">expansion</span>(<span class="at">mult =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="fl">0.18</span>))) <span class="sc">+</span></span>
+<span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Informatiewinst (Gain)"</span>) <span class="sc">+</span></span>
+<span id="cb12-20"><a href="#cb12-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">9</span>) <span class="sc">+</span></span>
+<span id="cb12-21"><a href="#cb12-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(</span>
+<span id="cb12-22"><a href="#cb12-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">strip.text =</span> <span class="fu">element_text</span>(<span class="at">size =</span> <span class="fl">7.5</span>, <span class="at">face =</span> <span class="st">"bold"</span>),</span>
+<span id="cb12-23"><a href="#cb12-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">panel.grid.major.y =</span> <span class="fu">element_blank</span>(),</span>
+<span id="cb12-24"><a href="#cb12-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">legend.position =</span> <span class="st">"bottom"</span></span>
+<span id="cb12-25"><a href="#cb12-25" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div id="fig-vip-xgb" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
@@ -529,38 +731,38 @@ Figure&nbsp;1: Vergelijking R² op testset: Random Forest vs XGBoost
 <img src="rapport_modellering_VeeST_files/figure-html/fig-vip-xgb-1.png" class="img-fluid figure-img" width="672">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-vip-xgb-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;2: Top-10 XGBoost Gain-importantie per doelvariabele (met correlatierichting)
+Figure&nbsp;5: Top-10 XGBoost Gain-importantie per doelvariabele (met correlatierichting)
 </figcaption>
 </figure>
 </div>
 </div>
 </div>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>plot_rf_vip <span class="ot">&lt;-</span> all_rf_importance[<span class="sc">!</span><span class="fu">is.na</span>(correlation_direction)][</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">order</span>(target_var, Importance)</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>][, feat_label <span class="sc">:</span><span class="er">=</span> <span class="fu">factor</span>(</span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste0</span>(target_var, <span class="st">"__"</span>, Nederlandse_naam),</span>
-<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">unique</span>(<span class="fu">paste0</span>(target_var, <span class="st">"__"</span>, Nederlandse_naam))</span>
-<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>)]</span>
-<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(plot_rf_vip, <span class="fu">aes</span>(<span class="at">x =</span> feat_label, <span class="at">y =</span> Importance, <span class="at">fill =</span> correlation_direction)) <span class="sc">+</span></span>
-<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>() <span class="sc">+</span></span>
-<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>plot_title, <span class="at">scales =</span> <span class="st">"free"</span>, <span class="at">ncol =</span> <span class="dv">3</span>) <span class="sc">+</span></span>
-<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_discrete</span>(<span class="at">labels =</span> <span class="cf">function</span>(x) <span class="fu">sub</span>(<span class="st">".*__"</span>, <span class="st">""</span>, x)) <span class="sc">+</span></span>
-<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span></span>
-<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(</span>
-<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> <span class="fu">c</span>(<span class="st">"+"</span> <span class="ot">=</span> <span class="st">"#0072B2"</span>, <span class="st">"-"</span> <span class="ot">=</span> <span class="st">"#D55E00"</span>),</span>
-<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"+"</span> <span class="ot">=</span> <span class="st">"Positief verband"</span>, <span class="st">"-"</span> <span class="ot">=</span> <span class="st">"Negatief verband"</span>),</span>
-<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">name   =</span> <span class="st">"Correlatierichting"</span></span>
-<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">expand =</span> <span class="fu">expansion</span>(<span class="at">mult =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="fl">0.18</span>))) <span class="sc">+</span></span>
-<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Permutation importance (ΔMSE)"</span>) <span class="sc">+</span></span>
-<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">9</span>) <span class="sc">+</span></span>
-<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(</span>
-<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">strip.text =</span> <span class="fu">element_text</span>(<span class="at">size =</span> <span class="fl">7.5</span>, <span class="at">face =</span> <span class="st">"bold"</span>),</span>
-<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">panel.grid.major.y =</span> <span class="fu">element_blank</span>(),</span>
-<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">legend.position =</span> <span class="st">"bottom"</span></span>
-<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>plot_rf_vip <span class="ot">&lt;-</span> all_rf_importance[<span class="sc">!</span><span class="fu">is.na</span>(correlation_direction)][</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">order</span>(target_var, Importance)</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>][, feat_label <span class="sc">:</span><span class="er">=</span> <span class="fu">factor</span>(</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste0</span>(target_var, <span class="st">"__"</span>, Nederlandse_naam),</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">unique</span>(<span class="fu">paste0</span>(target_var, <span class="st">"__"</span>, Nederlandse_naam))</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>)]</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(plot_rf_vip, <span class="fu">aes</span>(<span class="at">x =</span> feat_label, <span class="at">y =</span> Importance, <span class="at">fill =</span> correlation_direction)) <span class="sc">+</span></span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>() <span class="sc">+</span></span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">facet_wrap</span>(<span class="sc">~</span>plot_title, <span class="at">scales =</span> <span class="st">"free"</span>, <span class="at">ncol =</span> <span class="dv">3</span>) <span class="sc">+</span></span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_discrete</span>(<span class="at">labels =</span> <span class="cf">function</span>(x) <span class="fu">sub</span>(<span class="st">".*__"</span>, <span class="st">""</span>, x)) <span class="sc">+</span></span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(</span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">values =</span> <span class="fu">c</span>(<span class="st">"+"</span> <span class="ot">=</span> <span class="st">"#0072B2"</span>, <span class="st">"-"</span> <span class="ot">=</span> <span class="st">"#D55E00"</span>),</span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"+"</span> <span class="ot">=</span> <span class="st">"Positief verband"</span>, <span class="st">"-"</span> <span class="ot">=</span> <span class="st">"Negatief verband"</span>),</span>
+<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>    <span class="at">name   =</span> <span class="st">"Correlatierichting"</span></span>
+<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">expand =</span> <span class="fu">expansion</span>(<span class="at">mult =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="fl">0.18</span>))) <span class="sc">+</span></span>
+<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Permutation importance (ΔMSE)"</span>) <span class="sc">+</span></span>
+<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">9</span>) <span class="sc">+</span></span>
+<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(</span>
+<span id="cb13-22"><a href="#cb13-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">strip.text =</span> <span class="fu">element_text</span>(<span class="at">size =</span> <span class="fl">7.5</span>, <span class="at">face =</span> <span class="st">"bold"</span>),</span>
+<span id="cb13-23"><a href="#cb13-23" aria-hidden="true" tabindex="-1"></a>    <span class="at">panel.grid.major.y =</span> <span class="fu">element_blank</span>(),</span>
+<span id="cb13-24"><a href="#cb13-24" aria-hidden="true" tabindex="-1"></a>    <span class="at">legend.position =</span> <span class="st">"bottom"</span></span>
+<span id="cb13-25"><a href="#cb13-25" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div id="fig-vip-rf" class="quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-fig figure">
@@ -568,7 +770,7 @@ Figure&nbsp;2: Top-10 XGBoost Gain-importantie per doelvariabele (met correlatie
 <img src="rapport_modellering_VeeST_files/figure-html/fig-vip-rf-1.png" class="img-fluid figure-img" width="672">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-vip-rf-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-Figure&nbsp;3: Top-10 Random Forest permutation importance per doelvariabele (met correlatierichting)
+Figure&nbsp;6: Top-10 Random Forest permutation importance per doelvariabele (met correlatierichting)
 </figcaption>
 </figure>
 </div>
@@ -581,23 +783,23 @@ Figure&nbsp;3: Top-10 Random Forest permutation importance per doelvariabele (me
 <section id="welke-targets-generaliseren-naar-nieuwe-gebieden" class="level3">
 <h3 class="anchored" data-anchor-id="welke-targets-generaliseren-naar-nieuwe-gebieden">Welke targets generaliseren naar nieuwe gebieden?</h3>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>rf_cv_tgt <span class="ot">&lt;-</span> rf_cv_results[<span class="sc">!</span><span class="fu">is.na</span>(r2) <span class="sc">&amp;</span> n_test <span class="sc">&gt;=</span> <span class="dv">10</span>, .(</span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">r2_rf_cv =</span> <span class="fu">mean</span>(r2, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> target]</span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>xgb_cv_tgt <span class="ot">&lt;-</span> cv_results[<span class="sc">!</span><span class="fu">is.na</span>(r2) <span class="sc">&amp;</span> n_test <span class="sc">&gt;=</span> <span class="dv">10</span>, .(</span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">r2_xgb_cv =</span> <span class="fu">mean</span>(r2, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> target]</span>
-<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>cv_compare <span class="ot">&lt;-</span> <span class="fu">merge</span>(rf_cv_tgt, xgb_cv_tgt, <span class="at">by =</span> <span class="st">"target"</span>, <span class="at">all =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>cv_compare[, target_nl <span class="sc">:</span><span class="er">=</span> rf_target_names_dutch[target]]</span>
-<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(cv_compare[<span class="sc">!</span><span class="fu">is.na</span>(target_nl), .(</span>
-<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Doelvariabele</span><span class="st">`</span>          <span class="ot">=</span> target_nl,</span>
-<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">CV R² RF (%)</span><span class="st">`</span>           <span class="ot">=</span> <span class="fu">round</span>(r2_rf_cv  <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>),</span>
-<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">CV R² XGBoost (%)</span><span class="st">`</span>      <span class="ot">=</span> <span class="fu">round</span>(r2_xgb_cv <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>)</span>
-<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>)][<span class="fu">order</span>(<span class="sc">-</span><span class="st">`</span><span class="at">CV R² RF (%)</span><span class="st">`</span>)],</span>
-<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a><span class="at">digits =</span> <span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>rf_cv_tgt <span class="ot">&lt;-</span> rf_cv_results[<span class="sc">!</span><span class="fu">is.na</span>(r2) <span class="sc">&amp;</span> n_test <span class="sc">&gt;=</span> <span class="dv">10</span>, .(</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">r2_rf_cv =</span> <span class="fu">mean</span>(r2, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> target]</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>xgb_cv_tgt <span class="ot">&lt;-</span> cv_results[<span class="sc">!</span><span class="fu">is.na</span>(r2) <span class="sc">&amp;</span> n_test <span class="sc">&gt;=</span> <span class="dv">10</span>, .(</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">r2_xgb_cv =</span> <span class="fu">mean</span>(r2, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>), by <span class="ot">=</span> target]</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>cv_compare <span class="ot">&lt;-</span> <span class="fu">merge</span>(rf_cv_tgt, xgb_cv_tgt, <span class="at">by =</span> <span class="st">"target"</span>, <span class="at">all =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>cv_compare[, target_nl <span class="sc">:</span><span class="er">=</span> rf_target_names_dutch[target]]</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a><span class="fu">kable</span>(cv_compare[<span class="sc">!</span><span class="fu">is.na</span>(target_nl), .(</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">Doelvariabele</span><span class="st">`</span>          <span class="ot">=</span> target_nl,</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">CV R² RF (%)</span><span class="st">`</span>           <span class="ot">=</span> <span class="fu">round</span>(r2_rf_cv  <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>),</span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>  <span class="st">`</span><span class="at">CV R² XGBoost (%)</span><span class="st">`</span>      <span class="ot">=</span> <span class="fu">round</span>(r2_xgb_cv <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>)</span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>)][<span class="fu">order</span>(<span class="sc">-</span><span class="st">`</span><span class="at">CV R² RF (%)</span><span class="st">`</span>)],</span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a><span class="at">digits =</span> <span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div id="tbl-cv-compare" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-cv-compare-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
@@ -688,7 +890,6 @@ Table&nbsp;3: Ruimtelijke CV: gemiddelde R² over leave-one-waterschap-out folds
 <li><strong>Redox slib bij pH7</strong> is zelf ook predictor voor andere targets en vertoont drempelgedrag voor soortensamenstelling: bij sterk gereduceerde omstandigheden (lage redox) neemt de kwaliteit van zowel helofyten- als hydrofytensamenstelling af.</li>
 <li><strong>P-AL slib</strong> laat een positief verband zien met slibdikte (max_slib) en een negatief verband met oeverindex — hogere fosfaatbeschikbaarheid in slib hangt samen met verminderde oeverkwaliteit.</li>
 </ul>
-<p>De exacte kantelpuntwaarden zijn opgeslagen in <code>output/AlleGebieden/Tussenrapportage/ALE_tipping_points_summary.csv</code>.</p>
 </section>
 </section>
 <section id="conclusie" class="level1">

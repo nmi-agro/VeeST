@@ -1,15 +1,15 @@
 ---
 title: "Modellering VeeST: XGBoost, Random Forest en GAM"
+number-sections: false
+lang: nl
+format:
+  docx:
+    reference-doc: template_veest.docx
+execute:
+  echo: false
+  warning: false
+  message: false
 ---
-
-::: {.callout-note}
-This report wasm generated using AI under general human direction. At the time of generation, the contents have not been comprehensively reviewed by a human analyst.
-
-<!--
-To indicate human review: Delete the line above about contents not being reviewed, and replace this comment with:
-The contents have been reviewed and validated by [Your Name], [Your Role] on [Date].
--->
-:::
 
 ```{r}
 #| label: load-packages
@@ -17,6 +17,11 @@ library(data.table)
 library(ggplot2)
 library(patchwork)
 library(knitr)
+
+okabe <- c(
+  "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
+  "#D55E00", "#CC79A7", "#999999"
+)
 ```
 
 ```{r}
@@ -55,20 +60,13 @@ De analyses zijn uitgevoerd op een gecombineerde dataset van veldmetingen (WP1 e
 
 ## Data en predictoren
 
-De dataset bevat locatiemetingen van meerdere waterschappen. Na kwaliteitsfiltering op volledigheid en unieke trajecten per sloot (slechts één behandeling per sloot is meegenomen, waarbij de proefbehandelingen zijn weggelaten) zijn 33 predictorvariabelen geselecteerd (`cols_corr`), verdeeld over:
+De dataset bevat locatiemetingen van meerdere waterschappen. Na kwaliteitsfiltering op volledigheid en unieke trajecten per sloot (slechts één behandeling per sloot is meegenomen, waarbij de proefbehandelingen zijn weggelaten) zijn 33 predictorvariabelen geselecteerd, verdeeld over:
 
 - **Hydrologische variabelen**: drooglegging, maximale waterdiepte, doorzicht, waterbreedte
 - **Oeverstructuur**: breedte oevervegetatiezone 2a en 2b, taludhoek, onderholling, oeverbreedte
 - **Bodemchemie (0–25 cm)**: kleigehalte, organisch stofgehalte, CEC, draagkracht
 - **Waterchemie en slibkwaliteit**: water-pH, chloride, ammonium, P-AL, redox, FeP-verhouding
 - **Beheersvariabelen**: baggerfrequentie en -moment, maaifrequentie, mestmethode, koebelasting
-
-Hier aangeven hoe variabelen zijn gemeten of berekend, en eventuele transformaties of standaardisaties die zijn toegepast.
-Mestmethode: De mestmethode is gecategoriseerd in drie klassen: 1) geen bemesting, 2) drijfmest, 3) vaste mest. De categorieën zijn dummy-gecodeerd voor gebruik in de modellen.
-Redox is genormaliseerd voor pH7: De formule stamt uit de Nernst-vergelijking. De redoxpotentiaal (Eh) is pH-afhankelijk omdat bij veel redoxreacties in de bodem waterstofionen (H⁺) betrokken zijn. Per pH-eenheid stijging daalt Eh met ~59 mV (bij 25°C). Door te normaliseren naar pH 7 maak je metingen van locaties met verschillende pH vergelijkbaar:
-𝐸ℎ_7=𝐸ℎ_𝑔𝑒𝑚𝑒𝑡𝑒𝑛+(7−𝑝𝐻_𝑔𝑒𝑚𝑒𝑡𝑒𝑛 )×59
-
-FeP-verhouding is berekend als molverhoudingen
 
 De tien doelvariabelen (targets) zijn:
 
@@ -83,21 +81,67 @@ targets_tbl <- data.table(
 kable(targets_tbl)
 ```
 
-## XGBoost
+### Toegepaste datatransformaties of standaardisaties
 
-XGBoost (eXtreme Gradient Boosting) is een ensemblemethode gebaseerd op sequentieel opgebouwde beslisbomen. Gradiënt boosting analyse (XG-Boost) houdt rekening met complexe relaties tussen meerdere variabelen (type beheer, beheerfrequentie én omgevingsvariabelen). Dit type analyse doet recht aan het feit dat in de natuur relaties complex zijn waardoor het resultaat betrouwbaarder is dan een (simpele) lineaire regressieanalyse. Er wordt bijvoorbeeld geen effect verwacht van beheer op ondergedoken waterplanten in zeer voedselrijke watersystemen waar geen ondergedoken waterplanten voorkomen.
+**Methode toedienen mest**: Deze mestmethode is gecategoriseerd naar verwachtte belasting van het perceel, waarbij een hoge belasting (door zwaardere machines of frequentere bemesting) een hogere waarde heeft dan geen belasting. De belasting is vertaald naar de volgende klassen:
 
-Voor deze studie is een XGBoost-regressiemodel getraind op basis van omgevings- en beheer gerelateerde variabelen en doelvariabelen die representatief zijn voor de veenweidesloot van de toekomst. 
+| Waarde | Categorie |
+|--------|-----------|
+| 0 | "n.v.t./onbekend" of "n.v.t" |
+| 1 | "sleepslang" |
+| 2 | "sleepslang en mesttank" |
+| 3 | "mesttank" |
+| 4 | "bovengronds_strooier" |
+| 5 | "injecteren" |
 
-De implementatie maakt gebruik van de `xgboost`-package met de volgende instellingen:
+**Redox genormaliseerd voor pH7**: De formule stamt uit de Nernst-vergelijking. De redoxpotentiaal (Eh) is pH-afhankelijk omdat bij veel redoxreacties in de bodem waterstofionen (H⁺) betrokken zijn. Per pH-eenheid stijging daalt Eh met ~59 mV (bij 25°C). Door te normaliseren naar pH 7 worden metingen van locaties met verschillende pH vergelijkbaar:
 
-- Splitsing: **60% train / 20% validatie / 20% test**
-- Early stopping na 20 rondes zonder verbetering op de **validatieset** (niet de testset)
+$$Eh_7 = Eh_{\text{gemeten}} + (7 - pH_{\text{gemeten}}) \times 59$$
+
+**FeP-verhouding**: is berekend als molverhoudingen
+
+**Kengetallen op basis van profielen**:
+- **Drooglegging oever en perceel**: zowel het hoogste punt op de oever als het maaiveld minus jaarrondstreefpeil (NHI)
+- **Zomerdrooglegging**: maaiveld minus zomerpeil (NOBV)
+- **Taludhoek boven water rond de waterlijn**: tan⁻¹(hoogteverschil oever op 35 cm verticale afstand boven de waterlijn en waterlijn / horizontale afstand).
+- **Taludhoek onder water rond de waterlijn**: tan⁻¹(hoogteverschil bovenkant slib op 35 cm verticale afstand onder de waterlijn en waterlijn / horizontale afstand).
+- **Taludhoek boven water**: tan⁻¹(hoogteverschil oever op 3 meter horizontale afstand van de waterlijn en waterlijn / horizontale afstand). Als de oever minder breed is dan 3 meter dan wordt het oeverpunt dat het verst van de waterlijn ligt genomen.
+- **Taludhoek onder water**: tan⁻¹(hoogteverschil bovenkant slib op 1 meter horizontale afstand van de waterlijn en waterlijn / horizontale afstand). 
+- **Breedte oeverzone**: breedte van de zone van insteek tot waterlijn.
+
+
+**Proxies voor draagkracht van de oever en het perceel**: 
+- check berekening draagkracht op basis van de formule van Van den Akker (2004) met een functie van het organisch stofgehalte, kleigehalte en CEC. 
+- De draagkracht is gemeten met een pentrometer langs een traject loodrecht op de oever, hierbij zijn drie zones gemeten: zone 1 = oeverzone, zone 2 = insteek, zone 3 = perceel. In verschillende zones is de gemiddelde draagkracht voor verschillende diepteintervallen berekend:
+  - Diepteintervallen van 10 cm van 0 tot 80 cm 
+  - Diepteintervallen die relevant zijn voor beworteling van oevervegetatie: 0–15 cm, 15–40 cm, 40–80 cm
+  - Diepteinterval draagkracht oever: 0-40 cm
+Daarnaast is de minimale draagkracht per zone berekend en de diepte waar deze is gemeten.
+
+## Vergelijking meting met veensloottypen
+
+De VeeST-meetlocaties zijn geselecteerd op basis van acht veensloottypen (clusters) die in de verkenningsfase ruimtelijk zijn bepaald op basis van vier GIS-variabelen: drooglegging (AHN3 maaiveld minus jaarrondstreefpeil uit NHI), waterbreedte, organisch stofgehalte (25 cm) en kleigehalte (25 cm). Om te beoordelen hoe representatief de veldmetingen zijn voor deze typen, zijn de gemeten abiotische waarden vergeleken met de GIS-clusterwaarden via twee complementaire analyses:
+
+1. **Schaalbereik-vergelijking**: per variabele worden de P10, mediaan en P90 vergeleken tussen GIS-laag (NOBV) en VeeST-velddata.
+2. **Clusterovereenkomst**: per VeeST-locatie wordt bepaald bij welk GIS-cluster de gemeten waarden het beste passen en dit wordt vergeleken met het ruimtelijk toegewezen cluster uit de verkenningsfase. Elk GIS-cluster heeft een centroïde: de gemiddelde waarde van de vier clustervariabelen (drooglegging, waterbreedte, OS, klei) over alle locaties in dat cluster. De gemeten waarden van een VeeST-locatie worden vervolgens vergeleken met de centroïden van alle acht clusters. Omdat de variabelen in heel verschillende eenheden zijn uitgedrukt (meters vs. procenten), worden ze eerst gestandaardiseerd: elke waarde wordt uitgedrukt als het aantal standaarddeviaties ten opzichte van het gemiddelde van de GIS-populatie. Op die manier wegen alle vier variabelen even zwaar mee in de vergelijking. De "afstand" van een locatie tot een cluster is dan de rechte lijn in deze gestandaardiseerde ruimte — vergelijkbaar met hoe je de afstand tussen twee punten op een kaart berekent, maar dan in vier dimensies tegelijk. De locatie wordt toegewezen aan het cluster waar die afstand het kleinst is.
+
+Een algemene kanttekening: een deel van de VeeST-gebieden valt buiten de geografische dekking van de oorspronkelijke clusterkaart. Voor deze gebieden is het cluster toegewezen op basis van ruimtelijke nabijheid, het dichtstbijzijnde cluster, niet per se een representatief referentietype. De gerapporteerde bias voor zulke gebieden zegt meer over hoe goed het toegewezen cluster past dan over een echte afwijking ten opzichte van een representatief type, en is daardoor minder informatief.
+
+## XGBoost (eXtreme Gradient Boosting)
+
+XGBoost (eXtreme Gradient Boosting) is een ensemblemethode gebaseerd op sequentieel opgebouwde beslisbomen. Gradiënt boosting analyse (XG-Boost) houdt rekening met complexe relaties tussen meerdere variabelen (type beheer, beheerfrequentie én omgevingsvariabelen). Dit type analyse doet recht aan het feit dat in de natuur relaties complex zijn waardoor het resultaat betrouwbaarder is dan een (multiple) regressieanalyse. Er wordt bijvoorbeeld geen effect verwacht van beheer op ondergedoken waterplanten in zeer voedselrijke watersystemen waar geen ondergedoken waterplanten voorkomen.
+
+Voor deze studie is een XGBoost-model getraind op basis van omgevings- en beheer gerelateerde variabelen en doelvariabelen die representatief zijn voor de veenweidesloot van de toekomst. 
+
+De implementatie maakt gebruik van de `xgboost`-package in R met de volgende instellingen:
+
+- Splitsing: 60% train / 20% validatie / 20% test
+- Early stopping na 20 rondes zonder verbetering op de validatieset (niet de testset)
 - Maximale boostronden: 500; leersnelheid (eta): 0.05; maximale boomdiepte: 4
 - Regularisatie: L2 (lambda = 2), minimaal bladgewicht (min_child_weight = 5), minimale splitwinst (gamma = 0.1)
 - Subsampling: 80% rijen en kolommen per boom
 
-Predictorimportantie is bepaald op twee manieren: via de ingebouwde **Gain**-maatstaf (informatiewinst per splitsing) en via **permutation importance** op de validatieset (gemiddelde RMSE-stijging bij het willekeurig permuteren van een kolom, herhaald over 5 replicaties).
+De predictorimportantie is bepaald op twee manieren: via de ingebouwde Gain-maatstaf (informatiewinst per splitsing) en via permutation importance op de validatieset (gemiddelde RMSE-stijging bij het willekeurig permuteren van een kolom, herhaald over 5 replicaties).
 
 ## Random Forest
 
@@ -110,7 +154,7 @@ Random Forest is geïmplementeerd met het `ranger`-package. Instellingen:
 
 ## Ruimtelijke cross-validatie (leave-one-waterschap-out)
 
-Om te testen of modellen generaliseren naar ruimtelijk nieuwe gebieden is een **leave-one-waterschap-out** cross-validatie uitgevoerd voor zowel XGBoost als Random Forest. Per fold wordt één waterschap volledig uit de trainset gehouden en als testset gebruikt. Correcties toegepast:
+Om te testen of modellen generaliseren naar ruimtelijk nieuwe gebieden is een leave-one-waterschap-out cross-validatie uitgevoerd voor zowel XGBoost als Random Forest. Per fold wordt één waterschap volledig uit de trainset gehouden en als testset gebruikt. Correcties toegepast:
 
 - Folds met minder dan 3 testlocaties of minder dan 20 trainlocaties zijn weggelaten
 - Waterschappen met minder dan 10 testlocaties zijn uitgesloten van de R²-plot (te klein voor betrouwbare schatting)
@@ -120,13 +164,189 @@ Om te testen of modellen generaliseren naar ruimtelijk nieuwe gebieden is een **
 
 Als aanvullend interpretatiemodel is per target een Generalized Additive Model (GAM) gefit met `mgcv::gam`, uitgerust met:
 
-- Univariate smooths voor de top-5 predictoren (op basis van permutation importance)
+- Univariate smooths voor de top-5 predictoren in het XG-Boost model (op basis van permutation importance)
 - Een tweedimensionale ruimtelijke smooth `s(lon, lat, bs="sos")` om gebiedseffecten op te vangen
 - Penalisatie via `select = TRUE` (REML), waardoor niet-significante smooths automatisch naar nul worden gekrompen
 
 # Resultaten
 
-## Modelperformantie op de testset
+## Overeenkomst veensloottypen op basis van ruimtelijke clusters vs. variabele-gebaseerde clusters
+
+Per VeeST-locatie is op basis van de vier gemeten variabelen (drooglegging, waterbreedte, OS, klei) het dichtstbijzijnde GIS-cluster bepaald via de Euclidische afstand in de gestandaardiseerde variabelenruimte (z-scores op basis van de GIS-populatieparameters). Dit variabele-gebaseerde cluster is vervolgens vergeleken met het ruimtelijk toegewezen cluster uit de verkenningsfase.
+
+```{r}
+#| label: fig-cluster-vergelijking
+#| fig-cap: "Verwarringsmatrix: ruimtelijk bepaald cluster op basis van GIS-data (y-as) versus clusters op basis van in VeeST gemeten variabelen (x-as). Diagonaal = overeenkomst."
+#| fig-height: 5
+#| fig-width: 8
+cluster_conf_rds <- paste0(rds_dir, "cluster_conf.rds")
+if (file.exists(cluster_conf_rds)) {
+  conf <- readRDS(cluster_conf_rds)
+  ggplot(conf, aes(x = factor(cluster_var), y = factor(cluster_ruimtelijk))) +
+    geom_tile(aes(fill = N), color = "white") +
+    geom_text(aes(label = N), size = 4) +
+    scale_fill_gradient(low = "white", high = okabe[5]) +
+    labs(
+      x    = "Cluster o.b.v. gemeten variabelen (VeeST)",
+      y    = "Cluster ruimtelijk (verkenningsfase)",
+      fill = "Aantal locaties"
+    ) +
+    theme_minimal(base_size = 13)
+} else {
+  cat("cluster_conf.rds niet gevonden — voer Analyses_dev_db.R eerst uit en sla op via saveRDS(conf, ...).")
+}
+```
+
+De overeenkomst tussen ruimtelijk en variabele-gebaseerde clusterindeling geeft aan in hoeverre de GIS-clustertypen ook in de gemeten data onderscheidbaar zijn. Een lage overeenkomst wijst op systematische afwijkingen tussen GIS-laag en veldmeting (zoals de OS- en droogleggingsverschillen die hieronder worden besproken), of op grote variatie binnen clusters.
+
+De overall overeenkomst bedraagt slechts 18.7% — veel lager dan bij een willekeurige toewijzing zou worden verwacht. Dit lage percentage is te verklaren door twee samenhangende effecten die elkaar versterken:
+
+- **Hoge OS in VeeST**: de veldmetingen hebben structureel hogere OS-waarden (mediaan 36%) dan de GIS-laag (mediaan 21%). Cluster 2 heeft in de GIS-indeling de hoogste OS-waarde (30%) en trekt daardoor de meeste VeeST-locaties aan.
+- **Kleine drooglegging in VeeST**: de gemeten drooglegging in VeeST (mediaan 0.33 m) past het best bij cluster 1 (GIS-mediaan 0.21 m) en cluster 2 (0.37 m) — de clusters met de kleinste drooglegging in de GIS-indeling. Clusters 3 t/m 8 hebben hogere droogleggingen (0.44–1.36 m) en vallen daardoor af.
+
+Doordat beide effecten in dezelfde richting wijzen — hoge OS én kleine drooglegging leiden beiden naar cluster 1 of 2 — komen vrijwel alle locaties bij die twee clusters terecht. Dit is zichtbaar in de verwarringsmatrix als een concentratie van getallen in de eerste twee kolommen.
+
+Dit betekent niet dat de clusterindeling uit de verkenningsfase onjuist is, maar dat de GIS-laag en de veldmeting verschillende schaalniveaus beschrijven en zijn gebaseerd op verschillende bronnen, waarbij de relatieve waarde van variabelen vergelijkbaar is maar de absolute waarde niet. De GIS-laag representeert een gemiddeld perceel binnen een gemiddeld peilvak in het Nederlandse veenweidegebied, terwijl de VeeST-metingen oevers en sloten op standplaatsniveau in beeld heeft gebracht. De clusterindeling blijft zinvol als ruimtelijk kader, maar de absolute drempelwaarden voor OS, klei en drooglegging zijn niet direct vergelijkbaar tussen GIS en veld. 
+
+## Schaalbereik GIS-laag vs. veldmeting
+
+```{r}
+#| label: fig-cluster-bereik
+#| fig-cap: "Schaalbereik (P10–mediaan–P90) van GIS-laag (NOBV) en VeeST velddata per variabele. Drooglegging toont drie bronnen: GIS-clusteranalyse (drooglegging obv jaarrondpeil en ahn3), GIS-laag (NOBV) met zomerdrooglegging die in het SOMERS-model wordt gebruikt en VeeST veldmetingen."
+#| fig-height: 8
+#| fig-width: 12
+
+# Laad benodigde objecten
+cluster_vergelijk_rds <- paste0(rds_dir, "cluster_vergelijk.rds")
+if (file.exists(cluster_vergelijk_rds)) {
+  rows_plot <- readRDS(cluster_vergelijk_rds)
+} else {
+  rows_plot <- rows  # fallback op sessieobject
+}
+
+bron_kleuren <- c(
+  "GIS-laag (clusteranalyse)"          = "#D55E00",
+  "GIS-laag (NOBV)" = "#E69F00",
+  "Velddata VeeST"         = "#0072B2"
+)
+
+ggplot(rows_plot, aes(x = bron, y = mediaan, color = bron)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = p10, ymax = p90), width = 0.2, linewidth = 0.8) +
+  facet_wrap(~variabele, scales = "free_y") +
+  scale_color_manual(values = bron_kleuren, name = NULL) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position  = "bottom",
+    axis.text.x      = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    strip.background = element_blank(),
+    strip.clip       = "off",
+    panel.border     = element_rect(colour = "grey80", fill = NA, linewidth = 0.4)
+  )
+```
+
+Voor de meeste variabelen (waterbreedte, klei, OS, maaiveld, zomerpeil) verschilt het schaalbereik van de GIS-laag en de veldmeting. Opvallende systematische verschillen:
+
+**Organisch stofgehalte (OS)** is in de VeeST-veldmetingen structureel hoger dan in de GIS-laag: mediaan VeeST 36% vs. GIS 21% — een verschil van +15 procentpunt. Dit is te verwachten: de GIS-laag (obv NMI bodemSchat5) is een bredere representatie van alle bodemtypen, ook bodems met een laag OS gehalte. Het ruimtelijk model waarmee deze kaart is gemaakt is getraind op een dataset die niet specifiek is geselecteerd op veenweidelocaties, waardoor hoge OS-waarden worden onderschat in het model.
+
+**Kleigehalte** is in VeeST lager dan in de GIS-laag: mediaan VeeST 15% vs. GIS 23% — een verschil van −8 procentpunt. Dit hangt samen met de hogere OS in VeeST: locaties met veel organisch materiaal hebben doorgaans minder klei. De selectie op veenweidelocaties leidt dus tegelijkertijd tot hogere OS én lagere klei ten opzichte van de brede GIS-populatie.
+
+**Drooglegging** toont in VeeST een systematisch verschil tussen de drie bronnen:
+- GIS-clusteranalyse (drlg): mediaan ~0.49 m, gebaseerd op AHN3 maaiveld minus jaarrondstreefpeil uit NHI.
+- Zomerdrooglegging NOBV: mediaan ~0.47 m, gebaseerd op maaiveld minus zomerpeil.
+- VeeST veldmeting (drglg): mediaan ~0.33 m, berekend als gemeten maaiveld (`max_hgt_or`) minus gemeten waterpeil (`wl`) tijdens het veldbezoek.
+
+Het verschil tussen de GIS-clusteranalyse en de Zomerdrooglegging NOBV (~0.02 m) is klein en te verklaren doordat beide methoden vergelijkbare peilen gebruiken — het verschil dat resteert is vooral het gevolg van het gebruik van een jaarrondpeil (GIS-cluster) versus een zomerpeil (NOBV). Een zomerpeil is doorgaans hoger dan het jaargemiddelde, waardoor de zomerdrooglegging iets kleiner uitvalt dan de GIS-clusterdrooglegging.
+
+Het verschil tussen de NOBV zomerdrooglegging (~0.47 m) en de VeeST veldmeting (~0.33 m) bedraagt ~0.14 m. Dit is consistent met het verschil in maaiveld (GIS − VeeST: +0.34 m) minus het verschil in peil (GIS − VeeST: +0.20 m): 0.34 − 0.20 = 0.14 m, wat bevestigt dat de meting intern consistent is.
+
+De spreiding (P10–P90) in de VeeST-veldmeting van drooglegging (0.32 m) is opvallend veel kleiner dan de spreiding in maaiveld (~1.86 m) en zomerpeil (~1.77 m) afzonderlijk. Dit is wiskundig te verwachten: maaiveld en waterpeil covariëren sterk (r = 0.98 in VeeST). Binnen individuele peilgebieden volgt het peil het maaiveld grotendeels, waardoor hun verschil — de drooglegging — weinig varieert. De variatie die wel bestaat in maaiveld en peil is grotendeels gedeelde regionale variatie die wegvalt bij aftrekking. De NOBV-zomerdrooglegging heeft een grotere spreiding (0.68 m) dan de VeeST-meting (0.32 m), omdat de NOBV-dataset een groter geografisch bereik dekt en de correlatie tussen maaiveld en peil iets lager is in deze NOBV-dataset (r = 0.95) dan de dataset van VeeST (r = 0.98). Dit kleine correlatieverschil leidt tot een substantieel grotere spreiding in het verschil; In de VeeST-dataset bewegen waterpeil en maaiveld perfect met elkaar mee, terwijl in de NOBV-dataset het waterpeil het maaiveld iets minder goed volgt, waardoor er meer spreiding in het verschil (drooglegging) ontstaat. In de NOBV-dataset kan het maaiveld binnen één peilvak behoorlijk variëren, terwijl het op papier vastgestelde peil gelijk is in ruimte en tijd en niet gelijk hoeft te zijn aan het werkelijke gemiddelde peil.
+
+## Afwijking per cluster en per gebied
+
+```{r}
+#| label: fig-cluster-afwijking
+#| fig-cap: "Afwijking veldmeting t.o.v. GIS-clustermediane per cluster. Elke punt = één locatie (SlootID), gekleurd per gebied. Stippellijn = geen afwijking."
+#| fig-height: 9
+#| fig-width: 12
+cluster_afwijking_rds <- paste0(rds_dir, "cluster_afwijking_long.rds")
+if (file.exists(cluster_afwijking_rds)) {
+  afwijking_long_plot <- readRDS(cluster_afwijking_rds)
+
+  ggplot(afwijking_long_plot, aes(x = factor(clusters), y = afwijking)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = gebied), width = 0.2, size = 1.5, alpha = 0.7) +
+    facet_wrap(~variabele, scales = "free_y", nrow = 2, ncol = 4) +
+    labs(
+      x      = "Ruimtelijke cluster",
+      y      = "Afwijking (veld − GIS mediaan)",
+      color  = "Gebied"
+    ) +
+    theme_minimal(base_size = 13) +
+    theme(
+      legend.position  = "bottom",
+      legend.text      = element_text(size = 9),
+      legend.key.size  = unit(0.5, "cm"),
+      legend.nrow      = 3,
+      strip.text       = element_text(face = "bold", size = 12),
+      strip.background = element_blank(),
+      strip.clip       = "off",
+      panel.border     = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+      axis.text        = element_text(size = 11)
+    )
+} else {
+  cat("cluster_afwijking_long.rds niet gevonden — voer Analyses_dev_db.R eerst uit en sla op via saveRDS().")
+}
+```
+
+De afwijkingen per gebied zijn niet gelijkmatig verdeeld over de clusters: sommige gebieden wijken systematisch af voor drooglegging (negatieve bias: veldmeting lager dan GIS), wat wijst op (lokale) peilafwijkingen of peilwijzigingen die niet in de GIS-laag met peilvakken staan.
+
+De drooglegging-bias is voor de meeste gebieden negatief: de VeeST-veldmeting geeft een kleinere drooglegging dan de GIS-clusterwaarde. De sterkste negatieve bias zit bij Idzegea (IG, −0.42 m), gevolgd door Hegewarren (HW, −0.41 m) en Blesdijke (BD, −0.27 m). In Hegewarren en Stein Noord is de oorzaak dat de gemeten waterpeilen hoger zijn dan het mediane zomerpeil van het veenslootype — waterpeilen zijn hier recent verhoogd en deze verhoging staat nog niet geregistreerd in de gebruikte ruimtelijke bestanden van het NOBV. Ook in veel andere gebieden is het gemeten peil hoger dan de mediane peilwaarde van het GIS-cluster; in de meeste gevallen is de afwijking echter klein (−0.05 tot −0.15 m) en hangt dit samen met de variatie in het waterpeil binnen het GIS-cluster (deze variatie is niet te zien in bovenstaand figuur). Het maaiveld is in de meeste gebieden juist lager dan het GIS-clustermediaan. De combinatie van een hoger peil en een lager maaiveld leidt tot een grotere negatieve bias in de drooglegging.
+
+Het maaiveld verschilt sterk in Aarlanderveen (AR), Assendelft (AD) en Akkerdijkse polder (DP): het gemeten maaiveld aan de slootkant (~−3.2 tot −4.3 m NAP) ligt ~2 m lager dan de clustermediaan (~−1 tot −1.9 m NAP). Belangrijk hierbij is dat de clustermediaan de **mediane waarde van alle locaties in dat GIS-cluster** is, verspreid over het hele veenweidegebied — er zit dus ook spreiding in de GIS-data zelf. De grote afwijking voor AD en AR betekent niet per se dat de GIS-laag fout is, maar dat deze locaties aan de onderkant van de spreiding van hun cluster vallen: ze liggen in diepere polders of onderbemalingen. Zowel maaiveld als peil zijn ~2 m lager dan de clustermediaan, waardoor de twee afwijkingen elkaar grotendeels compenseren en de drooglegging-bias klein blijft (−0.03 tot −0.16 m). 
+
+De OS-bias is voor vrijwel alle gebieden positief (VeeST hoger dan GIS), zoals hierboven besproken. 
+
+## Oppervlaktewaterpeilen VeeST meting tov praktijkpeilen in GIS laag (NOBV)
+
+```{r}
+#| label: fig-peil-vergelijk
+#| fig-cap: "Verschil gemeten waterpeil (VeeST) versus NOBV zomerpeil per gebied"
+#| fig-height: 10
+#| fig-width: 11
+peil_koppel <- readRDS(paste0(workspace, "output/rapport/peil_koppel.rds"))
+
+# Boxplot met Gebiedsnaam, gesorteerd op mediaan
+ggplot(peil_koppel, aes(x = reorder(Gebiedsnaam, verschil, median), y = verschil)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red", alpha = 0.7) +
+  geom_boxplot(outlier.shape = NA, fill = "grey90") +
+  geom_jitter(aes(color = factor(jaar)), width = 0.2, size = 1.8, alpha = 0.8) +
+  scale_color_manual(values = okabe[c(1, 3, 2)], name = "Jaar") +
+  labs(
+    title    = "Verschil gemeten waterpeil (VeeST) vs. NOBV zomerpeil per gebied",
+    subtitle = "Positief = gemeten peil hoger dan NOBV zomerpeil | gesorteerd op mediaan",
+    x = NULL, y = "Gemeten peil − NOBV zomerpeil (m)"
+  ) +
+  coord_flip() +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.border = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+    plot.title   = element_text(face = "bold", size = 13),
+    axis.text.y  = element_text(size = 11)
+  )
+```
+
+Het mediaan verschil over alle locaties is slechts −0.035 m — over het algemeen klopt het NOBV zomerpeil dus goed. Maar er is duidelijke gebiedsspecifieke variatie:
+
+Positief verschil (gemeten hoger dan NOBV, peilopzet): Hegwewarren, Poppenhuizen, Olde Maten staan bovenaan — waterpeilen zijn hier in werkelijkheid hoger dan het NOBV-zomerpeil aangeeft, mede omdat peilen hier recent zijn verhoogd en dit nog niet op de kaart staat.
+Negatief verschil (gemeten lager dan NOBV): Eempolder, polder Westzaan, Zuiderveen, Blesdijke en het Wormer- en Jisperveld vallen op. In Westzaan en het Wormer- en Jisperveld komt dit omdat er veel onderbemalingen zijn die niet in de kaart van het NOBV staan. In de andere gebieden is het niet duidelijk waar het verschil door wordt veroorzaakt; wat wel opvallend is, is dat het peil in Blesdijke volgens de deelnemer verhoogd is (waar kan ik info vinden over de GLB pilot?) terwijl het peil op deze locaties ongeveer gelijk is aan het praktijkpeil, terwijl het peil op andere locaties in hetzelfde gebied veel lager liggen dan het praktijkpeil. 
+
+Waterpeilen zijn in werkelijkheid vaak lager dan het peilbesluit. Dit kan komen omdat peilen recent zijn verlaagd en dit niet op de kaart staat of omdat peilen in praktijk lager worden gehouden/ er meer onderbemalingen zijn. Lage peilen zijn onwenselijk voor veenafbraak en broeikasgasemissies en deze worden dus onderschat als oppervlaktewaterpeilen in de basisdata van het NOBV hoger zijn dan in werkelijkheid.
+
+## Modelperformantie op de testset XGBoost vs. Random Forest
 
 ```{r}
 #| label: tbl-performance
@@ -180,7 +400,8 @@ De **oeverindex** is consistent de best voorspelbare target in beide modellen, g
 ```{r}
 #| label: fig-vip-xgb
 #| fig-cap: "Top-10 XGBoost Gain-importantie per doelvariabele (met correlatierichting)"
-#| fig-height: 10
+#| fig-height: 14
+#| fig-width: 12
 plot_data <- all_importance[!is.na(correlation_direction)][
   order(target_var, Gain)
 ][, feat_label := factor(
@@ -200,18 +421,22 @@ ggplot(plot_data, aes(x = feat_label, y = Gain, fill = correlation_direction)) +
   ) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
   labs(x = NULL, y = "Informatiewinst (Gain)") +
-  theme_minimal(base_size = 9) +
+  theme_minimal(base_size = 11) +
   theme(
-    strip.text = element_text(size = 7.5, face = "bold"),
-    panel.grid.major.y = element_blank(),
-    legend.position = "bottom"
+    strip.text             = element_text(size = 9, face = "bold"),
+    strip.background       = element_blank(),
+    strip.clip             = "off",
+    panel.border           = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+    panel.grid.major.y     = element_blank(),
+    legend.position        = "bottom"
   )
 ```
 
 ```{r}
 #| label: fig-vip-rf
 #| fig-cap: "Top-10 Random Forest permutation importance per doelvariabele (met correlatierichting)"
-#| fig-height: 10
+#| fig-height: 14
+#| fig-width: 12
 plot_rf_vip <- all_rf_importance[!is.na(correlation_direction)][
   order(target_var, Importance)
 ][, feat_label := factor(
@@ -231,11 +456,14 @@ ggplot(plot_rf_vip, aes(x = feat_label, y = Importance, fill = correlation_direc
   ) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
   labs(x = NULL, y = "Permutation importance (ΔMSE)") +
-  theme_minimal(base_size = 9) +
+  theme_minimal(base_size = 11) +
   theme(
-    strip.text = element_text(size = 7.5, face = "bold"),
-    panel.grid.major.y = element_blank(),
-    legend.position = "bottom"
+    strip.text             = element_text(size = 9, face = "bold"),
+    strip.background       = element_blank(),
+    strip.clip             = "off",
+    panel.border           = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+    panel.grid.major.y     = element_blank(),
+    legend.position        = "bottom"
   )
 ```
 
@@ -270,6 +498,85 @@ digits = 1)
 De **oeverindex** generaliseert het beste naar nieuwe gebieden in de ruimtelijke CV, consistent voor zowel RF als XGBoost. Dit wijst erop dat de relatie tussen drooglegging, oeverstructuur en oeverindex voldoende stabiel is over waterschappen heen. Het aantal oeversoorten en de bedekking van ondergedoken planten volgen als redelijk generaliserende targets.
 
 Targets die sterk afhankelijk zijn van lokale bodem- of waterchemie (redox, P-AL, soortensamenstelling hydrofyten) generaliseren beduidend minder goed — de ruimtelijke CV-R² ligt daar lager dan de testset-R², wat duidt op overfitting aan de gebiedsspecifieke condities in de trainset.
+
+```{r}
+#| label: fig-cv-r2
+#| fig-cap: "Ruimtelijke CV (XGBoost): R² per waterschap per doelvariabele. Alleen waterschappen met ≥ 10 testlocaties. Stippellijn = gemiddelde R² over alle waterschappen per target."
+#| fig-height: 10
+#| fig-width: 12
+min_n_test_cv <- 10
+r2_clip_lo_cv <- -0.5
+r2_clip_hi_cv <-  1.0
+
+cv_plot_dt <- cv_results[!is.na(r2) & n_test >= min_n_test_cv]
+cv_plot_dt[, target_nl := rf_target_names_dutch[target]]
+cv_plot_dt <- cv_plot_dt[!is.na(target_nl)]
+
+ws_order <- cv_plot_dt[, .(mean_r2 = mean(r2, na.rm = TRUE)), by = waterschap][
+  order(mean_r2), waterschap]
+cv_plot_dt[, waterschap := factor(waterschap, levels = ws_order)]
+
+cv_plot_dt[, r2_clipped  := pmax(r2_clip_lo_cv, pmin(r2_clip_hi_cv, r2))]
+cv_plot_dt[, is_clipped  := r2 < r2_clip_lo_cv | r2 > r2_clip_hi_cv]
+
+ggplot(cv_plot_dt, aes(x = waterschap, y = r2_clipped, fill = waterschap)) +
+  geom_col() +
+  geom_hline(
+    data = cv_plot_dt[, .(overall_r2 = mean(r2_clipped, na.rm = TRUE)), by = target_nl],
+    aes(yintercept = overall_r2),
+    linetype = "dashed", color = "grey30", linewidth = 0.5
+  ) +
+  geom_text(aes(label = n_test, y = r2_clip_lo_cv + 0.05), size = 2.5, color = "grey40") +
+  facet_wrap(~target_nl, scales = "free_x", ncol = 3) +
+  scale_y_continuous(limits = c(r2_clip_lo_cv, r2_clip_hi_cv)) +
+  labs(
+    x = NULL,
+    y = "R² (weggelaten waterschap als testset)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position    = "none",
+    axis.text.x        = element_text(angle = 45, hjust = 1, size = 8),
+    strip.text         = element_text(face = "bold", size = 9),
+    strip.background   = element_blank(),
+    strip.clip         = "off",
+    panel.border       = element_rect(colour = "grey80", fill = NA, linewidth = 0.4)
+  )
+```
+
+```{r}
+#| label: fig-cv-rmse
+#| fig-cap: "Ruimtelijke CV (XGBoost): RMSE% per waterschap per doelvariabele (RMSE als percentage van het gemiddelde targetwaarde). Alleen waterschappen met ≥ 10 testlocaties."
+#| fig-height: 10
+#| fig-width: 12
+clip_pct <- 200
+
+cv_rmse_dt <- cv_results[!is.na(rmse_pct) & n_test >= min_n_test_cv & rmse_pct <= clip_pct]
+cv_rmse_dt[, target_nl := rf_target_names_dutch[target]]
+cv_rmse_dt <- cv_rmse_dt[!is.na(target_nl)]
+
+ws_rmse_order <- cv_rmse_dt[, .(mean_rmse = mean(rmse_pct, na.rm = TRUE)), by = waterschap][
+  order(-mean_rmse), waterschap]
+cv_rmse_dt[, waterschap := factor(waterschap, levels = ws_rmse_order)]
+
+ggplot(cv_rmse_dt, aes(x = waterschap, y = rmse_pct, fill = waterschap)) +
+  geom_col() +
+  geom_text(aes(label = n_test, y = 2), size = 2.5, color = "grey40") +
+  facet_wrap(~target_nl, scales = "free_x", ncol = 3) +
+  labs(
+    x = NULL,
+    y = "RMSE (% van gemiddelde targetwaarde)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position    = "none",
+    axis.text.x        = element_text(angle = 45, hjust = 1, size = 8),
+    strip.text         = element_text(face = "bold", size = 9),
+    strip.background   = element_blank(),
+    strip.clip         = "off",
+    panel.border       = element_rect(colour = "grey80", fill = NA, linewidth = 0.4)
+  )
+```
 
 ### HHSK als moeilijk te generaliseren gebied
 

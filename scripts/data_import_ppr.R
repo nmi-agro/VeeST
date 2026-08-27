@@ -23,22 +23,21 @@ source(paste0("scripts/functions/functions_veest.R"))
 # 1. Load hulpdata -------------------------------------------------
 ## 1.1 clusters ---------------------------------------
 cluster <- read_sf(paste0(workspace,"./GIS/clusters_versie20240318.gpkg"))
-setDT(cluster)
-cols_clus <- c('drlg','breedtewl','trofie',"A_SOM_LOI" ,"A_CLAY_MI" )
-cluster.med <- cluster[,lapply(.SD,median,na.rm=TRUE),.SDcols=cols_clus, by = 'clusters']
-setnames(cluster.med, c('clusters','drlg','breedtewl','trofie',"A_SOM_LOI" ,"A_CLAY_MI" ),
-         c('clusters','drglg','watbte','trofie',"OS_perc_OR_25" ,"Z_CLAY_SA_OR_25"))
 cluster <- st_as_sf(cluster)
 aan <- read_sf(paste0(workspace,"./GIS/AAN_niveau3b.shp"))
 aan_drglg_peil <- st_read(paste0(workspace,"./GIS/Peil_maaivel_drooglegging_veenpercelen.gpkg")) 
-# clust_aan_drglg_peil <- st_join(st_buffer(cluster, 0), aan_drglg_peil,
-#                join = st_intersects,
-#                largest = TRUE, 
-#                left = TRUE)
-#peil versus peil 
-#maaiveld versus maaiveld
+aan_drglg_peil$Zomerdrooglegging_m_NOBV <- aan_drglg_peil$Maaiveld_niveau_m_NAP-aan_drglg_peil$Zomerpeil_m_NAP
+cluster <- st_join(st_buffer(cluster, 0), aan_drglg_peil,
+               join = st_intersects,
+               largest = TRUE, 
+               left = TRUE)
+setDT(cluster)
+cols_clus <- c('drlg','breedtewl','trofie',"A_SOM_LOI" ,"A_CLAY_MI","Zomerpeil_m_NAP","Maaiveld_niveau_m_NAP","Zomerdrooglegging_m_NOBV")
+cluster.med <- cluster[,lapply(.SD,median,na.rm=TRUE),.SDcols=cols_clus, by = 'clusters']
+setnames(cluster.med, c('clusters','drlg','breedtewl','trofie',"A_SOM_LOI" ,"A_CLAY_MI","Zomerpeil_m_NAP","Maaiveld_niveau_m_NAP","Zomerdrooglegging_m_NOBV"),
+         c('clusters','drglg','watbte','trofie',"OS_perc_OR_25" ,"Z_CLAY_SA_OR_25","Zomerpeil_m_NAP","Maaiveld_niveau_m_NAP","Zomerdrooglegging_m_NOBV"))
 # plot(clust_aan_drglg_peil$drlg, clust_aan_drglg_peil$Maaiveld_niveau_m_NAP-clust_aan_drglg_peil$Zomerpeil_m_NAP)
-
+cluster <- st_as_sf(cluster)
 
 ## 1.2 load was/ wordt locaties-----------------------------------------
 locaties <- readxl::read_excel(paste0(workspace2, 'analysePlan/wp_locaties_naam_correcties.xlsx'), sheet = 'locaties')
@@ -56,7 +55,7 @@ locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
 clusters_locs <- st_join(locaties[!is.na(locaties$instanceID_veg) & !is.na(locaties$instanceID_abio) & !locaties$WP %in% 'WP2-prenul',], cluster, st_nearest_feature, left = TRUE)
 # sel verschillende indicatoren
 # afwatopp: oppvl/ (omtrek_nat/ 2) brede percelen met weinig sloten is een hoog getal, smalle percelen met veel sloten is laag
-clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort',"Sloot_nr","sloot","Behandeling","Oeverzijde","jaar",'Slibmonster_Bware','Oevermonster_AgroCares','WP','MeenemenDataAnalyse_totaal','clusters','trofie','omtrek_nat','omtrek_length','GEOMETRIE_Area','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text')])
+clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort',"Sloot_nr","sloot","Behandeling","Oeverzijde","jaar",'Slibmonster_Bware','Oevermonster_AgroCares','WP','MeenemenDataAnalyse_totaal','clusters','trofie','omtrek_nat','omtrek_length','GEOMETRIE_Area','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text','Zomerpeil_m_NAP','Maaiveld_niveau_m_NAP','Zomerdrooglegging_m_NOBV')])
 clusters_locs <- st_join(clusters_locs, aan, st_nearest_feature, left = TRUE)
 setDT(clusters_locs)
 # clusters_locs <- clusters_locs[WP %in% c('WP1','WP2','WP3'),]
@@ -496,6 +495,14 @@ gps26 <- gps26[,c('ID','name','Opmerking','trajecten','dist_id','geometry','X','
 ## add location info for filtering and correcting
 gps26[, gebied:= tstrsplit(name, "_")[1]]
 gps26[, sloot:= tstrsplit(name, "_")[2]]
+gps26[sloot == "nak", `:=`(
+  sloot = gebied,
+  gebied = "oukoop"
+)]
+gps26[sloot == "wak", `:=`(
+  sloot = paste0(gebied, "a"),
+  gebied = "oukoop"
+)]
 gps26[,sloot := as.character(sloot)]
 # correct dist id for multiple transects (2 oevers or 2 transects)
 gps26[,max_dis_id := max(dist_id), by = 'name']
@@ -505,6 +512,8 @@ gps26[,Opmerking := lapply(.SD, function(x) gsub("\\s+|\\s+", "",x)),.SDcols = c
 gps26[,plot := Opmerking]
 gps26[,gebied:= tolower(gebied)]
 gps26[,oever := sapply(strsplit(name, '_'), `[`, 4)]
+gps26[grepl('s1',oever), oever := sapply(strsplit(name, '_'), `[`, 5)]
+gps26[grepl('s2',oever), oever := sapply(strsplit(name, '_'), `[`, 5)]
 gps26[,oever:= toupper(oever)]
 gps26[name == 'SW_4_M_o',oever:= 'ZO']
 gps26[name == 'SW_4_M-AF_o',oever:= 'ZO']
@@ -671,15 +680,14 @@ slootID_penetrometerID <- dcast(penmerge, SlootID+name_gps+oever+jaar~dist_id) #
 # 3. Abiotiek ---------------------------------------------------------
 ## 3.1 import ----------------------------------------------------------
 inputdir <- paste0(workspace,"./ODK_abiotiek")
-abio <- file.info(list.files(path= paste0(inputdir), pattern=".csv", full.names =  T))
-abio <- rownames(abio)[which.max(abio$mtime)]
-abio <- fread(abio, dec = ',', na.strings = c(999,9999,-999,-99,'999,0','999,00','999,000','NA','999','999,0000'))
+abio <- fread(paste0(inputdir,'/VeeST_Veldform Abiotiek_v5_results_251104.csv'), dec = ',', na.strings = c(999,9999,-999,-99,'999,0','999,00','999,000','NA','999','999,0000'))
 abio2 <- fread("C:/Users/LauraMoria/NMI/NMI - Gedeelde documenten/Projecten/O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Data/./ODK_abiotiek/VeeST_Veldform Abiotiek_v5_results_251104.csv" , dec = ',', na.strings = c(999,9999,-999,-99,'999,0','999,00','999,000','NA','999','999,0000'))
-abio <- rbind(abio,abio2, fill=TRUE)
-abio[, datum := as.POSIXct(datemanual) ]
-abio[,jaar:= year(datum)]
 abio_cols <- fread(paste0(workspace,"./hulp_tabellen/veest_kolomnamen.csv"), dec = ',')
 setnames(abio, abio_cols$nieuwe_kolomnamen, abio_cols$oude_kolomnamen, skip_absent = TRUE)
+setnames(abio2, abio_cols$nieuwe_kolomnamen, abio_cols$oude_kolomnamen, skip_absent = TRUE)
+abio <- rbind(abio,abio2, fill=TRUE)
+abio[, datum := as.Date(Datemanual) ]
+abio[, jaar:= year(datum)]
 # remove columns without information
 cols <- colnames(abio)[unlist(abio[,lapply(.SD,function(x) sum(is.na(x))==nrow(abio))])]
 cols <- c(cols,"Date_start_auto","Date_end_auto","Device_ID","Datemanual","Waarnemer","Start_traject","End_traject",
@@ -687,6 +695,7 @@ cols <- c(cols,"Date_start_auto","Date_end_auto","Device_ID","Datemanual","Waarn
 abio[,c(cols):= NULL]
 # set data type
 abio[, water_redox := as.numeric(water_redox)]
+abio[, water_pH := as.numeric(water_pH)]
 # import onderholling
 oh <- readxl::read_excel(paste0(workspace, './ODK_abiotiek/Onderholling RH.xlsx'))
 setDT(oh)
@@ -927,6 +936,7 @@ veg <- fread(veg, sep= ';', dec = '.', na.strings = c(999,9999,-999,-99,'999,0',
 setnames(veg, abio_cols$nieuwe_kolomnamen, abio_cols$oude_kolomnamen, skip_absent = TRUE)
 veg[, datum := as.Date(Date_start_auto) ]
 veg[, jaar:= year(datum)]
+veg <- veg[!is.na(SlootID),] # fout in naamgeving
 # merge with unique/ koppelnames
 setDT(locaties)
 # veg_loc_instanceidcheck <- unique(veg[!instanceID %in% unique(locaties$instanceID_veg),c("SlootID",'jaar','instanceID')])
@@ -1103,9 +1113,9 @@ watbod_ac <- rbind(watbod_ac, watbod_ac_25, fill = TRUE)
 ## process data bodem
 # calc ratios
 watbod_ac[, feP_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
-watbod_ac[, feP_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`P2O5_xrf_g/kg`/ 70.97)]
+watbod_ac[, feP_XRF := (`Fe2O3_xrf_g/kg`/ 55.85)/(`P2O5_xrf_g/kg`/ 30.97)]
 watbod_ac[, feS_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`S_CC_mg/kg`/ 3206.5)]
-watbod_ac[, feS_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`SO3_xrf_g/kg`/ 80.063)]
+watbod_ac[, feS_XRF := (`Fe2O3_xrf_g/kg`/ 55.85)/(`SO3_xrf_g/kg`/ 30.97)]
 #calculate p-org
 watbod_ac[, `P_CC_org_mg/kg` := `P_CC_mg/kg` - `P-PO4_CC_mg/kg`]
 colnames(watbod_ac) <- paste0(colnames(watbod_ac),'_SB')
@@ -1249,9 +1259,9 @@ oever_ac_25[,jaar:= 2025]
 oever_ac <- rbind(oever_ac, oever_ac_25, fill = TRUE)
 #calc ratios
 oever_ac[, feP_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
-oever_ac[, feP_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`P2O5_xrf_g/kg`/ 70.97)]
+oever_ac[, feP_XRF := (`Fe2O3_xrf_g/kg`/ 55.85)/(`P2O5_xrf_g/kg`/ 30.97)]
 oever_ac[, feS_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`S_CC_mg/kg`/ 3206.5)]
-oever_ac[, feS_XRF := (`Fe2O3_xrf_g/kg`/ 79.85)/(`SO3_xrf_g/kg`/ 80.063)]
+oever_ac[, feS_XRF := (`Fe2O3_xrf_g/kg`/ 55.85)/(`SO3_xrf_g/kg`/ 32.97)]
 #calculate p-org
 oever_ac[, `P_CC_org_mg/kg` := `P_CC_mg/kg` - `P-PO4_CC_mg/kg`]
 oever_ac[, basen_bez := (`CA_CO_mmol+/kg` + `MG_CO_mmol+/kg` + `NA_CO_mmol+/kg` + `K_CO_mmol+/kg`) / `CEC_CO_mmol+/kg` * 100]
