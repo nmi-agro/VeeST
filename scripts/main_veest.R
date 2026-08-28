@@ -177,6 +177,11 @@ abio_proj[, .(
 ), by = .(afrastering_flag, drinken_flag)][order(afrastering_flag, drinken_flag)]
 
 ## indices berekenen -------------------------------
+# Hulpfunctie: rowMeans maar NA als alle waarden in een rij NA zijn
+rowMeans_na <- function(...) {
+  m <- cbind(...)
+  ifelse(rowSums(!is.na(m)) == 0, NA_real_, rowMeans(m, na.rm = TRUE))
+}
 
 # Kraggevorming vlag: groeiende oever als kraggen*breedte > 10 OF sluiting zone 2a én 2b > 90%
 abio_proj[, kraggevorming_flag := (
@@ -198,7 +203,7 @@ abio_proj[, erosieindex := {
   # Kraggevorming verlaagt index: 1 als geen kraggevorming, 0 als kraggevorming
   kragg_factor    <- fifelse(is.na(kraggevorming_flag), 1, fifelse(kraggevorming_flag, 0, 1))
   kaal_norm       <- fifelse(is.na(oeverzone_2b_kaal_perc), NA_real_, oeverzone_2b_kaal_perc / 100)
-  rowMeans(cbind(afscheur_norm, onderholling_norm, kaal_norm), na.rm = TRUE) * kragg_factor
+  rowMeans_na(afscheur_norm, onderholling_norm, kaal_norm) * kragg_factor
 }]
 
 # Oevervormindex: geometrie oever
@@ -211,7 +216,7 @@ abio_proj[, oevervormindex := {
   # Grilligheid: ordinale score (1-3 verwacht); normaliseer naar 0-1
   grillig_norm     <- fifelse(is.na(oeverzone_2b_grillig), NA_real_,
                               pmin((as.numeric(oeverzone_2b_grillig) - 1) / 2, 1))
-  rowMeans(cbind(talud_boven_norm, grillig_norm), na.rm = TRUE)
+  rowMeans_na(talud_boven_norm, grillig_norm)
 }]
 
 # Stabiliteitsindex: hoog = stabielere oever
@@ -239,9 +244,53 @@ abio_proj[, stabiliteitsindex := {
   dk_norm      <- fifelse(is.na(draagkracht_oever), NA_real_, draagkracht_oever / .dk_max)
   breedte_norm <- (fifelse(is.na(oevbte), 0, oevbte * 100) +
                    fifelse(is.na(oeverzone_2b_breedte_cm), 0, oeverzone_2b_breedte_cm)) / .breedte_max
-  rowMeans(cbind(emers_2a_norm, emers_2b_norm, dk_norm, breedte_norm, oevervormindex), na.rm = TRUE)
+  rowMeans_na(emers_2a_norm, emers_2b_norm, dk_norm, breedte_norm, oevervormindex)
 }]
 rm(.dk_max, .breedte_max)
+
+### indices visualiseren ------------------------------------
+
+# Histogram met subtitle per facet als interpretatiehulp
+# Gebruik scale_x labs met subtitle-achtige aanpak via strip labels uitgebreid
+
+idx_long[, index_label := factor(index,
+  levels = c("erosieindex","oevervormindex","stabiliteitsindex"),
+  labels = c(
+    "Erosieindex\n← weinig erosie    veel erosie →",
+    "Oevervormindex\n← steil, recht    flauw, grillig →",
+    "Stabiliteitsindex\n← instabiel    stabiel →"
+  )
+)]
+
+p_hist <- ggplot(idx_long, aes(x = waarde)) +
+  geom_histogram(bins = 30, na.rm = TRUE) +
+  facet_wrap(~index_label, scales = "free_x") +
+  labs(x = NULL, y = "Aantal", title = "Verdeling indices") +
+  theme(strip.text = element_text(size = 9))
+
+p_hist
+
+
+idx_gebied <- melt(
+  abio_proj[, .(Gebiedsnaam, erosieindex, oevervormindex, stabiliteitsindex)],
+  id.vars = "Gebiedsnaam",
+  measure.vars = c("erosieindex","oevervormindex","stabiliteitsindex"),
+  variable.name = "index", value.name = "waarde"
+)
+idx_gebied[, index_label := factor(index,
+  levels = c("erosieindex","oevervormindex","stabiliteitsindex"),
+  labels = c("Erosieindex", "Oevervormindex", "Stabiliteitsindex")
+)]
+
+# Sorteer gebieden op mediaan erosieindex
+gebied_order <- abio_proj[, .(med = median(erosieindex, na.rm = TRUE)), by = Gebiedsnaam][order(med), Gebiedsnaam]
+idx_gebied[, Gebiedsnaam := factor(Gebiedsnaam, levels = gebied_order)]
+
+ggplot(idx_gebied, aes(x = waarde, y = Gebiedsnaam)) +
+  geom_boxplot(outlier.size = 1) +
+  facet_wrap(~index_label, scales = "free_x") +
+  labs(x = "Indexwaarde", y = NULL, title = "Indices per gebied") +
+  theme(axis.text.y = element_text(size = 14))
 
 ## add grouping vars -------------------------------
 abio_proj[text == "Hoogheemraadschap De Stichtse Rijnlanden",waterschap := 'HDSR']

@@ -551,3 +551,39 @@ p_koeien_redox
 
 
 ## generiek pars aanpasbaar ----------------------------------------------------------------------------------------
+# Pas hier de variabelenamen aan; labs worden automatisch opgezocht in pars$varnames
+var_x <- "tldk_oevrwtr_graden"
+var_y <- "oeverindex"
+
+var_x <- "draagkracht_oever"
+var_y <- "Soortensamenstelling Hydrofyten"
+
+varnames <- function(var) {
+  lbl <- pars[tolower(variable) == tolower(var), varnames]
+  if (length(lbl) == 0 || is.na(lbl[1])) var else lbl[1]
+}
+
+cor_label_x <- min(abio_proj[[var_x]], na.rm = TRUE)
+cor_label_y <- max(abio_proj[[var_y]], na.rm = TRUE)
+
+ggplot(data = abio_proj[,], aes(x = .data[[var_x]], y = .data[[var_y]])) +
+  geom_jitter(aes(col = gebied, text = SlootID)) +
+  geom_smooth(method = "gam") +
+  stat_cor(aes(label = after_stat(rr.label)), label.x = cor_label_x, label.y = cor_label_y) +
+  theme_minimal() +
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_text(size = 10),
+    strip.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10, angle = 90),
+    axis.text.y = element_text(size = 12),
+    axis.ticks = element_line(colour = "black"),
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    panel.background = element_blank(),
+    plot.background = element_blank(),
+  ) +
+  labs(
+    title = paste("Relatie", varnames(var_x), "en", varnames(var_y)),
+    x = varnames(var_x),
+    y = varnames(var_y)
+  )
