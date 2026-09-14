@@ -116,6 +116,53 @@ $$Eh_7 = Eh_{\text{gemeten}} + (7 - pH_{\text{gemeten}}) \times 59$$
   - Diepteinterval draagkracht oever: 0-40 cm
 Daarnaast is de minimale draagkracht per zone berekend en de diepte waar deze is gemeten.
 
+**Diagnostiek: spreiding draagkracht in de tijd versus tussen gebieden**
+
+Draagkracht perceel (50–80 cm diepte) en draagkracht oever worden in de erosieindex- en vernattingsrisico-componentenplots als diagnostisch paneel getoond (draagkracht perceel telt mee in de erosieindexformule; draagkracht oever niet). Om te beoordelen hoe stabiel deze maten zijn, is voor locaties (`SlootID`) met metingen in twee of meer jaren de standaarddeviatie over de tijd berekend (within-locatie spreiding) en vergeleken met de standaarddeviatie tussen gebiedsgemiddelden (tussen-gebied spreiding).
+
+```{r}
+#| label: draagkracht-diagnostiek
+draagkracht_diag <- readRDS(paste0(workspace, "output/rapport/draagkracht_diagnostiek.rds"))
+setDT(draagkracht_diag)
+
+check_vars <- c(
+  "draagkracht_perceel_diep" = "Draagkracht perceel 50-80cm",
+  "draagkracht_oever" = "Draagkracht oever"
+)
+
+draagkracht_tab <- rbindlist(lapply(names(check_vars), function(v) {
+  d <- draagkracht_diag[!is.na(get(v)) & !is.na(SlootID) & !is.na(jaar),
+                         .(SlootID, jaar, Gebiedsnaam, waarde = get(v))]
+
+  n_per_loc <- d[, .N, by = SlootID]
+  multi_locs <- n_per_loc[N >= 2, SlootID]
+
+  d_multi <- d[SlootID %in% multi_locs]
+  within_sd <- mean(d_multi[, .(sd_loc = sd(waarde)), by = SlootID]$sd_loc, na.rm = TRUE)
+
+  gebied_means <- d[!is.na(Gebiedsnaam), .(mean_waarde = mean(waarde)), by = Gebiedsnaam]
+  between_sd <- sd(gebied_means$mean_waarde, na.rm = TRUE)
+
+  total_sd <- sd(d$waarde, na.rm = TRUE)
+
+  data.table(
+    Component = check_vars[[v]],
+    `Aantal meerjarige locaties` = length(multi_locs),
+    `Aantal locaties totaal` = uniqueN(d$SlootID),
+    `Within-locatie SD (tijd)` = round(within_sd, 3),
+    `Tussen-gebied SD` = round(between_sd, 3),
+    `Totale SD` = round(total_sd, 3)
+  )
+}))
+
+kable(draagkracht_tab)
+```
+
+Voor beide draagkrachtmaten is de spreiding binnen een locatie over de tijd van vergelijkbare orde van grootte als de spreiding tussen gebieden. Bij draagkracht perceel is de within-locatie spreiding zelfs licht groter dan de tussen-gebied spreiding; bij draagkracht oever is de tussen-gebied spreiding iets groter dan de within-locatie spreiding, maar het verschil is klein. Dit betekent dat een deel van de verschillen die in de gebieds-boxplots zichtbaar zijn, niet uitsluitend structurele verschillen tussen gebieden weerspiegelt, maar mede door jaar-op-jaar-variatie op dezelfde locatie kan worden verklaard (bijvoorbeeld door seizoensinvloeden, meetvariatie of lokale veranderingen).
+
+Kanttekening: de within-locatie SD is een ongewogen gemiddelde over locaties met wisselend aantal herhalingen (2 tot 4 jaar); bij slechts 2 metingen is een SD-schatting instabiel. Voor een robuustere, formele ontleding van de variantie (binnen-locatie, tussen-locatie-binnen-gebied, tussen-gebied) zou een variantiecomponenten-model (bv. `lmer(waarde ~ 1 + (1|Gebiedsnaam/SlootID))`) geschikter zijn.
+
+
 **Koebelasting drinkende koeien**: deze afgeleide variabele geeft een proxy voor de belasting van de oever door koeien die uit de sloot drinken (relevant voor vertrapping en begrazing van de oever). De afleiding volgt een beslisregel op basis van vier brondata: aanwezigheid van afrastering langs de sloot, of koeien al dan niet uit de sloot drinken, aanwezigheid van drinkbakken, en het aantal koeien/koedagen per perceel:
 
 - Is de sloot (deels) afgerasterd (`uitraster_perc_slootid` > 0%), dan wordt de koebelasting op 0 gezet — koeien hebben dan geen toegang tot het water.

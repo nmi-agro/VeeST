@@ -542,7 +542,7 @@ manual_exclude <- c(
   # P2O5_xrf in oever en slib is vergelijkbaar met P-AL -> P-AL aanhouden
   "P2O5_xrf_g/kg_OR_25", "P2O5_xrf_g/kg_OR_50", "P2O5_xrf_g/kg_SB",
   # P-AL op 50cm oever niet gebruiken, enkel op 25cm/slib
-  "P-AL mg p2o5/100g_OR_50", "P-AL mg/kg_OR_50",
+  "P-AL mg p2o5/100g_OR_50", "P-AL mg/kg_OR_50",  "P-AL mg/kg_OR_25", "P-AL mg/kg_SB",
   # Cl in umol/l dubbel met mg/l -> mg/l aanhouden
   # (kolomnamen bevatten na clean_micro() 'umol', niet 'µmol')
   "Cl_umol/l_OW", "Cl_2_umol/l_OW", "Cl_umol/l_PW", "Cl_2_umol/l_PW",
