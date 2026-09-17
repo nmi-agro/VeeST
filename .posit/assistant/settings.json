@@ -5,6 +5,9 @@
   "permission": {
     "edit": {
       "*.R": "allow"
+    },
+    "executeCode": {
+      "*": "allow"
     }
   }
 }

@@ -67,7 +67,18 @@ abio_proj <- merge(abio_proj, veg_ekr_oev, by.x = c('SlootID','jaar'), by.y = c(
 ## clusters en locatiedata --------------------------------------------------------
 #!!! check slootID jaar combinatie uniek (is nu niet het geval in clusters_locs)
 clusters_locs[, jaar := as.integer(jaar)]
-abio_proj <- merge(abio_proj, clusters_locs[,-c('geom')], by = c('SlootID','jaar'), all.x = T, suffixes = c('','_clust'))
+## WP en MeenemenDataAnalyse_totaal komen inmiddels al correct, per
+## instanceID_abio, uit abio_hier (zie data_import_ppr.R). clusters_locs is
+## niet uniek per SlootID+jaar bij sloten met zowel een WP2-prenul- als een
+## WP2-meting in hetzelfde jaar; zonder deze twee kolommen hier uit te
+## sluiten zou de merge (die alleen op SlootID+jaar koppelt, niet op
+## instanceID_abio/WP) de al-juiste vlag van bv. de prenulmeting
+## overschrijven met die van de WP2-meting van dezelfde sloot/jaar.
+abio_proj <- merge(
+  abio_proj,
+  clusters_locs[, -c('geom', 'WP', 'MeenemenDataAnalyse_totaal')],
+  by = c('SlootID','jaar'), all.x = T, suffixes = c('','_clust')
+)
 abio_proj <- abio_proj[!is.na(SlootID),]
 check_db <- locaties[!SlootID %in% unique(clusters_locs$SlootID),]
 # Unieke sleutel op SlootID + jaar
@@ -872,5 +883,16 @@ veraardveen[Slootcode == SlootID_test, .N]
 melt[is.na(WP) | WP == "", .N, by = .(Gebiedsnaam, jaar)]
 abio_proj[is.na(WP) | WP == "", .N, by = .(Gebiedsnaam, jaar)]
 
+## alles db ---------------------------------------------------------
+# Find duplicate SlootID-jaar combinations
+abio_proj <- abio_proj[WP %in% c('WP1','WP2','Oukoop'),]
+# LET OP: met intanceID filter worden ook opnamen zonder vegetatie weggefilterd
+abio_proj <- abio_proj[!is.na(SlootID) & !is.na(jaar) & !is.na(instanceID_veg) & !is.na(instanceID_abio) , ]
+dubbelen <- abio_proj[, .N, by = c('SlootID','jaar','instanceID_veg','instanceID_abio')][N > 1]
+# wegschrijven tabel
+write.table(abio_proj, file = paste(workspace,"output/Database/db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), quote = TRUE, na = "", sep =';', dec = '.',row.names = FALSE, fileEncoding = "UTF-8")
+write.table(abio_proj, file = paste(workspace2,"db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), quote = TRUE, na = "", sep =';', dec = '.',row.names = FALSE, fileEncoding = "UTF-8")
+# fwrite(abio_proj, file = paste0(workspace,"output/Database/db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv"), na = "", sep =';', dec = '.', bom = TRUE)
+# fwrite(abio_proj, file = paste0(workspace2,"db_veest",format(Sys.time(),"%Y%m%d%H%M"),".csv"), na = "", sep =';', dec = '.', bom = TRUE)
 
 

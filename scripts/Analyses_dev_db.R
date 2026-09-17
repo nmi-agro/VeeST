@@ -26,7 +26,7 @@ is_constant_within_year <- function(dt, col) {
 # 0. filter correct data 4 analysis ----------------------------------------------------
 abio_proj <- abio_proj[WP %in% c('WP1','WP2'),]
 abio_proj <- abio_proj[!is.na(SlootID) & !is.na(jaar) & !is.na(instanceID_veg) & !is.na(instanceID_abio) , ]
-abio_proj <- abio_proj[MeenemenDataAnalyse_totaal == 'ja',] # voor xgboost
+
 # 1 cluster analyse vergelijking met kaart clusters uit verkenningsfase--------------------------------------------------------
 setDT(abio_proj)
 # abio variabelen volgens jouw mapping:
@@ -449,7 +449,7 @@ setDT(pars)
 abio_base <- copy(abio_proj)[
   WP %in% c("WP1", "WP2") &
     !is.na(SlootID) & !is.na(jaar) &
-    !is.na(instanceID_veg) & !is.na(instanceID_abio)
+    !is.na(instanceID_veg) & !is.na(instanceID_abio) & MeenemenDataAnalyse_totaal == 'ja'
 ]
 
 # Kolomnamen met µ/μ geven encoding-problemen op bij data.table's .SD/lapply
@@ -504,7 +504,15 @@ liab_m3_drop <- unique(
   abio_map[var_norm %chin% drop_norm, abio_name]
 )
 
-drop_cols <- unique(c(admin_cols, no_variation_cols, liab_m3_drop))
+## --- OW (oppervlaktewater) DROP ---
+## Oppervlaktewatermetingen zijn eenmalige metingen die sterk kunnen
+## varieren in de tijd (afhankelijk van weer, seizoen, moment van
+## bemonstering); ze hebben daardoor beperkte zeggingskracht t.o.v.
+## slib/bodem/poriewater. Alle kolommen met suffix "_OW" worden daarom
+## uitgesloten van de clusteranalyse.
+ow_drop <- setdiff(names(abio_base)[grepl("_OW$", names(abio_base))], keep_cols)
+
+drop_cols <- unique(c(admin_cols, no_variation_cols, liab_m3_drop, ow_drop))
 drop_cols <- intersect(drop_cols, names(abio_base))
 
 abio_proj_clean <- abio_base[, setdiff(names(abio_base), drop_cols), with = FALSE]
@@ -532,23 +540,74 @@ if (length(remaining_liab_m3) > 0L) {
 ## 3) variabelenselectie >= 75% ----------
 id_exclude <- c(
   "SlootID", "jaar", "WP", "instanceID_veg", "instanceID_abio",
-  "geom", "geometry", "clusters", "cluster_abio", "cluster_loc"
+  "geom", "geometry", "clusters", "cluster_abio", "cluster_loc",
+  "MeenemenDataAnalyse_totaal", "vera_zone_1", "vera_zone_2", "vera_zone_3" 
 )
-
+  
 ## Handmatige exclusie: variabelen die inhoudelijk hetzelfde indiceren als
-## een andere variabele die al is opgenomen, of dubbel voorkomen met
-## verschillende eenheden.
-manual_exclude <- c(
-  # P2O5_xrf in oever en slib is vergelijkbaar met P-AL -> P-AL aanhouden
-  "P2O5_xrf_g/kg_OR_25", "P2O5_xrf_g/kg_OR_50", "P2O5_xrf_g/kg_SB",
-  # P-AL op 50cm oever niet gebruiken, enkel op 25cm/slib
-  "P-AL mg p2o5/100g_OR_50", "P-AL mg/kg_OR_50",  "P-AL mg/kg_OR_25", "P-AL mg/kg_SB",
-  # Cl in umol/l dubbel met mg/l -> mg/l aanhouden
-  # (kolomnamen bevatten na clean_micro() 'umol', niet 'µmol')
-  "Cl_umol/l_OW", "Cl_2_umol/l_OW", "Cl_umol/l_PW", "Cl_2_umol/l_PW",
-  # Natrium in oppervlaktewater (umol/l) mag weg, poriewater (umol/l) blijft
-  "Na_umol/l_OW", "Na_2_umol/l_OW"
+## een andere variabele die al is opgenomen (zelfde parameter, andere eenheid
+## of andere extractiemethode met sterke onderlinge correlatie). Dit staat
+## als data.table (variable + reden + aangehouden) i.p.v. losse comments,
+## zodat het rapport (rapport_modellering_VeeST.qmd) deze redenen automatisch
+## kan tonen zonder dat de rapporttekst handmatig moet worden bijgewerkt als
+## deze lijst verandert.
+## (Alle _OW (oppervlaktewater) variabelen zijn al eerder verwijderd via
+## ow_drop, dus PW/OW-duplicaten komen hier niet meer voor.)
+manual_exclude_dt <- data.table(
+  variable = c(
+    "P2O5_xrf_g/kg_OR_50", "P2O5_xrf_g/kg_SB",
+    "P-AL mg p2o5/100g_OR_50", "P-AL mg/kg_OR_50", "P-AL mg/kg_OR_25", "P-AL mg/kg_SB",
+    "Na_CC_mg/kg_SB",
+    "Na_mmol/kg DW_SB", "Na_umol/l_PW", "Na_2_umol/l_PW",
+    "Cl_umol/l_PW", "Cl_2_umol/l_PW",
+    "water_conductiviteit_uS_cm", "slib_conductiviteit_uS_cm", "EGV_us/cm_PW",
+    "Cr_xrf_mg/kg_SB",
+    "FE_CO_mmol+/kg_OR_25", "feP_CC_OR_25",
+    "CEC_CO_mmol+/kg_OR_25",
+    "Al2O3_xrf_g/kg_SB", "Al_mmol/kg DW_SB",
+    "lat", "lon",
+    "P_CC_org_mg/kg_OR_25", "P_CC_org_mg/kg_OR_50", "P_CC_org_mg/kg_SB",
+    "CA_CO_mmol+/kg_OR_25",
+    "aantal_waterplanten_totaal",
+    "feS_XRF_SB", "Cr_xrf_mg/kg_OR_50", "K2O_xrf_g/kg_OR_25",
+    "Al2O3_xrf_g/kg_OR_25", "TiO2_xrf_g/kg_OR_25",
+    "Ba_xrf_mg/kg_OR_25", "Ba_xrf_mg/kg_OR_50",
+    "MgO_xrf_g/kg_SB", "Ni_xrf_mg/kg_OR_25",
+    "shannon_index_zone_1", "SO3_xrf_g/kg_SB", "B_CC_ug/kg_SB",
+    "aantal_waterplanten_zone_1",
+    "Maaiveld_niveau_m_NAP","wl","Zomerpeil_m_NAP","Zomerdrooglegging_m_NOBV"
+  ),
+  reden = c(
+    rep("P2O5_xrf in oever (50cm) en slib is vergelijkbaar met P-AL -> P-AL aanhouden. P2O5_xrf_g/kg_OR_25 blijft wel aangehouden: zwakke correlatie met P-AL slib (Pearson r ~ 0.40) maar zelfstandig sterk clusteronderscheidend (eta2 ~ 0.80).", 2),
+    rep("P-AL op 50cm oever niet gebruiken, enkel op 25cm/slib; P-AL mg/kg is dezelfde meting als P-AL mg p2o5/100g in andere eenheid -> mg p2o5/100g aanhouden.", 4),
+    "Na2O_xrf (totaal-Na, XRF) en Na_CC (CaCl2-extraheerbaar Na) in slib zijn sterk gecorreleerd (Pearson r ~ 0.94, Spearman rho ~ 0.74) -> Na2O_xrf_g/kg_SB aanhouden, Na_CC als redundant weglaten.",
+    rep("Na en Cl zijn conservatieve ionen (verzilting/kwel) en daardoor sterk gecorreleerd, zowel in poriewater (Pearson r ~ 0.98) als in slib (Pearson r ~ 0.89) -> Cl aanhouden (voorkeur), Na-varianten als redundant weglaten.", 3),
+    rep("Cl in umol/l is dezelfde meting als Cl in mg/l -> mg/l aanhouden (umol-varianten na clean_micro() herkenbaar aan 'umol', niet 'µmol').", 2),
+    rep("water_conductiviteit, slib_conductiviteit en EGV meten allen (nagenoeg) dezelfde geleidbaarheid en correleren sterk met Cl en Na -> bewust volledig weglaten, aangezien Cl al als aparte variabele in de analyse zit.", 3),
+    "Cr_xrf oever (0-25) en Cr_xrf slib zijn sterk gecorreleerd op SlootID-niveau (Pearson r ~ 0.97, Spearman rho ~ 0.85) -> Cr_xrf_mg/kg_OR_25 aanhouden, Cr_xrf_mg/kg_SB als redundant weglaten.",
+    rep("Fe_CC, FE_CO en feP_CC (Fe/P-ratio, allen oeverdiepte 0-25) zijn onderling sterk gecorreleerd (Pearson r ~ 0.87-0.95), omdat de Fe/P-ratio wiskundig sterk wordt gedreven door de Fe-concentratie zelf -> FE_CO en feP_CC als redundant weglaten, Fe_CC_mg/kg_OR_25 (losse Fe-maat) aanhouden.", 2),
+    "CaO_xrf en CEC_CO (allen oeverdiepte 0-25) zijn sterk gecorreleerd met CA_CO (Pearson r ~ 0.90-0.94), omdat Ca doorgaans het dominante kation in de kationuitwisselingscapaciteit (CEC) is -> CaO_xrf_g/kg_OR_25 aanhouden (losse Ca-maat), CEC_CO als redundant weglaten.",
+    rep("Al2O3_xrf_g/kg_SB en Al_mmol/kg DW_SB (beide slib) zijn sterk gecorreleerd met Ga_xrf_mg/kg_SB (Pearson r ~ 0.85-0.90); Ga is geochemisch een proxy voor aluminiumhoudende kleimineralen en fungeert hier feitelijk als indirecte Al-indicator -> beide Al-varianten als redundant weglaten, Ga_xrf_mg/kg_SB aanhouden.", 2),
+    rep("Geografische coördinaat, geen inhoudelijke abiotische variabele.", 2),
+    rep("P_CC_org is een berekende variabele (P_CC_mg/kg - P-PO4_CC_mg/kg, zie data_import_ppr.R) en dus een lineaire combinatie van twee variabelen die zelf al los in de clusteranalyse zitten (P_CC_mg/kg en P-PO4_CC_mg/kg) -> P_CC_org als redundant weglaten, de twee brontermen aanhouden.", 3),
+    "CA_CO_mmol+/kg_OR_25 is sterk gecorreleerd met CaO_xrf_g/kg_OR_25 (Pearson r ~ 0.90-0.94, zie hierboven) -> CA_CO als redundant weglaten, CaO_xrf_g/kg_OR_25 aanhouden.",
+    "aantal_waterplanten_totaal is sterk gecorreleerd met aantal_soorten_zone_1 (Pearson r ~ 0.87) -> aantal_waterplanten_totaal als redundant weglaten, aantal_soorten_zone_1 aanhouden.",
+    "feS_DW_SB en feS_XRF_SB (beide FeS-verhouding in slib, verschillende methode) zijn sterk gecorreleerd (Pearson r ~ 0.95, Spearman rho ~ 0.92) -> feS_XRF_SB als redundant weglaten, feS_DW_SB aanhouden.",
+    "Cr_xrf_mg/kg_OR_25 en Cr_xrf_mg/kg_OR_50 (beide oeverdiepte, verschillende diepte) zijn sterk gecorreleerd op SlootID-niveau (Pearson r ~ 0.89, Spearman rho ~ 0.87) -> Cr_xrf_mg/kg_OR_25 aanhouden (ondiepere, meer biologisch relevante laag), Cr_xrf_mg/kg_OR_50 als redundant weglaten.",
+    "K2O_xrf_g/kg_OR_25 en MgO_xrf_g/kg_OR_25 (beide oeverdiepte 0-25) zijn sterk gecorreleerd (Pearson r ~ 0.87, Spearman rho ~ 0.86) -> MgO_xrf_g/kg_OR_25 aanhouden, K2O_xrf_g/kg_OR_25 als redundant weglaten.",
+    "Al2O3_xrf_g/kg_OR_25 en MgO_xrf_g/kg_OR_25 (beide oeverdiepte 0-25) zijn sterk gecorreleerd (Pearson r ~ 0.92, Spearman rho ~ 0.92) -> MgO_xrf_g/kg_OR_25 aanhouden (al aangehouden i.v.m. K2O, zie hierboven), Al2O3_xrf_g/kg_OR_25 als redundant weglaten.",
+    "TiO2_xrf_g/kg_OR_25 en MgO_xrf_g/kg_OR_25 (beide oeverdiepte 0-25) zijn sterk gecorreleerd (Pearson r ~ 0.88, Spearman rho ~ 0.88), beide gedreven door hetzelfde kleimineraal/textuursignaal (zie toelichting hierboven) -> MgO_xrf_g/kg_OR_25 aanhouden (al aangehouden i.v.m. K2O en Al2O3, zie hierboven), TiO2_xrf_g/kg_OR_25 als redundant weglaten.",
+    "Ba_xrf_mg/kg_OR_25, Ba_xrf_mg/kg_OR_50 en Ba_xrf_mg/kg_SB (zelfde element, verschillende diepte/compartiment) zijn onderling sterk gecorreleerd (Pearson r ~ 0.82-0.90, Spearman rho ~ 0.81-0.90) -> Ba_xrf_mg/kg_SB aanhouden, de twee oevervarianten (0-25 en 25-50) als redundant weglaten.",
+    "Mg_mmol/kg DW_SB en MgO_xrf_g/kg_SB (beide slib, verschillende extractiemethode) zijn sterk gecorreleerd (Pearson r ~ 0.91, Spearman rho ~ 0.89) -> Mg_mmol/kg DW_SB aanhouden, MgO_xrf_g/kg_SB als redundant weglaten.",
+    "Ni_xrf_mg/kg_OR_25 en Ni_xrf_mg/kg_SB (zelfde element, verschillend compartiment) zijn sterk gecorreleerd (Pearson r ~ 0.83, Spearman rho ~ 0.80) -> Ni_xrf_mg/kg_SB aanhouden, Ni_xrf_mg/kg_OR_25 als redundant weglaten.",
+    "aantal_soorten_zone_1, shannon_index_zone_1 en aantal_waterplanten_zone_1 (alle vegetatie-indices in zone 1) zijn onderling sterk gecorreleerd (Pearson r ~ 0.86-0.93, Spearman rho ~ 0.90-0.99) -> aantal_soorten_zone_1 aanhouden (eenvoudigste, breedste maat: alle groeivormen), shannon_index_zone_1 en aantal_waterplanten_zone_1 als redundant weglaten.",
+    "S_mmol/kg DW_SB en SO3_xrf_g/kg_SB (beide slib, verschillende extractiemethode) zijn sterk gecorreleerd (Pearson r ~ 0.93, Spearman rho ~ 0.93) -> S_mmol/kg DW_SB aanhouden, SO3_xrf_g/kg_SB als redundant weglaten.",
+    "B_CC_ug/kg_SB en Mg_CC_mg/kg_SB (beide slib, CaCl2-extractie) zijn sterk gecorreleerd (Pearson r ~ 0.91, Spearman rho ~ 0.90) -> Mg_CC_mg/kg_SB aanhouden, B_CC_ug/kg_SB als redundant weglaten.",
+    "aantal_waterplanten_zone_1 is sterk gecorreleerd met aantal_soorten_zone_1 (Pearson r ~ 0.87) -> aantal_waterplanten_zone_1 als redundant weglaten, aantal_soorten_zone_1 aanhouden.",
+    "Maaiveld_niveau_m_NAP, wl, Zomerpeil_m_NAP en Zomerdrooglegging_m_NOBV zijn alle veldmetingen van waterpeil/hoogteligging ten opzichte van NAP en sterk gecorreleerd (Pearson r ~ 0.80-0.95) -> Zomerpeil_m_NAP aanhouden (meest representatief), de andere drie als redundant weglaten."
+  )
 )
+manual_exclude <- manual_exclude_dt$variable
 manual_exclude <- intersect(manual_exclude, names(abio_proj_clean))
 abio_proj_clean <- abio_proj_clean[, setdiff(names(abio_proj_clean), manual_exclude), with = FALSE]
 
@@ -579,6 +638,15 @@ abio_sid <- abio_proj_clean[
   .SDcols = selected_vars
 ]
 
+## Gebiedsnaam per SlootID koppelen (voor rapportagetabellen, niet als
+## clustervariabele gebruikt): uit abio_proj, dat de gevulde/fallback-Gebiedsnaam
+## bevat (zie main_veest.R). Bij meerdere jaren per SlootID wordt de eerste
+## niet-NA Gebiedsnaam aangehouden.
+gebiedsnaam_sid <- unique(
+  abio_proj[!is.na(SlootID) & !is.na(Gebiedsnaam), .(SlootID, Gebiedsnaam)]
+)[, .SD[1], by = SlootID]
+abio_sid <- merge(abio_sid, gebiedsnaam_sid, by = "SlootID", all.x = TRUE)
+
 abio_sid[, (selected_vars) := lapply(.SD, function(x) {
   x <- as.numeric(x)
   x[!is.finite(x)] <- NA_real_
@@ -595,6 +663,58 @@ vars_km <- selected_vars[var_ok]
 
 if (length(vars_km) < 3L) {
   stop("Te weinig variabelen met variatie na opschonen.")
+}
+
+## Log10-transformatie van P-, FeS-, MO-, Al- en Cl-variabelen vóór kmeans ----------
+## Alle fosforfracties, de Fe/S-verhouding, molybdeen (MO), aluminium (Al,
+## exch.) en chloride in het poriewater zijn sterk rechtsscheef (een klein
+## aantal hotspot-sloten domineert anders de Euclidische afstand in kmeans,
+## zie eerdere boxplot-log10-as en correlatie-analyse). In plaats van een
+## handmatige lijst worden P-, FeS-, MO- en Al-gerelateerde variabelen in
+## `vars_km` automatisch opgezocht via de parameter-metadata
+## (`pars$parameter`), zodat nieuwe/andere fracties (bijv. P_CO, P-PO4_CC)
+## automatisch meegenomen worden zonder deze code aan te passen. Fe/P-
+## ratio's ("Fe/P") vallen hier bewust buiten, want dat zijn geen
+## concentraties maar verhoudingsmaten; Fe/S ("Fe/S"), MO ("MO") en Al ("Al",
+## exch.) worden wel meegenomen, want dit betreft de concentraties zelf, niet
+## ratio's van twee losse variabelen. Cl_mg_l_PW (chloride poriewater) staat
+## niet in pars (buiten de parameter-metadata om aangemaakt) en wordt daarom
+## los toegevoegd. Alleen strikt positieve variabelen worden log10-
+## getransformeerd; een variabele met negatieve/nul-waarden (bijv. door
+## interpolatie/opschoning) wordt overgeslagen en gerapporteerd, zodat dit
+## niet stilzwijgend gebeurt.
+p_parameter_values <- c(
+  "Phosphorus(M3)", "Phosphorustotal", "P", "P-CC", "P-org",
+  "P2O5", "P-AL", "PO4-CC", "P (CaCl2)", "P (water)"
+)
+fes_parameter_values <- c("Fe/S")
+mo_parameter_values <- c("MO")
+al_parameter_values <- c("Al")
+log_parameter_values <- c(p_parameter_values, fes_parameter_values, mo_parameter_values, al_parameter_values)
+cl_extra_vars <- c("Cl_mg_l_PW")
+p_vars_candidates <- union(
+  intersect(pars[parameter %in% log_parameter_values, unique(variable)], vars_km),
+  intersect(cl_extra_vars, vars_km)
+)
+
+p_vars_positive <- vapply(
+  p_vars_candidates,
+  function(v) all(abio_sid[[v]] > 0, na.rm = TRUE),
+  logical(1)
+)
+log_transform_vars <- p_vars_candidates[p_vars_positive]
+p_vars_skipped <- p_vars_candidates[!p_vars_positive]
+
+if (length(p_vars_skipped) > 0L) {
+  message(
+    "Let op: P-variabele(n) niet log10-getransformeerd wegens niet-strikt-positieve waarden: ",
+    paste(p_vars_skipped, collapse = ", ")
+  )
+}
+
+if (length(log_transform_vars) > 0L) {
+  stopifnot(all(vapply(log_transform_vars, function(v) all(abio_sid[[v]] > 0), logical(1))))
+  abio_sid[, (log_transform_vars) := lapply(.SD, log10), .SDcols = log_transform_vars]
 }
 
 ## 5) kmeans ----------
@@ -632,8 +752,52 @@ eta2_dt <- rbindlist(lapply(vars_km, function(v) {
   data.table(variable = v, eta2 = ifelse(ss_total > 0, ss_between / ss_total, NA_real_))
 }), use.names = TRUE)[order(-eta2)]
 
-top_n <- min(12L, nrow(eta2_dt))
+top_n <- min(16L, nrow(eta2_dt))
 top_vars <- eta2_dt[1:top_n, variable]
+
+## Automatische redundantie-check binnen top_vars ----------
+## Bij elke herberekening van top_n/top_vars (bv. na wijzigingen in
+## manual_exclude, log-transformaties of top_n zelf) wordt hier gecontroleerd
+## of er onderling sterk gecorreleerde variabelen in de top-selectie zitten
+## (Pearson en Spearman, op SlootID-niveau/abio_sid). Dit signaleert
+## mogelijke resterende redundantie (zoals eerder gevonden bij Cr_xrf,
+## Fe_CO/Fe_CC/feP_CC, Na2O_xrf/Na_CC) zodat die desgewenst alsnog aan
+## manual_exclude toegevoegd kan worden. Drempel: |r| >= 0.8 (zowel Pearson
+## als Spearman) wordt als "sterk" gemarkeerd; 0.6-0.8 als "matig".
+cor_check_dt <- abio_sid[!is.na(cluster_abio), ..top_vars]
+cor_pearson <- cor(cor_check_dt, use = "pairwise.complete.obs", method = "pearson")
+cor_spearman <- cor(cor_check_dt, use = "pairwise.complete.obs", method = "spearman")
+
+cor_pairs_dt <- {
+  cp <- as.data.table(as.table(cor_pearson))
+  setnames(cp, c("var1", "var2", "pearson"))
+  cs <- as.data.table(as.table(cor_spearman))
+  setnames(cs, c("var1", "var2", "spearman"))
+  merged <- merge(cp, cs, by = c("var1", "var2"))
+  merged <- merged[as.character(var1) < as.character(var2)]
+  merged[, sterkte := fifelse(
+    abs(pearson) >= 0.8 & abs(spearman) >= 0.8, "sterk",
+    fifelse(abs(pearson) >= 0.6 | abs(spearman) >= 0.6, "matig", "zwak")
+  )]
+  merged[order(-abs(pearson))]
+}
+
+redundante_paren <- cor_pairs_dt[sterkte == "sterk"]
+if (nrow(redundante_paren) > 0L) {
+  message(
+    "Let op: ", nrow(redundante_paren),
+    " sterk gecorreleerd(e) paar/paren (|Pearson r| en |Spearman rho| >= 0.8) binnen top_vars:\n",
+    paste(
+      sprintf(
+        "  %s <-> %s (r=%.2f, rho=%.2f)",
+        redundante_paren$var1, redundante_paren$var2,
+        redundante_paren$pearson, redundante_paren$spearman
+      ),
+      collapse = "\n"
+    ),
+    "\nOverweeg deze aan manual_exclude toe te voegen als het om echte redundantie gaat."
+  )
+}
 
 ## 7) boxplots ----------
 box_dt <- melt(
@@ -643,16 +807,167 @@ box_dt <- melt(
   value.name = "waarde"
 )
 
+## Variabelen die vóór kmeans al log10-getransformeerd zijn (zie
+## log_transform_vars hierboven) staan in box_dt nog op log10-schaal.
+## Terugtransformeren naar de werkelijke (niet-log) waarden, zodat de
+## boxplot straks de echte grootheden toont; de as krijgt hieronder alsnog
+## een log10-schaal (net als de overige scheve P/Fe-variabelen) puur voor
+## leesbaarheid, maar dan met labels in de werkelijke eenheid.
+pretransformed_vars <- intersect(log_transform_vars, top_vars)
+if (length(pretransformed_vars) > 0L) {
+  box_dt[variabele %in% pretransformed_vars, waarde := 10^waarde]
+}
+
+## Leesbare facet-titels o.b.v. pars$varnames (i.p.v. ruwe kolomnaam) ----------
+## pars$variable kan nog µ bevatten; top_vars is al door clean_micro() gehaald,
+## dus matchen we op een genormaliseerde (clean_micro) kopie van pars$variable.
+pars[, variable_clean := clean_micro(variable)]
+varname_lookup <- unique(pars[!is.na(varnames), .(variable_clean, varnames)])
+varname_lookup <- varname_lookup[!duplicated(variable_clean)]
+
+facet_labels <- varname_lookup[match(levels(box_dt$variabele), variable_clean), varnames]
+facet_labels[is.na(facet_labels)] <- levels(box_dt$variabele)[is.na(facet_labels)]
+## Vegetatie-indexvariabelen (uit Indices_soortenrijkdom_*.xlsx) staan niet in
+## pars en krijgen daarom hierboven hun ruwe kolomnaam als label; enkele
+## daarvan zijn dubbelzinnig genoeg om hier expliciet een leesbare naam te
+## geven.
+manual_facet_labels <- c(
+  "aantal_soorten_zone_1" = "Aantal plantensoorten zone 1 (submers, wortelend drijfblad en kroos)"
+)
+facet_labels[levels(box_dt$variabele) %in% names(manual_facet_labels)] <-
+  manual_facet_labels[levels(box_dt$variabele)[levels(box_dt$variabele) %in% names(manual_facet_labels)]]
+## Lange namen over meerdere regels afbreken zodat facet-titels leesbaar
+## blijven i.p.v. afgekapt te worden.
+facet_labels <- stringr::str_wrap(facet_labels, width = 22)
+names(facet_labels) <- levels(box_dt$variabele)
+
+box_dt[, variabele_label := factor(
+  variabele,
+  levels = levels(variabele),
+  labels = facet_labels[levels(variabele)]
+)]
+
+## Okabe-Ito kleuren, consistent over boxplot en kaart, gekoppeld aan
+## de daadwerkelijke clusterniveaus (i.p.v. positie) zodat kleur <-> cluster
+## overal hetzelfde blijft.
+okabe_ito_base <- c(
+  "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+  "#0072B2", "#D55E00", "#CC79A7", "#999999", "#000000"
+)
+cluster_levels <- levels(abio_sid$cluster_abio)
+cluster_kleuren <- setNames(
+  rep(okabe_ito_base, length.out = length(cluster_levels)),
+  cluster_levels
+)
+
+## Log10-as voor scheve P- en Fe(/P)-gerelateerde variabelen ----------
+## P_mmol/kg DW_SB, P2O5_xrf_g/kg_OR_25 en P-AL mg p2o5/100g_OR_25 zijn vóór
+## kmeans op log10-schaal gezet (zie log_transform_vars hierboven), maar zijn
+## hierboven teruggetransformeerd naar de werkelijke waarden in box_dt. Deze
+## variabelen krijgen daarom, samen met de overige scheve P/Fe-variabelen
+## (die niet in de kmeans-input werden getransformeerd), een log10-as met
+## labels in de werkelijke eenheid, puur voor leesbaarheid van de boxplot.
+log_parameters <- c("P", "P2O5", "P-AL", "PO4-CC", "Fe", "Fe/P")
+log_vars <- unique(pars[parameter %chin% log_parameters, variable_clean])
+log_vars <- union(intersect(log_vars, top_vars), pretransformed_vars)
+
+## "(log10)" aan de facet-titel toevoegen voor alle variabelen die op een
+## log10-as worden getoond, zodat duidelijk is dat de as-schaal (niet de
+## getoonde waarden zelf) logaritmisch is.
+log_facet_labels <- unique(as.character(box_dt[variabele %in% log_vars, variabele_label]))
+if (length(log_facet_labels) > 0L) {
+  levels(box_dt$variabele_label)[levels(box_dt$variabele_label) %in% log_facet_labels] <-
+    paste0(log_facet_labels, "\n(log10)")
+}
+
+## Per-facet y-as begrenzen op whisker-bereik (1.5*IQR) voor lineaire
+## variabelen, zodat een enkele hoge cluster met sterke uitschieters niet de
+## hele y-as domineert. Belangrijk: de whiskers worden per CLUSTER berekend
+## (net als geom_boxplot() zelf doet), en de as-limiet is de omvattende range
+## over alle clusters heen -- anders vallen boxplots van clusters met een
+## grotere spreiding buiten een op de gepoolde data gebaseerde limiet (zoals
+## bijv. Mg poriewater cluster 4). Punten buiten dit bereik blijven zichtbaar
+## als outlier-stippen (afgekapt door scale-limits). Kleine marge (5%) om de
+## box/whiskers niet tegen de rand te laten aansluiten. Voor log_vars
+## gebruiken we in plaats daarvan een log10-schaal (zie scales_y hieronder).
+y_limits_dt <- box_dt[
+  !is.na(waarde) & !variabele %in% log_vars,
+  {
+    data_min <- min(waarde, na.rm = TRUE)
+    data_max <- max(waarde, na.rm = TRUE)
+    per_cluster <- .SD[, {
+      qs <- quantile(waarde, c(0.25, 0.75), na.rm = TRUE)
+      iqr <- qs[2] - qs[1]
+      .(whisker_lo = qs[1] - 1.5 * iqr, whisker_hi = qs[2] + 1.5 * iqr)
+    }, by = cluster_abio]
+    whisker_lo <- min(per_cluster$whisker_lo, na.rm = TRUE)
+    whisker_hi <- max(per_cluster$whisker_hi, na.rm = TRUE)
+    # Alleen inzoomen (nooit verder uitzoomen dan de werkelijke data-range)
+    lo <- max(whisker_lo, data_min)
+    hi <- min(whisker_hi, data_max)
+    pad <- 0.05 * (hi - lo)
+    .(ymin = lo - pad, ymax = hi + pad)
+  },
+  by = variabele_label
+]
+
+scales_lin <- setNames(
+  lapply(seq_len(nrow(y_limits_dt)), function(i) {
+    ggplot2::scale_y_continuous(limits = c(y_limits_dt$ymin[i], y_limits_dt$ymax[i]))
+  }),
+  as.character(y_limits_dt$variabele_label)
+)
+
+## Trofie veen (1-4) leesbaar labelen i.p.v. de ruwe numerieke code, met
+## dezelfde labels als trofie_label verderop in dit script.
+trofie_labels_facet <- c(
+  "1" = "oligotroof",
+  "2" = "meso-oligotroof",
+  "3" = "mesotroof",
+  "4" = "eutroof"
+)
+trofie_facet_label <- unique(as.character(box_dt[variabele == "trofie", variabele_label]))
+if (length(trofie_facet_label) == 1L && trofie_facet_label %in% names(scales_lin)) {
+  scales_lin[[trofie_facet_label]] <- ggplot2::scale_y_continuous(
+    limits = c(0.5, 4.5),
+    breaks = 1:4,
+    labels = trofie_labels_facet
+  )
+}
+
+log_labels <- unique(as.character(box_dt[variabele %in% log_vars, variabele_label]))
+scales_log <- setNames(
+  lapply(log_labels, function(v) {
+    rng <- box_dt[variabele_label == v & !is.na(waarde) & waarde > 0, range(waarde)]
+    # scales::label_number() i.p.v. de standaard log10-labels, die anders bij
+    # een groot bereik (bv. feP poriewater: 0.006-64) omslaan naar
+    # wetenschappelijke notatie (1e-02, 1e+00, ...).
+    ggplot2::scale_y_log10(
+      limits = c(rng[1] / 1.2, rng[2] * 1.2),
+      labels = scales::label_number(accuracy = NULL)
+    )
+  }),
+  log_labels
+)
+
+## ggh4x::facetted_pos_scales() matcht scales NIET op naam maar puur op
+## positie in de lijst (de volgorde van de facet-panelen, i.e.
+## levels(box_dt$variabele_label)). Daarom moet scales_y expliciet in die
+## volgorde worden gezet, anders krijgt elk paneel de verkeerde schaal.
+scales_y <- c(scales_lin, scales_log)[levels(box_dt$variabele_label)]
+
 p_box <- ggplot(box_dt, aes(x = cluster_abio, y = waarde, fill = cluster_abio)) +
   geom_boxplot(outlier.alpha = 0.25) +
-  facet_wrap(~ variabele, scales = "free_y", ncol = 4) +
+  ggh4x::facet_wrap2(~ variabele_label, scales = "free_y", ncol = 4) +
+  ggh4x::facetted_pos_scales(y = scales_y) +
+  scale_fill_manual(values = cluster_kleuren) +
   labs(
     title = "Spreiding per cluster voor belangrijkste variabelen",
     x = "Cluster abio",
     y = "Waarde"
   ) +
-  theme_minimal(base_size = 11) +
-  theme(legend.position = "none")
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none", strip.text = element_text(size = 14))
 
 ## 8) kaart ----------
 if (inherits(locaties, "sf")) {
@@ -690,31 +1005,53 @@ ylim <- c(bb["ymin"] - pad, bb["ymax"] + pad)
 
 loc_mid <- st_point_on_surface(loc_cl)
 
-p_clusters_nl <- ggplot() +
-  ggspatial::annotation_map_tile(
-    type = "cartolight",
-    cachedir = "/osm_cache",
-    zoomin = 1,
-    progress = "none",
-    quiet = TRUE
-  ) +
-  geom_sf(data = loc_cl, color = "grey60", linewidth = 0.6, alpha = 0.35) +
-  geom_sf(
-    data = loc_mid,
-    aes(fill = cluster_abio),
-    shape = 21,
-    size = 6,
-    color = "black",
-    stroke = 0.4,
-    alpha = 0.95
-  ) +
-  coord_sf(crs = st_crs(28992), xlim = xlim, ylim = ylim, expand = FALSE) +
-  scale_fill_manual(
-    values = c("#7b2d8b", "#2166ac", "#1a7d3a", "#74c476", "#fdae61", "#d73027", "#5f5e5e", "#535252"),
-    guide = guide_legend(title = "Clusters abiotisch")
-  ) +
-  labs(title = "Clusters berekend op basis van gemeten abiotische variabelen") +
-  theme_minimal(base_size = 13)
+## Kaart wordt gesplitst in twee panelen (i.p.v. één kaart met alle 8
+## clusters) omdat de clusters ruimtelijk sterk overlappen en clusters
+## 1/5/8 anders moeilijk te onderscheiden zijn van de rest op één kaart.
+kaart_groepen <- list(
+  groep_a = c("3", "4", "6"),
+  groep_b = c("1", "2", "5", "7", "8")
+)
+
+maak_cluster_kaart <- function(clusters_subset, titel) {
+  loc_cl_sub <- loc_cl |> filter(cluster_abio %in% clusters_subset)
+  loc_mid_sub <- loc_mid |> filter(cluster_abio %in% clusters_subset)
+  ggplot() +
+    ggspatial::annotation_map_tile(
+      type = "cartolight",
+      cachedir = "/osm_cache",
+      zoomin = 1,
+      progress = "none",
+      quiet = TRUE
+    ) +
+    geom_sf(data = loc_cl_sub, color = "grey60", linewidth = 0.6, alpha = 0.35) +
+    geom_sf(
+      data = loc_mid_sub,
+      aes(fill = cluster_abio),
+      shape = 21,
+      size = 6,
+      color = "black",
+      stroke = 0.4,
+      alpha = 0.95
+    ) +
+    coord_sf(crs = st_crs(28992), xlim = xlim, ylim = ylim, expand = FALSE) +
+    scale_fill_manual(
+      values = cluster_kleuren[clusters_subset],
+      guide = guide_legend(title = "Clusters abiotisch"),
+      drop = TRUE
+    ) +
+    labs(title = titel) +
+    theme_minimal(base_size = 14)
+}
+
+p_clusters_nl_a <- maak_cluster_kaart(
+  kaart_groepen$groep_a,
+  "Clusters berekend op basis van gemeten abiotische variabelen (clusters 3, 4, 6)"
+)
+p_clusters_nl_b <- maak_cluster_kaart(
+  kaart_groepen$groep_b,
+  "Clusters berekend op basis van gemeten abiotische variabelen (clusters 1, 2, 5, 7, 8)"
+)
 
 print(p_box)
 ggsave(
@@ -723,33 +1060,104 @@ ggsave(
   width = 35, height = 25, units = "cm", dpi = 300
 )
 
-print(p_clusters_nl)
+print(p_clusters_nl_a)
 ggsave(
-  "output/AlleGebieden/Tussenrapportage/Clusteranalyse_kaart.png",
-  plot = p_clusters_nl,
+  "output/AlleGebieden/Tussenrapportage/Clusteranalyse_kaart_clusters_3_4_6.png",
+  plot = p_clusters_nl_a,
+  width = 30, height = 25, units = "cm", dpi = 300
+)
+
+print(p_clusters_nl_b)
+ggsave(
+  "output/AlleGebieden/Tussenrapportage/Clusteranalyse_kaart_clusters_1_2_5_7_8.png",
+  plot = p_clusters_nl_b,
   width = 30, height = 25, units = "cm", dpi = 300
 )
 
 ## 9) output ----------
+
+## Flexibele parametertabel (bijlage rapport) o.b.v. pars ----------
+## Naam, methode en eenheid van elke uiteindelijk in de kmeans-clustering
+## gebruikte variabele (vars_km), rechtstreeks uit pars getrokken. Dit wordt
+## als data.table meegegeven zodat het rapport deze tabel automatisch
+## regenereert -- als vars_km verandert (na nieuwe manual_exclude-keuzes,
+## andere top_n, etc.) hoeft de rapporttekst niet te worden aangepast.
+parametertabel_bijlage <- pars[
+  variable_clean %in% vars_km, .(variable_clean, parameter, methode, eenheid, compartiment, monsterdiepte, varnames)
+][!duplicated(variable_clean)][order(parameter)]
+setnames(
+  parametertabel_bijlage,
+  c("variable_clean", "parameter", "methode", "eenheid", "compartiment", "monsterdiepte", "varnames"),
+  c("Kolomnaam", "Parameter", "Methode", "Eenheid", "Compartiment", "Monsterdiepte", "Leesbare naam")
+)
+
+## P/Fe-correlatiematrix (voor rapport) ----------
+## Alle P- en Fe-gerelateerde variabelen binnen vars_km (o.b.v. pars$parameter),
+## voor een uitgebreide toelichting op onderlinge samenhang in het rapport.
+pfe_vars <- pars[parameter %chin% c(p_parameter_values, "Fe", "Fe/P"), unique(variable_clean)]
+pfe_vars <- intersect(pfe_vars, vars_km)
+pfe_cor_pearson <- if (length(pfe_vars) >= 2L) {
+  cor(abio_sid[!is.na(cluster_abio), ..pfe_vars], use = "pairwise.complete.obs", method = "pearson")
+} else {
+  NULL
+}
+pfe_cor_spearman <- if (length(pfe_vars) >= 2L) {
+  cor(abio_sid[!is.na(cluster_abio), ..pfe_vars], use = "pairwise.complete.obs", method = "spearman")
+} else {
+  NULL
+}
+
 clusteranalyse_veest <- list(
   checks = list(
     n_liab_m3_drop = length(liab_m3_drop),
     liab_m3_drop = liab_m3_drop,
     remaining_liab_m3 = remaining_liab_m3
   ),
+  manual_exclude = manual_exclude_dt,
+  log_transform = list(
+    variabelen = log_transform_vars,
+    toelichting = paste0(
+      "De volgende variabelen zijn sterk rechtsscheef verdeeld (een klein ",
+      "aantal hotspot-sloten domineert anders de Euclidische afstand in ",
+      "kmeans) en zijn daarom met log10() getransformeerd v\u00f3\u00f3r het ",
+      "standaardiseren (scale()) en clusteren, niet alleen in de ",
+      "boxplot-visualisatie: ", paste(log_transform_vars, collapse = ", "), "."
+    )
+  ),
+  correlatiecheck_top_vars = cor_pairs_dt,
+  pfe_correlatie = list(
+    variabelen = pfe_vars,
+    pearson = pfe_cor_pearson,
+    spearman = pfe_cor_spearman
+  ),
+  parametertabel_bijlage = parametertabel_bijlage,
   gebruikte_variabelen = coverage_dt[variable %in% selected_vars][order(-non_na_frac)],
   gebruikte_variabelen_kmeans = vars_km,
   variabelen_belang_eta2 = eta2_dt,
   top_variabelen = eta2_dt[1:top_n],
   data_met_clusters = abio_sid,
+  gebieden_per_cluster = abio_sid[
+    !is.na(cluster_abio) & !is.na(Gebiedsnaam),
+    .N, by = .(cluster_abio, Gebiedsnaam)
+  ][
+    order(cluster_abio, -N)
+  ][
+    , .(
+      n_sloten = sum(N),
+      top_gebieden = paste0(Gebiedsnaam, " (", N, ")", collapse = ", ")
+    ),
+    by = cluster_abio
+  ][order(cluster_abio)],
   plot_box = p_box,
-  plot_kaart = p_clusters_nl,
+  plot_kaart_clusters_3_4_6 = p_clusters_nl_a,
+  plot_kaart_clusters_1_2_5_7_8 = p_clusters_nl_b,
   qc = list(
     n_cols_orig = ncol(abio_base),
     n_cols_clean = ncol(abio_proj_clean),
     n_admin_removed = length(admin_cols),
     n_no_variation_removed = length(no_variation_cols),
     n_liab_m3_removed = length(liab_m3_drop),
+    n_manual_excluded = length(manual_exclude),
     n_vars_selected_75 = length(selected_vars),
     n_vars_kmeans = length(vars_km),
     n_rows_sid = nrow(abio_sid),
@@ -757,9 +1165,8 @@ clusteranalyse_veest <- list(
     k_used = k_use
   )
 )
-clusteranalyse_veest
-
-
+invisible(clusteranalyse_veest)
+saveRDS(clusteranalyse_veest, paste0(rds_dir_rapport, "clusteranalyse_veest.rds"))
 
 # 3. XGBoost model -------------------------------------------------------------------------------------------
 ## versie met meerdere target variabelen tegelijk ---------------------------------
@@ -817,6 +1224,9 @@ p_box_ws <- ggplot(box_ws_long, aes(x = waterschap, y = waarde)) +
   )
 
 print(p_box_ws)
+rds_dir_rapport <- paste0(workspace, "output/rapport/")
+if (!dir.exists(rds_dir_rapport)) dir.create(rds_dir_rapport, recursive = TRUE)
+saveRDS(p_box_ws, paste0(rds_dir_rapport, "p_box_ws.rds"))
 ggsave(
   "output/AlleGebieden/Tussenrapportage/Targetvariabelen_per_waterschap.png",
   plot   = p_box_ws,
@@ -876,6 +1286,18 @@ library(xgboost)
 # alle parameters naar nummeriek
 # Create correlation matrix and p-value matrix with the SAME variables
 abio_proj[,trofie := as.numeric(trofie)]
+## Leesbaar label voor trofiegraad veen (1-4), voor gebruik in plots/tabellen;
+## de numerieke kolom trofie zelf blijft numeriek t.b.v. correlatieberekening.
+trofie_labels <- c(
+  "1" = "oligotroof",
+  "2" = "meso-oligotroof",
+  "3" = "mesotroof",
+  "4" = "eutroof"
+)
+abio_proj[, trofie_label := factor(
+  trofie_labels[as.character(trofie)],
+  levels = trofie_labels
+)]
 abio_proj[,draagkracht_perceel := as.numeric(draagkracht_perceel)]
 # Handle non-numeric columns
 abio_proj[,Maaifrequentie_oever_per_jaar := as.numeric(Maaifrequentie_oever_per_jaar)]
@@ -906,7 +1328,6 @@ if (!is.character(abio_proj$Methode_toedienen_dierlijke_mest)) {
     Methode_toedienen_dierlijke_mest == "sleepslang en mesttank", 2,
     Methode_toedienen_dierlijke_mest == "mesttank",            3,
     Methode_toedienen_dierlijke_mest == "bovengronds_strooier", 4,
-    
     Methode_toedienen_dierlijke_mest == "injecteren",          5,
     default = NA_real_
   )]
@@ -919,6 +1340,7 @@ abio_proj[vernat_loc %in% c("ja", "tijdelijk","beperkt"), vernat_loc := 1]
 abio_proj[vernat_loc %in% c("nee"," ")|is.na(vernat_loc), vernat_loc := 0]
 abio_proj[,vernat_loc := as.numeric(vernat_loc)]
 abio_proj[zichtdiepte>1,zichtdiepte := 1]
+
 ## Function to create XGBoost model for single target ---------------------------------
 create_xgb_model <- function(target_var, predictors, data,
                              train_frac        = 0.6,
@@ -1071,7 +1493,7 @@ for(target in target_vars) {
     predictors <- cols_corr[!cols_corr %in% target & cols_corr %in% colnames(abio_proj)]
     
     # Train model
-    model_result <- create_xgb_model(target, predictors, abio_proj)
+    model_result <- create_xgb_model(target, predictors, abio_proj[MeenemenDataAnalyse_totaal == 'ja', ])
     
     # Store results
     xgb_models[[target]] <- model_result$model
@@ -1259,6 +1681,73 @@ okabe_ito_colors <- setNames(
 all_importance[, plot_title_clean := paste0(target_dutch_multiline, 
                                             "\nR²: ", round(r2_test * 100, 1), "% | RMSE: ", round(rmse_test, 3), " ", rmse_unit)]
 
+## Gecombineerde XGBoost-VIP (Gain + permutation) analoog aan de RF-versie
+## (all_rf_importance/fig-vip-rf hierboven): per doelvariabele top-10 op
+## Gain en top-10 op permutation (delta_r2) naast elkaar, met
+## correlatierichting, zodat beide rapportfiguren dezelfde opzet hebben.
+xgb_gain_top10 <- all_importance[
+  , .(target_var, Feature, Nederlandse_naam, Importance = Gain, imp_type = "Gain")
+][, .SD[order(-Importance)][1:min(.N, 10)], by = target_var]
+
+all_perm_importance[, correlation_direction := mapply(
+  function(target_var, predictor_var) {
+    tryCatch({
+      if (!target_var %in% colnames(abio_proj) || !predictor_var %in% colnames(abio_proj)) {
+        return(NA_character_)
+      }
+      target_col <- abio_proj[[target_var]]
+      pred_col   <- abio_proj[[predictor_var]]
+      if (is.numeric(target_col) && is.numeric(pred_col)) {
+        corr <- cor(target_col, pred_col, use = "complete.obs")
+        ifelse(corr > 0, "+", "-")
+      } else {
+        NA_character_
+      }
+    }, error = function(e) NA_character_)
+  },
+  target_var    = target_var,
+  predictor_var = Feature,
+  USE.NAMES = FALSE
+)]
+xgb_perm_top10 <- all_perm_importance[
+  , .(target_var, Feature, Nederlandse_naam, Importance = delta_r2, imp_type = "Permutation", correlation_direction)
+][, .SD[order(-Importance)][1:min(.N, 10)], by = target_var]
+
+all_xgb_importance <- rbind(
+  xgb_gain_top10[, .(target_var, Feature, Nederlandse_naam, Importance, imp_type)],
+  xgb_perm_top10[, .(target_var, Feature, Nederlandse_naam, Importance, imp_type)],
+  fill = TRUE
+)
+all_xgb_importance <- merge(
+  all_xgb_importance,
+  unique(all_importance[, .(target_var, target_dutch = target_dutch_multiline, r2_test, rmse_test, rmse_unit)]),
+  by = "target_var", all.x = TRUE
+)
+all_xgb_importance[, plot_title := paste0(
+  target_dutch, "\nR²: ", round(r2_test * 100, 1), "% | RMSE: ", round(rmse_test, 3), " ", rmse_unit
+)]
+# correlation_direction voor de Gain-rijen (nog niet gezet) alsnog toevoegen
+all_xgb_importance[imp_type == "Gain", correlation_direction := mapply(
+  function(target_var, predictor_var) {
+    tryCatch({
+      if (!target_var %in% colnames(abio_proj) || !predictor_var %in% colnames(abio_proj)) {
+        return(NA_character_)
+      }
+      target_col <- abio_proj[[target_var]]
+      pred_col   <- abio_proj[[predictor_var]]
+      if (is.numeric(target_col) && is.numeric(pred_col)) {
+        corr <- cor(target_col, pred_col, use = "complete.obs")
+        ifelse(corr > 0, "+", "-")
+      } else {
+        NA_character_
+      }
+    }, error = function(e) NA_character_)
+  },
+  target_var    = target_var,
+  predictor_var = Feature,
+  USE.NAMES = FALSE
+)]
+
 # VIP Plot met correlatierichting als kleur (Okabe-Ito), gesorteerd per facet op Gain
 okabe_dir <- c("+" = "#0072B2", "-" = "#D55E00")
 
@@ -1351,21 +1840,41 @@ all_features[, gain_norm       := Gain       / max(Gain,       na.rm = TRUE), by
 all_features[, target_dutch := target_names_dutch[target_var]]
 all_features <- merge(
   all_features,
-  performance_summary[, .(target, rmse_val, r2_val)],
+  # Testset-R²/RMSE i.p.v. validatieset: de validatieset is uitsluitend
+  # gebruikt voor early stopping (impliciete hyperparameter-tuning van
+  # nrounds), niet als onafhankelijke prestatiemaat. De testset-score is
+  # de vergelijkbare, in het rapport gangbare generalisatiemaat (zie ook
+  # tbl-performance/fig-model-compare).
+  performance_summary[, .(target, rmse_test, r2_test)],
   by.x = "target_var", by.y = "target", all.x = TRUE
 )
 all_features[, rmse_unit := rmse_units[target_var]]
 all_features[, plot_title := paste0(
-  target_dutch, "\nR²(val): ", round(r2_val * 100, 1),
-  "% | RMSE(val): ", round(rmse_val, 3), " ", rmse_unit
+  target_dutch, "\nR²(test): ", round(r2_test * 100, 1),
+  "% | RMSE(test): ", round(rmse_test, 3), " ", rmse_unit
+)]
+
+# Correlatierichting (Pearson) per target/feature-combinatie, voor het +/-
+# label in de vergelijkingsplot hieronder.
+all_features[, correlation_direction := mapply(
+  function(tgt, feat) {
+    tryCatch({
+      if (!tgt %in% colnames(abio_proj) || !feat %in% colnames(abio_proj)) return(NA_character_)
+      corr <- cor(as.numeric(abio_proj[[tgt]]), as.numeric(abio_proj[[feat]]), use = "complete.obs")
+      ifelse(corr > 0, "+", "-")
+    }, error = function(e) NA_character_)
+  },
+  tgt  = target_var,
+  feat = Feature,
+  USE.NAMES = FALSE
 )]
 
 # Sorteer op gemiddeld belang over beide methoden
 all_features[, mean_belang := (delta_rmse_norm + gain_norm) / 2]
 
 plot_vip_compare <- melt(
-  all_features[, .(Feature, Nederlandse_naam, plot_title, gain_norm, delta_rmse_norm)],
-  id.vars       = c("Feature", "Nederlandse_naam", "plot_title"),
+  all_features[, .(Feature, Nederlandse_naam, plot_title, gain_norm, delta_rmse_norm, correlation_direction)],
+  id.vars       = c("Feature", "Nederlandse_naam", "plot_title", "correlation_direction"),
   variable.name = "methode",
   value.name    = "belang_norm"
 )[, methode := fifelse(methode == "gain_norm", "XGBoost Gain", "Permutation (ΔRMSE)")]
@@ -1384,6 +1893,11 @@ p_vip_compare <- ggplot(plot_vip_compare, aes(
     fill = methode
   )) +
   geom_col(position = "dodge") +
+  geom_text(
+    aes(label = correlation_direction),
+    position = position_dodge(width = 0.9),
+    hjust = -0.2, size = 3, fontface = "bold", color = "grey20"
+  ) +
   facet_wrap(~ plot_title, scales = "free_y", ncol = 3) +
   scale_x_discrete(labels = function(x) sub(".*__", "", x)) +
   coord_flip() +
@@ -1391,10 +1905,10 @@ p_vip_compare <- ggplot(plot_vip_compare, aes(
     values = c("XGBoost Gain" = "#0072B2", "Permutation (ΔRMSE)" = "#E69F00"),
     name   = "Methode"
   ) +
-  scale_y_continuous(labels = scales::label_percent()) +
+  scale_y_continuous(labels = scales::label_percent(), expand = expansion(mult = c(0, 0.15))) +
   labs(
     title    = "VIP vergelijking: XGBoost Gain vs. Permutation Importance",
-    subtitle = "Genormaliseerd binnen target (1 = hoogste belang). Permutation op validatieset. 0% = niet in top-10 van die methode.",
+    subtitle = "Genormaliseerd binnen target (1 = hoogste belang). Permutation op validatieset. 0% = niet in top-10 van die methode. + / - geeft de correlatierichting met de doelvariabele weer.",
     x        = NULL,
     y        = "Relatief belang (genormaliseerd)"
   ) +
@@ -2101,6 +2615,16 @@ create_xgb_diagnostics <- function(xgb_models, abio_proj, target_vars, target_na
       r2 <- cor(y_actual, y_pred, use = "complete.obs")^2
       skewness <- (mean(residuals^3, na.rm = TRUE)) / (sd(residuals, na.rm = TRUE)^3)
       
+      # Uitschieter-diagnostiek: gemiddeld residu (actual - predicted) van de
+      # 3 hoogste resp. 3 laagste gemeten waarden. Positief bij "hoog" betekent
+      # dat het model de hoogste gemeten waarden onderschat (voorspelling < gemeten);
+      # negatief bij "laag" betekent dat het model de laagste waarden overschat.
+      n_extreme <- min(3, nrow(diag_data))
+      idx_hoog  <- order(-diag_data$actual)[seq_len(n_extreme)]
+      idx_laag  <- order(diag_data$actual)[seq_len(n_extreme)]
+      bias_hoog <- mean(diag_data$residuals[idx_hoog], na.rm = TRUE)
+      bias_laag <- mean(diag_data$residuals[idx_laag], na.rm = TRUE)
+      
       target_dutch <- target_names_dutch[target]
       
       # 1. Scatter plot
@@ -2200,10 +2724,13 @@ create_xgb_diagnostics <- function(xgb_models, abio_proj, target_vars, target_na
         density = p5,
         statistics = data.table(
           Target = target_dutch,
+          target_var = target,
           RMSE = rmse,
           MAE = mae,
           R2 = r2,
           Skewness = skewness,
+          `Bias hoogste 3 (gemeten - voorspeld)` = bias_hoog,
+          `Bias laagste 3 (gemeten - voorspeld)`  = bias_laag,
           N = nrow(diag_data)
         )
       )
@@ -2245,6 +2772,207 @@ for(target in names(xgb_diagnostics)) {
 diagnostics_summary <- rbindlist(lapply(xgb_diagnostics, function(x) x$statistics))
 print("=== Samenvattende Diagnostische Statistieken ===")
 print(diagnostics_summary)
+
+# Combined 4-panel diagnostiekplot (scatter, residuals vs fitted, histogram,
+# Q-Q plot) voor het uitgelichte doelmodel in het rapport: P-AL slib, het
+# best presterende XGBoost-model op de testset. Dit dient als didactisch
+# anker; voor de overige doelvariabelen wordt in het rapport alleen
+# diagnostics_summary (tabel) gebruikt om herhaling van 10x 5 plots te voorkomen.
+xgb_diag_best_target <- "P-AL mg p2o5/100g_SB"
+if (xgb_diag_best_target %in% names(xgb_diagnostics)) {
+  best_diag <- xgb_diagnostics[[xgb_diag_best_target]]
+  xgb_diag_best_plot <- (best_diag$scatter + best_diag$residuals_fitted) /
+                        (best_diag$histogram + best_diag$qq_plot)
+} else {
+  xgb_diag_best_plot <- NULL
+  cat("Let op: doelvariabele voor xgb_diag_best_plot niet gevonden in xgb_diagnostics:",
+      xgb_diag_best_target, "\n")
+}
+
+## Kantelpunten van de belangrijkste voorspellers voor de meest betrouwbare
+## modellen: gecombineerde ALE-figuur + betrouwbaarheidstabel voor het
+## rapport (sectie "Belangrijkste kantelpunten", na de VIP-figuur). ----------
+# Selectie: de zes doelvariabelen die het meest betrouwbaar worden voorspeld
+# (hoogste testset-R², zie tbl-performance), met voor elk de top-2
+# voorspellers op basis van gemiddeld genormaliseerd belang (Gain +
+# permutation importance); voor Draagkracht oever alleen "onderholling"
+# (verreweg de dominante voorspeller, overige variabelen dragen nauwelijks bij).
+kantelpunt_targets <- c(
+  "P-AL mg p2o5/100g_SB", "n_soorten_sub_zone1", "Soortensamenstelling Helofyten",
+  "slib_redox_pH7", "max_slib", "draagkracht_oever"
+)
+kantelpunt_predictors <- list(
+  "P-AL mg p2o5/100g_SB"           = c("feP_PW", "drglg"),
+  "n_soorten_sub_zone1"            = c("P-AL mg p2o5/100g_SB", "holleoever"),
+  "Soortensamenstelling Helofyten" = c("OS_perc_OR_25", "slib_pH"),
+  "slib_redox_pH7"                 = c("slib_pH", "draagkracht_perceel"),
+  # Doorzicht/waterdiepte (zichtdiepte) en Taludhoek onder waterlijn zijn
+  # toegevoegd naast de top-2 (P-AL, afscheurende oever): beide zijn nog
+  # steeds relevante voorspellers voor slibdikte (zie VIP-figuur) en worden
+  # in de tekst hieronder inhoudelijk geduid (steilere oever -> minder slib;
+  # hoger doorzicht/waterdiepte -> meer slib).
+  "max_slib"                       = c("P-AL mg p2o5/100g_SB", "afscheur_opp", "zichtdiepte", "tldk_wtrwtr_perc"),
+  "draagkracht_oever"              = c("holleoever")
+)
+
+# Haal per target/predictor-paar de ALE-curve (x, ale_effect) op uit de reeds
+# berekende all_ale_plots (layer 2 = de ALE-lijn), en typeer de vorm van het
+# kantelpunt: een "sprong" (>= 50% van het totale effectbereik verandert
+# binnen één segment dat < 10% van de x-range beslaat) versus een
+# "geleidelijke" overgang (effect bouwt over een breder segment op).
+classify_ale_shape <- function(tgt, feat, jump_threshold = 0.5, width_threshold = 0.10) {
+  ld <- layer_data(all_ale_plots[[tgt]][[feat]], 2)[, c("x", "y")]
+  names(ld) <- c("x", "ale")
+  ld <- ld[order(ld$x), ]
+  dx <- diff(ld$x); dy <- diff(ld$ale)
+  x_range   <- diff(range(ld$x, na.rm = TRUE))
+  eff_range <- diff(range(ld$ale, na.rm = TRUE))
+  if (eff_range <= 0 || x_range <= 0 || length(dy) == 0) {
+    return(list(vorm = NA_character_, x_omslag = NA_real_, jump_frac = NA_real_))
+  }
+  i_max <- which.max(abs(dy))
+  jump_frac   <- abs(dy[i_max]) / eff_range
+  xwidth_frac <- dx[i_max] / x_range
+  vorm <- if (jump_frac >= jump_threshold && xwidth_frac <= width_threshold) {
+    "Plotselinge omslag"
+  } else {
+    "Geleidelijke verandering"
+  }
+  list(vorm = vorm, x_omslag = round((ld$x[i_max] + ld$x[i_max + 1]) / 2, 3), jump_frac = round(jump_frac, 2))
+}
+
+# Betrouwbaarheid rond het kantelpunt: voor de sloten met een predictorwaarde
+# dicht bij het omslagpunt (binnen 8% van de x-range), de spreiding (SD) van
+# het residu (gemeten - voorspeld) van het XGBoost-model, afgezet tegen de
+# globale residu-SD van dat target. Een lokale SD dicht bij (of onder) de
+# globale SD wijst op een kantelpunt dat niet extra onzeker is t.o.v. de rest
+# van het model; een duidelijk hogere lokale SD wijst op een kantelpunt in een
+# ijler bemeten of moeilijker te voorspellen deel van de databereik.
+get_diag_with_id_report <- function(target) {
+  model_vars <- c("SlootID", target, cols_corr)
+  model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
+  model_data <- copy(abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars])
+  sloot_ids <- model_data$SlootID
+  factor_cols_local <- names(model_data)[sapply(model_data, is.character)]
+  factor_cols_local <- setdiff(factor_cols_local, "SlootID")
+  factor_cols_local <- unique(c(factor_cols_local, names(model_data)[sapply(model_data, is.factor)]))
+  if (length(factor_cols_local) > 0) {
+    model_data[, (factor_cols_local) := lapply(.SD, as.factor), .SDcols = factor_cols_local]
+    model_data[, (factor_cols_local) := lapply(.SD, as.numeric), .SDcols = factor_cols_local]
+  }
+  predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
+  X_data <- as.matrix(model_data[, ..predictors_clean])
+  y_actual <- model_data[[target]]
+  y_pred <- predict(xgb_models[[target]], X_data)
+  data.table(SlootID = sloot_ids, actual = y_actual, predicted = y_pred, residual = y_actual - y_pred)
+}
+
+reliability_near_point <- function(tgt, feat, x_point, window_frac = 0.08) {
+  model_vars <- c("SlootID", tgt, cols_corr)
+  model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
+  md <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
+  xv  <- as.numeric(md[[feat]])
+  rng <- diff(range(xv, na.rm = TRUE))
+  win <- window_frac * rng
+  near_ids <- md$SlootID[abs(xv - x_point) <= win]
+
+  diag_dt      <- get_diag_with_id_report(tgt)
+  diag_dt_near <- diag_dt[SlootID %in% near_ids]
+  global_sd    <- sd(diag_dt$residual, na.rm = TRUE)
+  local_sd     <- sd(diag_dt_near$residual, na.rm = TRUE)
+
+  list(
+    n_near    = nrow(diag_dt_near),
+    n_totaal  = nrow(diag_dt),
+    global_sd = round(global_sd, 3),
+    local_sd  = round(local_sd, 3),
+    ratio_sd  = round(local_sd / global_sd, 2)
+  )
+}
+
+kantelpunt_records <- list()
+for (tgt in kantelpunt_targets) {
+  for (feat in kantelpunt_predictors[[tgt]]) {
+    if (is.null(all_ale_plots[[tgt]][[feat]])) next
+    shape <- classify_ale_shape(tgt, feat)
+    if (is.na(shape$vorm)) next
+    rel <- reliability_near_point(tgt, feat, shape$x_omslag)
+
+    r2_tgt <- all_importance[target_var == tgt, r2_test[1]]
+
+    # Kwalitatieve betrouwbaarheidsindicatie: combineert modelprestatie (R²)
+    # met de lokale spreiding rond het kantelpunt zelf (ratio_sd) en de
+    # hoeveelheid data rond dat punt (n_near). Dit is een vuistregel, geen
+    # formele toets, en dient als leeshulp bij de kantelpuntentabel.
+    betrouwbaarheid <- if (r2_tgt >= 0.5 && rel$ratio_sd <= 1.2 && rel$n_near >= 15) {
+      "Redelijk betrouwbaar"
+    } else if (r2_tgt < 0.3 || rel$ratio_sd > 1.5 || rel$n_near < 10) {
+      "Beperkt betrouwbaar"
+    } else {
+      "Matig betrouwbaar"
+    }
+
+    kantelpunt_records[[length(kantelpunt_records) + 1]] <- data.table(
+      target      = tgt,
+      target_nl   = target_names_dutch[tgt],
+      predictor   = feat,
+      pred_nl     = nederlandse_namen[feat],
+      r2_test     = round(r2_tgt, 3),
+      x_omslag    = shape$x_omslag,
+      vorm        = shape$vorm,
+      jump_frac   = shape$jump_frac,
+      n_sloten_bij_omslag = rel$n_near,
+      n_sloten_totaal     = rel$n_totaal,
+      ratio_sd_lokaal_vs_globaal = rel$ratio_sd,
+      betrouwbaarheid = betrouwbaarheid
+    )
+  }
+}
+kantelpunt_tbl <- rbindlist(kantelpunt_records, fill = TRUE)
+print(kantelpunt_tbl)
+
+# Gecombineerde ALE-figuur voor de zes uitgelichte modellen/predictoren: enkel
+# de ALE-curve (zonder de secundaire as van all_ale_plots, die bij 11 kleine
+# panelen naast elkaar te veel ruimte/overlap geeft) met het kantelpunt
+# gemarkeerd en het type omslag (plotseling/geleidelijk) in de subtitle.
+build_kantelpunt_panel <- function(tgt, feat, x_pt, vorm_label) {
+  ld <- layer_data(all_ale_plots[[tgt]][[feat]], 2)[, c("x", "y")]
+  names(ld) <- c("x", "ale_effect")
+
+  ggplot(ld, aes(x = x, y = ale_effect)) +
+    geom_line(color = "#1f77b4", linewidth = 1) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.4) +
+    geom_vline(xintercept = x_pt, linetype = "dashed", color = "#CC79A7", linewidth = 0.8) +
+    labs(
+      title    = paste0(nederlandse_namen[feat], " (", target_names_dutch[tgt], ")"),
+      subtitle = paste0(vorm_label, " bij ", round(x_pt, 2)),
+      x        = nederlandse_namen[feat],
+      y        = "ALE effect"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title    = element_text(size = 11, face = "bold", lineheight = 1.0),
+      plot.subtitle = element_text(size = 10, color = "grey40"),
+      axis.title    = element_text(size = 10.5),
+      axis.text     = element_text(size = 9.5),
+      panel.border  = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+      plot.margin   = margin(5, 8, 5, 8)
+    )
+}
+
+kantelpunt_plots <- lapply(seq_len(nrow(kantelpunt_tbl)), function(i) {
+  build_kantelpunt_panel(
+    kantelpunt_tbl$target[i], kantelpunt_tbl$predictor[i],
+    kantelpunt_tbl$x_omslag[i], kantelpunt_tbl$vorm[i]
+  )
+})
+xgb_kantelpunt_plot <- wrap_plots(kantelpunt_plots, ncol = 3)
+print(xgb_kantelpunt_plot)
+ggsave(
+  paste0(workspace, "output/AlleGebieden/Tussenrapportage/XGBoost_kantelpunten_uitgelicht.png"),
+  plot = xgb_kantelpunt_plot, width = 30, height = 28, units = "cm", dpi = 200
+)
+
 
 
 
@@ -2339,7 +3067,15 @@ for (target in target_vars) {
     pred_test <- predict(cv_model, X_test)
     residuals <- y_test - pred_test
     rmse_ws   <- sqrt(mean(residuals^2))
-    r2_ws     <- tryCatch(cor(y_test, pred_test)^2, error = function(e) NA_real_)
+    # 1 - SSres/SStot i.p.v. cor(y, yhat)^2: dat laatste kan nooit negatief
+    # worden en maskeert daarmee systematische bias/schaalfouten. Zelfde
+    # formule als bij de RF-ruimtelijke CV hieronder, zodat r2_xgb_cv en
+    # r2_rf_cv eerlijk vergelijkbaar zijn in tbl-cv-compare.
+    r2_ws     <- tryCatch({
+      ss_res <- sum(residuals^2)
+      ss_tot <- sum((y_test - mean(y_test))^2)
+      if (ss_tot == 0) NA_real_ else 1 - ss_res / ss_tot
+    }, error = function(e) NA_real_)
     mae_ws    <- mean(abs(residuals))
 
     cv_records[[length(cv_records) + 1]] <- data.table(
@@ -3067,7 +3803,11 @@ for (target in rf_target_vars) {
   cat("RF training voor:", target, "\n")
 
   preds <- rf_cols_corr[!rf_cols_corr %in% target & rf_cols_corr %in% colnames(abio_proj)]
-  df    <- rf_prepare_data(target, abio_proj, preds)
+  # Zelfde basisfilter als bij XGBoost (create_xgb_model hierboven): alleen
+  # rijen met MeenemenDataAnalyse_totaal == 'ja' (proefbehandelingen/dubbele
+  # metingen per sloot uitgesloten), zodat XGBoost en RF op dezelfde rijen
+  # worden getraind en getest en de testset-R² vergelijkbaar is.
+  df    <- rf_prepare_data(target, abio_proj[MeenemenDataAnalyse_totaal == 'ja', ], preds)
   if (nrow(df) < 30) next
 
   # Drie-weg split
@@ -3097,6 +3837,21 @@ for (target in rf_target_vars) {
     seed                    = 5823
   )
 
+  ## Los tweede fit (zelfde hyperparameters/seed, dus dezelfde bomen) puur om
+  ## ook de impurity_corrected ("gain"-achtige) importance te berekenen. Deze
+  ## kan niet gecombineerd worden met importance = "permutation" in één
+  ## ranger-fit; impurity_corrected corrigeert (i.t.t. gewone impurity) voor
+  ## de bias richting variabelen met veel unieke waarden/niveaus.
+  rf_fit_impurity <- ranger(
+    dependent.variable.name = safe_target,
+    data                    = train_df,
+    num.trees               = 500,
+    mtry                    = max(1L, floor(sqrt(ncol(train_df) - 1))),
+    min.node.size           = 5,
+    importance              = "impurity_corrected",
+    seed                    = 5823
+  )
+
   pred_val  <- predict(rf_fit, data = val_df )$predictions
   pred_test <- predict(rf_fit, data = test_df)$predictions
 
@@ -3114,13 +3869,23 @@ for (target in rf_target_vars) {
     n_test     = nrow(test_df)
   )
 
-  # Variable importance (permutation) → top 10
-  imp_vec <- rf_fit$variable.importance
-  imp_dt  <- data.table(
+  # Variable importance (permutation + impurity_corrected "gain") → top 10
+  # per maat, samengevoegd in lang formaat.
+  imp_vec     <- rf_fit$variable.importance
+  imp_vec_gain <- rf_fit_impurity$variable.importance
+  imp_dt_perm <- data.table(
     Feature    = names(imp_vec),
     Importance = imp_vec,
+    imp_type   = "Permutation",
     target_var = target
   )[order(-Importance)][1:min(.N, 10)]
+  imp_dt_gain <- data.table(
+    Feature    = names(imp_vec_gain),
+    Importance = imp_vec_gain,
+    imp_type   = "Gain (impurity)",
+    target_var = target
+  )[order(-Importance)][1:min(.N, 10)]
+  imp_dt <- rbind(imp_dt_perm, imp_dt_gain)
   imp_dt[, Nederlandse_naam := rf_nederlandse_namen[Feature]]
   imp_dt[is.na(Nederlandse_naam), Nederlandse_naam := Feature]
   rf_importance_all[[target]] <- imp_dt
@@ -3166,13 +3931,16 @@ all_rf_importance[, correlation_direction := mapply(
   USE.NAMES = FALSE
 )]
 
-# Sorteer per facet op importance
+# Sorteer per facet (target x importantiemaat) op importance; feat_label
+# combineert target, maat en featurenaam zodat elk paneel zijn eigen
+# gesorteerde as krijgt (zelfde truc als bij de losse VIP-plots).
 plot_rf_vip <- all_rf_importance[!is.na(correlation_direction)][
-  order(target_var, Importance)
+  order(target_var, imp_type, Importance)
 ][, feat_label := factor(
-  paste0(target_var, "__", Nederlandse_naam),
-  levels = unique(paste0(target_var, "__", Nederlandse_naam))
+  paste0(target_var, "__", imp_type, "__", Nederlandse_naam),
+  levels = unique(paste0(target_var, "__", imp_type, "__", Nederlandse_naam))
 )]
+plot_rf_vip[, imp_type := factor(imp_type, levels = c("Permutation", "Gain (impurity)"))]
 
 p_rf_vip <- ggplot(plot_rf_vip, aes(
     x    = feat_label,
@@ -3184,7 +3952,7 @@ p_rf_vip <- ggplot(plot_rf_vip, aes(
     aes(label = correlation_direction),
     hjust = -0.2, size = 3.5, fontface = "bold", color = "grey20"
   ) +
-  facet_wrap(~ plot_title, scales = "free", ncol = 3) +
+  ggh4x::facet_grid2(plot_title ~ imp_type, scales = "free", independent = "all") +
   scale_x_discrete(labels = function(x) sub(".*__", "", x)) +
   coord_flip() +
   scale_fill_manual(
@@ -3194,10 +3962,14 @@ p_rf_vip <- ggplot(plot_rf_vip, aes(
   ) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.18))) +
   labs(
-    title    = "Belangrijkste verklarende variabelen (Random Forest – permutation importance)",
-    subtitle = "Permutation importance met correlatierichting op basis van Pearson correlatie",
+    title    = "Belangrijkste verklarende variabelen (Random Forest)",
+    subtitle = paste0(
+      "Permutation importance (\u0394MSE bij het schudden van de variabele) ",
+      "en gain-achtige impurity_corrected importance naast elkaar, met ",
+      "correlatierichting op basis van Pearson-correlatie"
+    ),
     x        = NULL,
-    y        = "Permutation importance (ΔMSE)"
+    y        = "Importance"
   ) +
   theme_minimal(base_size = 11) +
   theme(
@@ -3563,8 +4335,37 @@ saveRDS(cv_results,         paste0(rds_dir, "cv_results.rds"))
 saveRDS(performance_summary,paste0(rds_dir, "performance_summary.rds"))
 saveRDS(all_rf_importance,  paste0(rds_dir, "all_rf_importance.rds"))
 saveRDS(all_importance,     paste0(rds_dir, "all_importance.rds"))
+saveRDS(all_xgb_importance, paste0(rds_dir, "all_xgb_importance.rds"))
+saveRDS(plot_vip_compare,   paste0(rds_dir, "plot_vip_compare.rds"))
 saveRDS(rf_target_names_dutch, paste0(rds_dir, "rf_target_names_dutch.rds"))
 saveRDS(rf_rmse_units,      paste0(rds_dir, "rf_rmse_units.rds"))
+saveRDS(p_ws_pred,          paste0(rds_dir, "p_ws_pred.rds"))
+
+# GAM (sectie 4): performance-samenvatting (GAM vs XGBoost) en de
+# smooth-plots per doelvariabele, voor de sectie "GAM met ruimtelijke
+# smoothing" in het rapport.
+saveRDS(gam_summary,        paste0(rds_dir, "gam_summary.rds"))
+saveRDS(gam_plots,          paste0(rds_dir, "gam_plots.rds"))
+
+# XGBoost validatie/diagnostiek (residuen, Q-Q, uitschieter-bias per target):
+# samenvattende tabel voor alle doelvariabelen + het volledige 4-panel voor
+# het uitgelichte model (P-AL slib), zie sectie "Validatie XGBoost-model" in het rapport.
+saveRDS(diagnostics_summary, paste0(rds_dir, "xgb_diagnostics_summary.rds"))
+saveRDS(xgb_diag_best_plot,  paste0(rds_dir, "xgb_diag_best_plot.rds"))
+saveRDS(xgb_diag_best_target, paste0(rds_dir, "xgb_diag_best_target.rds"))
+
+# Kantelpunten van de belangrijkste voorspellers (top-2 per uitgelicht model,
+# alleen "onderholling" voor Draagkracht oever) + betrouwbaarheidstabel,
+# zie sectie "Belangrijkste kantelpunten" in het rapport.
+saveRDS(kantelpunt_tbl,        paste0(rds_dir, "xgb_kantelpunt_tbl.rds"))
+saveRDS(xgb_kantelpunt_plot,   paste0(rds_dir, "xgb_kantelpunt_plot.rds"))
+
+
+
+# Aantal unieke sloten in de gefilterde dataset (voor toelichting bij
+# overfitting-risico in het rapport, sectie "Resultaten modelvergelijking").
+n_unique_sloten <- nrow(unique(abio_proj[MeenemenDataAnalyse_totaal == 'ja', .(SlootID_kort)]))
+saveRDS(n_unique_sloten,    paste0(rds_dir, "n_unique_sloten.rds"))
 # afwijking_long is al eerder in dit script opgeslagen als "cluster_afwijking_long.rds"
 # (zie regel ~432); cluster_afwijking_long bestond niet als object, dus deze
 # regel gaf een fout. Verwijderd om duplicatie/undefined-object te vermijden.

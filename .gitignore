@@ -6,3 +6,5 @@
 output/
 backup/
 rosm.cache/
+*_cache/
+*_files/

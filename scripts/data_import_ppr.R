@@ -751,7 +751,16 @@ abio_slib_agg1 <- abio[, lapply(.SD, mean, na.rm = TRUE), .SDcols = cols_num, by
 abio_slib_agg2 <- abio[, lapply(.SD, mean, na.rm = TRUE), .SDcols = cols_num, by = .(gebied, sloot, Behandeling, jaar)]
 abio_slib_agg3 <- abio[, lapply(.SD, mean, na.rm = TRUE), .SDcols = cols_num, by = .(gebied, sloot, jaar)]
 # 2. Voeg de hiërarchische info toe aan abio
+## WP en MeenemenDataAnalyse_totaal expliciet meenemen op instance-niveau:
+## in abio kan een SlootID+jaar-combinatie zowel een WP2-prenul- als een
+## WP2-rij bevatten (nulmeting vs. reguliere meting), elk met een eigen,
+## correcte MeenemenDataAnalyse_totaal-vlag. Als deze kolommen hier niet
+## worden meegenomen, gaat die koppeling met de juiste instanceID_abio
+## verloren en wordt de vlag verderop (main_veest.R) alsnog op SlootID+jaar
+## teruggekoppeld vanuit clusters_locs -- dat overschrijft dan de vlag van
+## bv. de prenulmeting met die van de WP2-meting van dezelfde sloot/jaar.
 abio_hier <- unique(abio[, .(SlootID, SlootID_kort, gebied, Gebiedsnaam, sloot, Behandeling, jaar, instanceID_abio,instanceID_veg,datum,
+WP, MeenemenDataAnalyse_totaal,
 uitraster_perc,uitraster_afstand_sloot_m,afscheur_veg_lengte_perc,afscheur_veg_breedte_cm,
 landgebruik_traject,landgebruik_overkant,
 beheersporen_water1_2a_hoeveel,beheersporen_water1_2a_welke,beheersporen_water1_2a_overig,

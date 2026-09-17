@@ -419,7 +419,7 @@ p1 <- ggplot()+
   labs(y = 'Redox slib bij pH7 (mV)', x = 'Maximale waterdiepte (m)')
 # Toon de gecombineerde plot
 print(p1)
-## Plot slibdikte tegen drooglegging ---------------------------
+## Plot slibdikte tegen waterbreedte ---------------------------
 # R² berekenen voor waterzone vs waterbreedte (in meters)
 r2_waterzone_watbte <- get_r_squared(abio_proj[!is.na(max_slib) & !is.na(watbte)], 
                                      "watbte", "max_slib")
@@ -557,6 +557,9 @@ var_y <- "oeverindex"
 
 var_x <- "draagkracht_oever"
 var_y <- "Soortensamenstelling Hydrofyten"
+
+var_x <- "P-AL mg p2o5/100g_SB"
+var_y <- "P2O5_xrf_g/kg_OR_25"
 
 varnames <- function(var) {
   lbl <- pars[tolower(variable) == tolower(var), varnames]
