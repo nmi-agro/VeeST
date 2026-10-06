@@ -144,6 +144,7 @@ beheer[,Aantal_Koedagen_per_jaar := as.numeric(Aantal_Koedagen_per_jaar)]
 abio_proj <- merge(abio_proj, beheer[,-c('gebied','sloot','Sloot_nr','Gebiedsnaam','Behandeling','oever','instanceID_abio','instanceID_veg','datum','WP')], by = c('SlootID','jaar'), all.x = T, suffixes = c('','_beheer'))
 # wel in locaties maar niet in beheer
 check_db <- locaties[!SlootID %in% unique(beheer$SlootID),]
+# 4. Adjust data -------------------------------------------------------------------
 ## afgeleide koeien variabelen bepalen----------------------------------------------
 to_flag <- function(x) {
   y <- tolower(trimws(as.character(x)))
@@ -345,7 +346,7 @@ abio_proj[, names(abio_proj) := lapply(.SD, function(x) {
   if (is.character(x)) gsub(";", ":", iconv(x, to = "UTF-8", sub = "byte")) else x
 })]
 
-## indices berekenen -------------------------------
+# 5. indices berekenen -------------------------------
 # Hulpfunctie: rowMeans maar NA als alle waarden in een rij NA zijn
 rowMeans_na <- function(...) {
   m <- cbind(...)
@@ -804,7 +805,7 @@ componenten_los_long[, Gebiedsnaam := factor(Gebiedsnaam, levels = gebied_order_
 
 ggplot(componenten_los_long[!is.na(Gebiedsnaam),], aes(x = waarde, y = Gebiedsnaam)) +
   geom_boxplot(outlier.size = 1) +
-  facet_wrap(~component, nrow = 1, scales = "free_x") +
+  facet_wrap(~component, nrow = 1, scales = "free_x") 
   labs(
     x = "Waarde (ruwe eenheid)", y = NULL,
     title = "Losse componenten per gebied: kragge, onderholling, oppervlak emers, afscheur, kale oever, gras, grilligheid"
@@ -814,14 +815,13 @@ ggplot(componenten_los_long[!is.na(Gebiedsnaam),], aes(x = waarde, y = Gebiedsna
 
 
 
-## reformat data for plot loop------------------------------------------------------------------
+# 6. reformat data for plot loop------------------------------------------------------------------
 cols_num <- colnames(abio_proj)[sapply(abio_proj, is.numeric)]
 dup_cols <- names(abio_proj)[duplicated(names(abio_proj))]
 if (length(dup_cols) > 0) abio_proj[, (dup_cols) := NULL]
 melt <- melt(setDT(abio_proj), id.vars = c("SlootID","Sloot_nr","WP","instanceID_abio","instanceID_veg","Gebiedsnaam","MeenemenDataAnalyse_totaal","gebied","sloot","Behandeling","beheer","jaar"), 
              measure.vars = cols_num, na.rm = TRUE)
-# pars <- as.data.table(unique(melt[, variable]))
-pars <- fread(paste0(workspace,"./hulp_tabellen/parametersVeest_namen.csv"), dec = '.', na.strings = c('NA',''), encoding = "Latin-1")
+pars <- setDT(readxl::read_xlsx(paste0(workspace2,"analysePlan/analysePlan.xlsx"), sheet="Variabelen irt analyse"))
 melt[,variable :=tolower(variable)]
 pars[,variable_lower :=tolower(variable)]
 melt <- merge(melt, pars, by.x = 'variable', by.y = 'variable_lower', all.x = TRUE)
@@ -839,9 +839,7 @@ melt[compartiment == 'OW', compartiment := 'water']
 melt[compartiment == 'PW', compartiment := 'poriewater']
 melt[,`gemiddelde VeeST` := mean(value, na.rm = TRUE), by = c('variable','monsterdiepte','parameter','compartiment','eenheid','methode','varnames')] 
 
-
-## overzichtstabel met pargroups per gebied per jaar ---------------------------
-
+# 7. overzichtstabel met pargroups per gebied per jaar ---------------------------
 overzicht_wide <- dcast(
   melt,
   Gebiedsnaam+jaar+WP ~ vargroup,
@@ -859,8 +857,7 @@ overzicht_wide <- dcast(
 )
 write.table(overzicht_wide, file = paste(workspace2,"dataOverzicht/Overzichtstabel_pargroups_per_SlootID_jaar",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), na = "", sep =';', dec = '.',row.names = FALSE)
 
-
-# validate db-------------------------------------------------------------------
+# 8. validate db-------------------------------------------------------------------
 uniqueN(locaties$SlootID[locaties$`Complete data` == 1]) #238
 uniqueN(abio_proj[!is.na(slib_pH)&!is.na(water_pH)&!is.na(max_slib)&!is.na(`insteek_[0,10]`)&!is.na(instanceID_abio),c('SlootID')])
 # check if instanceID abiotiek voorkomt in abio
@@ -882,8 +879,7 @@ veraardveen[Slootcode == SlootID_test, .N]
 # check if loc info is filled in for all rows in abio_proj
 melt[is.na(WP) | WP == "", .N, by = .(Gebiedsnaam, jaar)]
 abio_proj[is.na(WP) | WP == "", .N, by = .(Gebiedsnaam, jaar)]
-
-## alles db ---------------------------------------------------------
+# 9. export alles db ---------------------------------------------------------
 # Find duplicate SlootID-jaar combinations
 abio_proj <- abio_proj[WP %in% c('WP1','WP2','Oukoop'),]
 # LET OP: met intanceID filter worden ook opnamen zonder vegetatie weggefilterd

@@ -1341,6 +1341,39 @@ abio_proj[vernat_loc %in% c("nee"," ")|is.na(vernat_loc), vernat_loc := 0]
 abio_proj[,vernat_loc := as.numeric(vernat_loc)]
 abio_proj[zichtdiepte>1,zichtdiepte := 1]
 
+# Aantal waterplantensoorten (n_soorten_sub_zone1) mist bij veel sloten omdat
+# een ontbrekend soortenaantal niet hetzelfde is als "geen planten": alleen
+# als zone 1 daadwerkelijk is opgenomen (veg_opname_vera_zone1 == "ja") EN er
+# geen submerse plantensoort aanwezig was, is een ontbrekend soortenaantal
+# feitelijk een 0. Dat is het geval bij 0% totale bedekking, maar ook wanneer
+# de geregistreerde bedekking uitsluitend uit kroos, emergente planten en/of
+# flab (draadalg) bestaat (waterzone_1_natans_perc == 0): kroos/emers/flab
+# worden kennelijk niet als submerse soort meegeteld, ook al tellen ze wel mee
+# in waterzone_1_subm_tot_perc. Sloten zonder opname (veg_opname_vera_zone1
+# == "nee"/NA) blijven NA (en vallen dus terecht af via de bestaande
+# complete.cases()-filtering in create_xgb_model()/rf_prepare_data()); dit
+# voorkomt dat WP2-sloten zonder zone-1-opname alsnog met een (onterechte) 0
+# worden meegenomen.
+abio_proj[
+  is.na(n_soorten_sub_zone1) &
+    veg_opname_vera_zone1 == "ja" &
+    (waterzone_1_subm_tot_perc == 0 | waterzone_1_natans_perc == 0),
+  n_soorten_sub_zone1 := 0
+]
+
+# Baggermoment_maand mist bij sloten die niet gebaggerd worden (Baggerfrequentie_per_jaar
+# == 0): dat is geen onbekend baggermoment, maar "n.v.t.". Alleen de consistente
+# gevallen (frequentie == 0 én maand nog NA) krijgen een sentinelwaarde (0) die
+# duidelijk buiten het werkelijke maandbereik (5-11) ligt, zodat het model dit als
+# aparte "niet gebaggerd"-categorie kan herkennen i.p.v. als ontbrekende waarde.
+# Sloten met tegenstrijdige combinaties (frequentie == 0 mét ingevulde maand, of
+# frequentie > 0 zonder maand) blijven ongewijzigd (resp. 18 en 6 sloten) tot
+# nader is vastgesteld welke van de twee velden daar leidend is.
+abio_proj[
+  is.na(Baggermoment_maand) & Baggerfrequentie_per_jaar == 0,
+  Baggermoment_maand := 0
+]
+
 ## Function to create XGBoost model for single target ---------------------------------
 create_xgb_model <- function(target_var, predictors, data,
                              train_frac        = 0.6,
@@ -2795,28 +2828,29 @@ if (xgb_diag_best_target %in% names(xgb_diagnostics)) {
 # Selectie: de zes doelvariabelen die het meest betrouwbaar worden voorspeld
 # (hoogste testset-R², zie tbl-performance), met voor elk de top-2
 # voorspellers op basis van gemiddeld genormaliseerd belang (Gain +
-# permutation importance); voor Draagkracht oever alleen "onderholling"
-# (verreweg de dominante voorspeller, overige variabelen dragen nauwelijks bij).
-# Oeverindex (testset-R² = 30%) is toegevoegd op verzoek, ook al valt deze
-# net buiten de top-6 op R² (laagste van de zes is Slibdikte met 32%): de
-# doelvariabele is inhoudelijk relevant voor oevervegetatie/-kwaliteit.
+# permutation importance). Bijgewerkt op basis van de huidige testset-R²-
+# ranking (n_soorten_sub 71%, P-AL 68%, Hydrofyten 59%, slib_redox 42%,
+# oeverindex 40%, max_slib 37%); Soortensamenstelling Helofyten (29%) en
+# draagkracht_oever (20%) vallen hiermee buiten de top-6 en zijn verwijderd,
+# Soortensamenstelling Hydrofyten en oeverindex zijn (opnieuw) toegevoegd.
 kantelpunt_targets <- c(
-  "P-AL mg p2o5/100g_SB", "n_soorten_sub_zone1", "Soortensamenstelling Helofyten",
-  "slib_redox_pH7", "max_slib", "draagkracht_oever", "oeverindex"
+  "P-AL mg p2o5/100g_SB", "n_soorten_sub_zone1", "Soortensamenstelling Hydrofyten",
+  "slib_redox_pH7", "max_slib", "oeverindex"
 )
 kantelpunt_predictors <- list(
-  "P-AL mg p2o5/100g_SB"           = c("feP_PW", "drglg"),
-  "n_soorten_sub_zone1"            = c("P-AL mg p2o5/100g_SB", "holleoever"),
-  "Soortensamenstelling Helofyten" = c("OS_perc_OR_25", "slib_pH"),
-  "slib_redox_pH7"                 = c("slib_pH", "draagkracht_perceel"),
+  "P-AL mg p2o5/100g_SB"            = c("feP_PW", "drglg"),
+  "n_soorten_sub_zone1"             = c("P-AL mg p2o5/100g_SB", "holleoever"),
+  "Soortensamenstelling Hydrofyten" = c("P-AL mg p2o5/100g_SB", "feP_PW"),
+  "slib_redox_pH7"                  = c("slib_pH", "draagkracht_perceel"),
   # Doorzicht/waterdiepte (zichtdiepte) en Taludhoek onder waterlijn zijn
   # toegevoegd naast de top-2 (P-AL, afscheurende oever): beide zijn nog
   # steeds relevante voorspellers voor slibdikte (zie VIP-figuur) en worden
   # in de tekst hieronder inhoudelijk geduid (steilere oever -> minder slib;
   # hoger doorzicht/waterdiepte -> meer slib).
-  "max_slib"                       = c("P-AL mg p2o5/100g_SB", "afscheur_opp", "zichtdiepte", "tldk_wtrwtr_perc"),
-  "draagkracht_oever"              = c("holleoever"),
-  "oeverindex"                     = c("OS_perc_OR_25", "P2O5_xrf_g/kg_OR_25")
+  "max_slib"                        = c("P-AL mg p2o5/100g_SB", "afscheur_opp", "zichtdiepte", "tldk_wtrwtr_perc"),
+  # Top-2 op basis van gecombineerd Gain + permutation-belang (zie VIP-figuur):
+  # Cation Exchange Capacity en P-AL slib.
+  "oeverindex"                      = c("CEC_CO_mmol+/kg_OR_25", "P-AL mg p2o5/100g_SB")
 )
 
 # Haal per target/predictor-paar de ALE-curve (x, ale_effect) op uit de reeds
@@ -2943,7 +2977,7 @@ print(kantelpunt_tbl)
 # terugkomt in de paneelrand/titel-achtergrond hieronder en de zes
 # doelvariabelen visueel goed van elkaar te onderscheiden zijn).
 kantelpunt_target_kleur <- setNames(
-  okabe[seq_along(kantelpunt_targets)],
+  rep(okabe_ito_base, length.out = length(kantelpunt_targets))[seq_along(kantelpunt_targets)],
   kantelpunt_targets
 )
 
@@ -3305,6 +3339,13 @@ top_preds <- all_perm_importance[
 ][, .(Feature, Nederlandse_naam)
 ][, .N, by = .(Feature, Nederlandse_naam)][order(-N)][1:8, Feature]
 
+# Waterbreedte (watbte) is relevant genoeg (fysiek kenmerk, geen onderdeel van
+# de automatische top-8 op basis van permutation importance) om hier standaard
+# in te zetten, zodat @fig-box-ws-pred ook laat zien of waterschappen met een
+# lage ruimtelijke CV-score systematisch een afwijkende sloot-/watergangbreedte
+# hebben.
+top_preds <- union(top_preds, "watbte")
+
 cat("Top predictoren voor vergelijking:\n")
 
 # Groepeer waterschappen: slecht vs goed voorspeld
@@ -3322,8 +3363,14 @@ compare_dt <- merge(compare_dt, ws_groep, by = "waterschap")
 # Haal beschikbare top predictoren op
 preds_avail <- top_preds[top_preds %in% names(compare_dt)]
 cat("\nBeschikbare predictoren:", preds_avail, "\n")
-# Zet om naar long formaat voor plotting
-plot_vars <- preds_avail
+# Zet om naar long formaat voor plotting. Alleen numerieke predictoren: een
+# mix van character (bv. oeverzone_2b_grillig) en numerieke/µ-benoemde
+# kolommen laat data.table::melt() de hele data-coerceren naar character,
+# wat op dit systeem een "input string is invalid in this locale"-fout
+# geeft op multibyte (µ) kolomnamen. Character-predictoren worden toch al
+# verwijderd door het latere is.finite(waarde)-filter, dus ze vooraf
+# uitsluiten verandert de uitkomst niet.
+plot_vars <- preds_avail[sapply(compare_dt[, ..preds_avail], is.numeric)]
 nl_namen  <- nederlandse_namen[plot_vars]
 nl_namen[is.na(nl_namen)] <- plot_vars[is.na(nl_namen)]
 
@@ -3463,8 +3510,8 @@ ggsave(
 # Gebruik mgcv::gam met REML voor optimale smooth-selectie.
 library(mgcv)
 # Voeg coördinaten toe aan abio_proj (middelpunt traject, WGS84)
-abio_proj[, lon := (Start_traject_long_abio + End_traject_long_abio) / 2]
-abio_proj[, lat := (Start_traject_lat_abio  + End_traject_lat_abio)  / 2]
+abio_proj[, lon := (Start_traject_long + End_traject_long) / 2]
+abio_proj[, lat := (Start_traject_lat  + End_traject_lat)  / 2]
 gam_results  <- list()
 gam_plots    <- list()
 
@@ -3480,9 +3527,12 @@ for (tgt in target_vars) {
   if (length(top5) == 0) next
 
   # Modeldata: top5 + target + coördinaten
+  # Zelfde inclusiefilter als XGBoost/RF (MeenemenDataAnalyse_totaal == 'ja'),
+  # zodat GAM-sloten/rijen niet meetellen die ook bij de boom-modellen
+  # buiten de analyse vallen (bijv. proefbehandelingen/dubbele metingen).
   gam_vars <- unique(c(tgt, top5, "lon", "lat"))
   gam_data <- as.data.frame(abio_proj[
-    complete.cases(abio_proj[, ..gam_vars]),
+    MeenemenDataAnalyse_totaal == 'ja' & complete.cases(abio_proj[, ..gam_vars]),
     ..gam_vars
   ])
 
@@ -3502,9 +3552,28 @@ for (tgt in target_vars) {
   # Zorg dat target numeriek is (kan character worden na as.data.frame)
   gam_data[[tgt_safe]] <- as.numeric(gam_data[[tgt_safe]])
 
+  # mgcv::s() vereist numerieke predictoren: character- of factor-predictoren
+  # in de automatisch gekozen top-5 (bv. oeverzone_2b_grillig, dieptebin_min)
+  # geven anders een onduidelijke fout diep in mgcv ("'names' attribute...").
+  # Zet ze om naar een numerieke (ordinale) code, net zoals dat elders in dit
+  # script voor de XGBoost-modeldata gebeurt.
+  for (p in top5_safe) {
+    if (is.character(gam_data[[p]]) || is.factor(gam_data[[p]])) {
+      gam_data[[p]] <- as.numeric(factor(gam_data[[p]]))
+    }
+  }
+
   k_val <- min(5, floor(nrow(gam_data) / 10))
 
-  smooth_terms <- paste0('s(', top5_safe, ', k=', k_val, ')', collapse = ' + ')
+  # Per-predictor k: nooit hoger dan (aantal unieke waarden - 1), anders faalt
+  # mgcv met "fewer unique covariate combinations than specified maximum
+  # degrees of freedom" (komt vooral voor bij omgezette categorische
+  # predictoren zoals oeverzone_2b_grillig, met maar 3 niveaus).
+  k_per_pred <- vapply(top5_safe, function(p) {
+    max(2, min(k_val, length(unique(gam_data[[p]])) - 1))
+  }, numeric(1))
+
+  smooth_terms <- paste0('s(', top5_safe, ', k=', k_per_pred, ')', collapse = ' + ')
   spatial_term <- paste0('s(lon, lat, bs="sos", k=', min(10, floor(nrow(gam_data) / 8)), ')')
   gam_formula  <- as.formula(paste(tgt_safe, '~', smooth_terms, '+', spatial_term))
 
@@ -3607,7 +3676,7 @@ for (tgt in target_vars) {
   # Voeg waterschap toe aan gam_data (matcht op complete-cases rijen)
   gam_data$resid      <- residuals(gam_fit)
   gam_data$waterschap <- abio_proj[
-    complete.cases(abio_proj[, ..gam_vars]), waterschap
+    MeenemenDataAnalyse_totaal == 'ja' & complete.cases(abio_proj[, ..gam_vars]), waterschap
   ]
 
   # Sorteer op mediaan residu voor leesbaarheid
@@ -3745,6 +3814,464 @@ print(gam_summary[, .(target_nl, n,
                        diff_pct = round(r2_diff * 100, 1),
                        dev_expl = round(dev_exp * 100, 1))])
 
+
+# 4b. GAM: vegetatie vs. bodem-/waterbodemkwaliteit (handmatige predictorkeuze) --
+## In tegenstelling tot sectie 4 (predictoren automatisch gekozen op basis van
+## permutation importance) wordt hier gericht gekeken naar de relatie tussen
+## vegetatie-doelvariabelen en een vooraf gekozen, inhoudelijk relevante set
+## bodem-/waterbodemvariabelen:
+##  - Oeverindex          ~ P-AL en N-mineraal in de oever (0-25 cm)
+##  - Soortensamenstelling Hydrofyten ~ P-AL, ammonium en N-mineraal in het slib
+## Dezelfde GAM-opzet als sectie 4 (mgcv::gam met REML, 2D ruimtelijke smooth
+## lon/lat), maar met deze handmatige predictorlijst i.p.v. de automatische
+## top-5 permutation-selectie.
+veg_bodem_targets <- list(
+  "oeverindex" = c(
+    "P-AL mg p2o5/100g_OR_25",
+    "N_mineraal_OR_25"
+  ),
+  "Soortensamenstelling Hydrofyten" = c(
+    "P-AL mg p2o5/100g_SB",
+    "N-NH4_CC_mg/kg_SB",
+    "N_mineraal_SB"
+  )
+)
+
+# Nederlandse namen voor de (deels nieuwe) predictoren in deze sectie; wordt
+# toegevoegd aan de bestaande nederlandse_namen-lookup zodat build_kantelpunt_panel-
+# achtige plotcode (en de labels hieronder) er ook gebruik van kunnen maken.
+nederlandse_namen["P-AL mg p2o5/100g_OR_25"] <- "P-AL oever 0-25cm (mg P2O5/100g)"
+nederlandse_namen["N_mineraal_OR_25"]        <- "N-mineraal oever 0-25cm (mg/kg)"
+nederlandse_namen["P-AL mg p2o5/100g_SB"]    <- "P-AL slib (mg P2O5/100g)"
+nederlandse_namen["N-NH4_CC_mg/kg_SB"]       <- "Ammonium slib (mg/kg)"
+nederlandse_namen["N_mineraal_SB"]           <- "N-mineraal slib (mg/kg)"
+
+veg_bodem_results <- list()
+veg_bodem_plots   <- list()
+
+for (tgt in names(veg_bodem_targets)) {
+  if (!tgt %in% colnames(abio_proj)) next
+  cat("GAM (vegetatie-bodemkwaliteit) voor:", tgt, "\n")
+
+  preds <- veg_bodem_targets[[tgt]]
+  preds <- preds[preds %in% colnames(abio_proj)]
+  if (length(preds) == 0) next
+
+  gam_vars <- unique(c(tgt, preds, "lon", "lat"))
+  # Zelfde inclusiefilter als XGBoost/RF (MeenemenDataAnalyse_totaal == 'ja')
+  gam_data <- as.data.frame(abio_proj[
+    MeenemenDataAnalyse_totaal == 'ja' & complete.cases(abio_proj[, ..gam_vars]),
+    ..gam_vars
+  ])
+
+  if (nrow(gam_data) < 20) {
+    cat("  Te weinig complete waarnemingen (n =", nrow(gam_data), "), overgeslagen.\n")
+    next
+  }
+
+  orig_names <- names(gam_data)
+  safe_names <- make.names(orig_names, unique = TRUE)
+  names(gam_data) <- safe_names
+
+  name_map <- setNames(safe_names, orig_names)
+
+  tgt_safe   <- name_map[tgt]
+  preds_safe <- name_map[preds]
+
+  gam_data[[tgt_safe]] <- as.numeric(gam_data[[tgt_safe]])
+
+  k_val <- min(5, floor(nrow(gam_data) / 10))
+
+  smooth_terms <- paste0('s(', preds_safe, ', k=', k_val, ')', collapse = ' + ')
+  spatial_term <- paste0('s(lon, lat, bs="sos", k=', min(10, floor(nrow(gam_data) / 8)), ')')
+  gam_formula  <- as.formula(paste(tgt_safe, '~', smooth_terms, '+', spatial_term))
+
+  gam_fit <- tryCatch(
+    mgcv::gam(gam_formula, data = gam_data, method = "REML", select = TRUE),
+    error = function(e) { cat("  GAM fout:", conditionMessage(e), "\n"); NULL }
+  )
+  if (is.null(gam_fit)) next
+
+  pred_gam <- predict(gam_fit, gam_data)
+  r2_gam   <- cor(gam_data[[tgt_safe]], pred_gam)^2
+  rmse_gam <- sqrt(mean((gam_data[[tgt_safe]] - pred_gam)^2))
+  dev_exp  <- summary(gam_fit)$dev.expl
+
+  veg_bodem_results[[tgt]] <- data.table(
+    target      = tgt,
+    target_nl   = target_names_dutch[tgt],
+    r2          = r2_gam,
+    rmse        = rmse_gam,
+    dev_expl    = dev_exp,
+    n           = nrow(gam_data),
+    predictoren = paste(preds, collapse = ", ")
+  )
+
+  # Smooth-plots per predictor (zelfde opzet als sectie 4: overige predictoren
+  # en de ruimtelijke smooth op mediaan/centrum gehouden) -------------------
+  plot_list <- lapply(seq_along(preds_safe), function(i) {
+    feat_safe <- preds_safe[i]
+    feat_orig <- preds[i]
+    feat_nl   <- nederlandse_namen[feat_orig]
+    if (is.na(feat_nl)) feat_nl <- feat_orig
+
+    x_seq <- seq(min(gam_data[[feat_safe]], na.rm = TRUE),
+                 max(gam_data[[feat_safe]], na.rm = TRUE),
+                 length.out = 100)
+
+    safe_pred_names <- safe_names[safe_names != tgt_safe]
+    grid_df <- as.data.frame(lapply(safe_pred_names, function(v) {
+      if (v == feat_safe) x_seq else rep(median(gam_data[[v]], na.rm = TRUE), 100)
+    }))
+    names(grid_df) <- safe_pred_names
+
+    pred_obj       <- predict(gam_fit, newdata = grid_df, se.fit = TRUE)
+    grid_df$fit    <- pred_obj$fit
+    grid_df$se     <- pred_obj$se.fit
+    grid_df$lo     <- grid_df$fit - 1.96 * grid_df$se
+    grid_df$hi     <- grid_df$fit + 1.96 * grid_df$se
+    grid_df$x_feat <- x_seq
+
+    rug_df <- data.frame(x = gam_data[[feat_safe]])
+
+    ggplot(grid_df, aes(x = x_feat)) +
+      geom_ribbon(aes(ymin = lo, ymax = hi), fill = "#009E73", alpha = 0.2) +
+      geom_line(aes(y = fit), color = "#009E73", linewidth = 1) +
+      geom_rug(data = rug_df, aes(x = x),
+               sides = "b", alpha = 0.3, length = unit(0.03, "npc")) +
+      labs(
+        title = feat_nl,
+        x     = feat_nl,
+        y     = paste("Effect op", target_names_dutch[tgt])
+      ) +
+      theme_minimal(base_size = 9) +
+      theme(
+        plot.title   = element_text(size = 8, face = "bold", hjust = 0.5),
+        panel.border = element_rect(colour = "grey80", fill = NA, linewidth = 0.4)
+      )
+  })
+
+  perf_str <- paste0(
+    "GAM (bodem-/waterbodemkwaliteit) — ", target_names_dutch[tgt],
+    "  |  R²: ", round(r2_gam * 100, 1), "%",
+    "  |  Dev. verklaard: ", round(dev_exp * 100, 1), "%",
+    "  |  RMSE: ", round(rmse_gam, 3), "  |  n=", nrow(gam_data)
+  )
+
+  panel <- wrap_plots(plot_list, nrow = 1) +
+    plot_annotation(
+      title    = perf_str,
+      subtitle = "Smooth effecten met 95% betrouwbaarheidsband (+ 2D ruimtelijke smooth lon/lat, niet getoond). Overige predictoren op mediaan gehouden.",
+      theme    = theme(
+        plot.title    = element_text(size = 10, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 8, hjust = 0.5, color = "grey40")
+      )
+    )
+
+  veg_bodem_plots[[tgt]] <- panel
+
+  outfile <- paste0("output/AlleGebieden/Tussenrapportage/GAM_vegetatie_bodemkwaliteit_", gsub("[^A-Za-z0-9]", "_", tgt), ".png")
+  print(panel)
+  ggsave(outfile, panel, width = 30, height = 10, units = "cm", dpi = 200)
+  cat("  Opgeslagen:", outfile, "\n")
+}
+
+veg_bodem_summary <- rbindlist(veg_bodem_results)
+if (nrow(veg_bodem_summary) > 0) {
+  veg_bodem_summary <- merge(
+    veg_bodem_summary,
+    performance_summary[, .(target, r2_test, rmse_test)],
+    by = "target", all.x = TRUE
+  )
+  veg_bodem_summary[, r2_diff := r2 - r2_test]
+
+  cat("\n=== GAM vegetatie-bodemkwaliteit vs XGBoost (testset) vergelijking ===\n")
+  print(veg_bodem_summary[, .(target_nl, predictoren, n,
+                               r2_gam   = round(r2 * 100, 1),
+                               r2_xgb   = round(r2_test * 100, 1),
+                               dev_expl = round(dev_expl * 100, 1))])
+}
+
+
+# 4c. GAM: effect van beheervariabelen op erosie- en vernattingsrisico-index ------
+## Andere aanpak dan sectie 4/4b: hier geen XGBoost-tegenhanger (erosieindex en
+## vernattingsrisico_index zijn geen XGBoost-doelvariabelen, zie target_vars),
+## dus is er geen testset-R² om tegen af te zetten; de gerapporteerde R² is
+## in-sample, net als bij de andere GAM's in dit script.
+## Doelvariabelen: erosieindex en vernattingsrisico_index (beide berekend in
+## main_veest.R, zie Methoden). Voorspellers: dezelfde zes beheervariabelen
+## als bij "Beheervariabelen per waterschap" hierboven, minus de
+## bemestingsvrije zone (niet expliciet gevraagd voor deze analyse).
+beheer_gam_targets <- c("erosieindex", "vernattingsrisico_index")
+beheer_gam_target_nl <- c(
+  "erosieindex"             = "Erosieindex",
+  "vernattingsrisico_index" = "Vernattingsrisico-index"
+)
+beheer_gam_preds <- c(
+  "Methode_toedienen_dierlijke_mest",
+  "Maaifrequentie_bemestingsvrije_zone_per_jaar",
+  "Maaifrequentie_oever_per_jaar",
+  "koebelasting_drinkende_koeien",
+  "Baggermoment_maand",
+  "Baggerfrequentie_per_jaar"
+)
+beheer_gam_preds_nl <- c(
+  "Methode_toedienen_dierlijke_mest" = "Methode mesttoediening (0-5)",
+  "Maaifrequentie_bemestingsvrije_zone_per_jaar"  = "Maaifrequentie perceel (p/jr)",
+  "Maaifrequentie_oever_per_jaar"    = "Maaifrequentie oever (p/jr)",
+  "koebelasting_drinkende_koeien"    = "Koebelasting drinkend",
+  "Baggermoment_maand"               = "Baggermoment (maand gem.)",
+  "Baggerfrequentie_per_jaar"        = "Baggerfrequentie (p/jr)"
+)
+# Toevoegen aan de bestaande Nederlandse-namen-lookup zodat de smooth-plots
+# hieronder er gebruik van kunnen maken, en zodat de doelvariabelen ook een
+# leesbare naam hebben (analoog aan target_names_dutch elders in dit script).
+nederlandse_namen[names(beheer_gam_preds_nl)] <- beheer_gam_preds_nl
+
+beheer_gam_preds_avail <- beheer_gam_preds[beheer_gam_preds %in% colnames(abio_proj)]
+
+beheer_gam_results <- list()
+beheer_gam_plots   <- list()
+
+for (tgt in beheer_gam_targets) {
+  if (!tgt %in% colnames(abio_proj)) next
+  cat("GAM (beheervariabelen) voor:", tgt, "\n")
+
+  # Zelfde inclusiefilter als XGBoost/RF (MeenemenDataAnalyse_totaal == 'ja')
+  gam_vars <- unique(c(tgt, beheer_gam_preds_avail, "lon", "lat"))
+  gam_data <- as.data.frame(abio_proj[
+    MeenemenDataAnalyse_totaal == 'ja' & complete.cases(abio_proj[, ..gam_vars]),
+    ..gam_vars
+  ])
+
+  if (nrow(gam_data) < 20) {
+    cat("  Te weinig complete waarnemingen (n =", nrow(gam_data), "), overgeslagen.\n")
+    next
+  }
+
+  orig_names <- names(gam_data)
+  safe_names <- make.names(orig_names, unique = TRUE)
+  names(gam_data) <- safe_names
+
+  name_map <- setNames(safe_names, orig_names)
+
+  tgt_safe   <- name_map[tgt]
+  preds_safe <- name_map[beheer_gam_preds_avail]
+
+  gam_data[[tgt_safe]] <- as.numeric(gam_data[[tgt_safe]])
+
+  k_val <- min(5, floor(nrow(gam_data) / 10))
+
+  smooth_terms <- paste0('s(', preds_safe, ', k=', k_val, ')', collapse = ' + ')
+  spatial_term <- paste0('s(lon, lat, bs="sos", k=', min(10, floor(nrow(gam_data) / 8)), ')')
+  gam_formula  <- as.formula(paste(tgt_safe, '~', smooth_terms, '+', spatial_term))
+
+  gam_fit <- tryCatch(
+    mgcv::gam(gam_formula, data = gam_data, method = "REML", select = TRUE),
+    error = function(e) { cat("  GAM fout:", conditionMessage(e), "\n"); NULL }
+  )
+  if (is.null(gam_fit)) next
+
+  pred_gam <- predict(gam_fit, gam_data)
+  r2_gam   <- cor(gam_data[[tgt_safe]], pred_gam)^2
+  rmse_gam <- sqrt(mean((gam_data[[tgt_safe]] - pred_gam)^2))
+  dev_exp  <- summary(gam_fit)$dev.expl
+
+  # Significantie per smooth-term (uit de mgcv-summary): laat zien welke
+  # beheervariabelen door select=TRUE niet naar nul zijn getrokken.
+  smry <- summary(gam_fit)
+  s_table <- as.data.table(smry$s.table, keep.rownames = "term")
+  s_table[, predictor_safe := gsub("^s\\(|\\)$", "", term)]
+  s_table[, predictor := names(preds_safe)[match(predictor_safe, preds_safe)]]
+  s_table[is.na(predictor), predictor := "lon,lat (ruimtelijk)"]
+  s_table[, predictor_nl := fifelse(
+    predictor == "lon,lat (ruimtelijk)", predictor, nederlandse_namen[predictor]
+  )]
+
+  beheer_gam_results[[tgt]] <- data.table(
+    target      = tgt,
+    target_nl   = beheer_gam_target_nl[tgt],
+    r2          = r2_gam,
+    rmse        = rmse_gam,
+    dev_expl    = dev_exp,
+    n           = nrow(gam_data),
+    predictoren = paste(beheer_gam_preds_avail, collapse = ", ")
+  )
+
+  cat("  Significantie per smooth-term:\n")
+  print(s_table[, .(predictor_nl, edf = round(`edf`, 2), p_waarde = round(`p-value`, 4))])
+
+  # Smooth-plots per beheervariabele (analoog aan sectie 4/4b) --------------
+  plot_list <- lapply(seq_along(preds_safe), function(i) {
+    feat_safe <- preds_safe[i]
+    feat_orig <- beheer_gam_preds_avail[i]
+    feat_nl   <- nederlandse_namen[feat_orig]
+    if (is.na(feat_nl)) feat_nl <- feat_orig
+
+    x_seq <- seq(min(gam_data[[feat_safe]], na.rm = TRUE),
+                 max(gam_data[[feat_safe]], na.rm = TRUE),
+                 length.out = 100)
+
+    safe_pred_names <- safe_names[safe_names != tgt_safe]
+    grid_df <- as.data.frame(lapply(safe_pred_names, function(v) {
+      if (v == feat_safe) x_seq else rep(median(gam_data[[v]], na.rm = TRUE), 100)
+    }))
+    names(grid_df) <- safe_pred_names
+
+    pred_obj       <- predict(gam_fit, newdata = grid_df, se.fit = TRUE)
+    grid_df$fit    <- pred_obj$fit
+    grid_df$se     <- pred_obj$se.fit
+    grid_df$lo     <- grid_df$fit - 1.96 * grid_df$se
+    grid_df$hi     <- grid_df$fit + 1.96 * grid_df$se
+    grid_df$x_feat <- x_seq
+
+    rug_df <- data.frame(x = gam_data[[feat_safe]])
+
+    # p-waarde van deze smooth-term erbij in de titel, als leeshulp bij een
+    # (bijna) vlakke lijn (= niet-significante term, weggepenaliseerd).
+    p_val <- s_table[predictor == feat_orig, `p-value`]
+    p_lab <- if (length(p_val) == 1 && !is.na(p_val)) {
+      paste0(" (p=", formatC(p_val, format = "f", digits = 3), ")")
+    } else ""
+
+    ggplot(grid_df, aes(x = x_feat)) +
+      geom_ribbon(aes(ymin = lo, ymax = hi), fill = "#0072B2", alpha = 0.2) +
+      geom_line(aes(y = fit), color = "#0072B2", linewidth = 1) +
+      geom_rug(data = rug_df, aes(x = x),
+               sides = "b", alpha = 0.3, length = unit(0.03, "npc")) +
+      labs(
+        title = paste0(feat_nl, p_lab),
+        x     = feat_nl,
+        y     = paste("Effect op", beheer_gam_target_nl[tgt])
+      ) +
+      theme_minimal(base_size = 9) +
+      theme(
+        plot.title   = element_text(size = 8, face = "bold", hjust = 0.5),
+        panel.border = element_rect(colour = "grey80", fill = NA, linewidth = 0.4)
+      )
+  })
+
+  perf_str <- paste0(
+    "GAM (beheervariabelen) — ", beheer_gam_target_nl[tgt],
+    "  |  R² (in-sample): ", round(r2_gam * 100, 1), "%",
+    "  |  Dev. verklaard: ", round(dev_exp * 100, 1), "%",
+    "  |  RMSE: ", round(rmse_gam, 3), "  |  n=", nrow(gam_data)
+  )
+
+  panel <- wrap_plots(plot_list, nrow = 1) +
+    plot_annotation(
+      title    = perf_str,
+      subtitle = "Smooth effecten met 95% betrouwbaarheidsband (+ 2D ruimtelijke smooth lon/lat, niet getoond). Overige predictoren op mediaan gehouden; p-waarde in paneeltitel = significantie van de smooth-term.",
+      theme    = theme(
+        plot.title    = element_text(size = 10, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 8, hjust = 0.5, color = "grey40")
+      )
+    )
+
+  beheer_gam_plots[[tgt]] <- panel
+
+  outfile <- paste0("output/AlleGebieden/Tussenrapportage/GAM_beheervariabelen_", tgt, ".png")
+  print(panel)
+  ggsave(outfile, panel, width = 32, height = 10, units = "cm", dpi = 200)
+  cat("  Opgeslagen:", outfile, "\n")
+}
+
+beheer_gam_summary <- rbindlist(beheer_gam_results)
+if (nrow(beheer_gam_summary) > 0) {
+  cat("\n=== GAM beheervariabelen: overzicht ===\n")
+  print(beheer_gam_summary[, .(target_nl, predictoren, n,
+                                r2_gam   = round(r2 * 100, 1),
+                                dev_expl = round(dev_expl * 100, 1))])
+}
+
+# 4d. GAM beheervariabelen zonder ruimtelijke term: bovengrens beheereffect ----
+## De GAM's in 4c bevatten een 2D ruimtelijke smooth s(lon,lat) die
+## gebiedseffecten opvangt. Omdat de zes beheervariabelen sterk geclusterd
+## zijn per gebied (zie sectie "Beheervariabelen per waterschap"; eta^2
+## tussen gebieden 0.43-0.61) en gebied vrijwel samenvalt met lon/lat
+## (eta^2 ~ 0.999), is er sterke concurvity tussen de ruimtelijke term en
+## de beheertermen. Hierdoor worden de beheertermen in het volledige model
+## (4c) door select=TRUE (nagenoeg) weggepenaliseerd, ook al zit er mogelijk
+## een deel gebiedsgebonden beheer"effect" verscholen in de ruimtelijke term.
+## Om een (optimistische) bovengrens te krijgen van wat beheer maximaal zou
+## kunnen verklaren, herhalen we dezelfde GAM's zonder s(lon,lat). Deze
+## bovengrens verwart locatie- en beheereffecten (kan niet onderscheiden of
+## het gebied of het beheer verantwoordelijk is) en moet dus niet worden
+## geinterpreteerd als een gezuiverd beheereffect.
+beheer_gam_nospatial_results <- list()
+
+for (tgt in beheer_gam_targets) {
+  if (!tgt %in% colnames(abio_proj)) next
+  cat("GAM (beheervariabelen, zonder ruimtelijke term) voor:", tgt, "\n")
+
+  # Zelfde inclusiefilter als XGBoost/RF (MeenemenDataAnalyse_totaal == 'ja')
+  gam_vars <- unique(c(tgt, beheer_gam_preds_avail, "lon", "lat"))
+  gam_data <- as.data.frame(abio_proj[
+    MeenemenDataAnalyse_totaal == 'ja' & complete.cases(abio_proj[, ..gam_vars]),
+    ..gam_vars
+  ])
+
+  if (nrow(gam_data) < 20) {
+    cat("  Te weinig complete waarnemingen (n =", nrow(gam_data), "), overgeslagen.\n")
+    next
+  }
+
+  orig_names <- names(gam_data)
+  safe_names <- make.names(orig_names, unique = TRUE)
+  names(gam_data) <- safe_names
+  name_map <- setNames(safe_names, orig_names)
+
+  tgt_safe   <- name_map[tgt]
+  preds_safe <- name_map[beheer_gam_preds_avail]
+  gam_data[[tgt_safe]] <- as.numeric(gam_data[[tgt_safe]])
+
+  k_val <- min(5, floor(nrow(gam_data) / 10))
+  smooth_terms <- paste0('s(', preds_safe, ', k=', k_val, ')', collapse = ' + ')
+  gam_formula_nospatial <- as.formula(paste(tgt_safe, '~', smooth_terms))
+
+  gam_fit_nospatial <- tryCatch(
+    mgcv::gam(gam_formula_nospatial, data = gam_data, method = "REML", select = TRUE),
+    error = function(e) { cat("  GAM fout:", conditionMessage(e), "\n"); NULL }
+  )
+  if (is.null(gam_fit_nospatial)) next
+
+  pred_gam <- predict(gam_fit_nospatial, gam_data)
+  r2_gam   <- cor(gam_data[[tgt_safe]], pred_gam)^2
+  dev_exp  <- summary(gam_fit_nospatial)$dev.expl
+
+  smry <- summary(gam_fit_nospatial)
+  s_table <- as.data.table(smry$s.table, keep.rownames = "term")
+  s_table[, predictor_safe := gsub("^s\\(|\\)$", "", term)]
+  s_table[, predictor := names(preds_safe)[match(predictor_safe, preds_safe)]]
+  s_table[, predictor_nl := nederlandse_namen[predictor]]
+
+  beheer_gam_nospatial_results[[tgt]] <- list(
+    summary = data.table(
+      target      = tgt,
+      target_nl   = beheer_gam_target_nl[tgt],
+      r2          = r2_gam,
+      dev_expl    = dev_exp,
+      n           = nrow(gam_data),
+      predictoren = paste(beheer_gam_preds_avail, collapse = ", ")
+    ),
+    s_table = s_table
+  )
+}
+
+beheer_gam_nospatial_summary <- rbindlist(lapply(beheer_gam_nospatial_results, `[[`, "summary"))
+beheer_gam_nospatial_stable  <- rbindlist(
+  lapply(names(beheer_gam_nospatial_results), function(tgt) {
+    dt <- beheer_gam_nospatial_results[[tgt]]$s_table
+    dt[, target_nl := beheer_gam_target_nl[tgt]]
+    dt
+  })
+)
+if (nrow(beheer_gam_nospatial_summary) > 0) {
+  cat("\n=== GAM beheervariabelen zonder ruimtelijke term: overzicht (bovengrens) ===\n")
+  print(beheer_gam_nospatial_summary[, .(target_nl, n,
+                                          r2_gam   = round(r2 * 100, 1),
+                                          dev_expl = round(dev_expl * 100, 1))])
+}
 
 
 # 5. Random Forest analyse met ruimtelijke cross-validatie ----------------------
@@ -4398,6 +4925,9 @@ cat("\nSectie 5 (Random Forest + ruimtelijke CV) voltooid.\n")
 rds_dir <- paste0(workspace, "output/rapport/")
 dir.create(rds_dir, recursive = TRUE, showWarnings = FALSE)
 
+saveRDS(abio_proj,            paste0(rds_dir, "abio_proj.rds"))
+saveRDS(nederlandse_namen,     paste0(rds_dir, "nederlandse_namen.rds"))
+
 saveRDS(rf_perf_summary,    paste0(rds_dir, "rf_perf_summary.rds"))
 saveRDS(rf_cv_results,      paste0(rds_dir, "rf_cv_results.rds"))
 saveRDS(cv_results,         paste0(rds_dir, "cv_results.rds"))
@@ -4409,12 +4939,23 @@ saveRDS(plot_vip_compare,   paste0(rds_dir, "plot_vip_compare.rds"))
 saveRDS(rf_target_names_dutch, paste0(rds_dir, "rf_target_names_dutch.rds"))
 saveRDS(rf_rmse_units,      paste0(rds_dir, "rf_rmse_units.rds"))
 saveRDS(p_ws_pred,          paste0(rds_dir, "p_ws_pred.rds"))
+saveRDS(p_beheer,           paste0(rds_dir, "p_beheer.rds"))
 
 # GAM (sectie 4): performance-samenvatting (GAM vs XGBoost) en de
 # smooth-plots per doelvariabele, voor de sectie "GAM met ruimtelijke
 # smoothing" in het rapport.
 saveRDS(gam_summary,        paste0(rds_dir, "gam_summary.rds"))
 saveRDS(gam_plots,          paste0(rds_dir, "gam_plots.rds"))
+saveRDS(veg_bodem_summary,  paste0(rds_dir, "veg_bodem_summary.rds"))
+saveRDS(veg_bodem_plots,    paste0(rds_dir, "veg_bodem_plots.rds"))
+saveRDS(beheer_gam_summary, paste0(rds_dir, "beheer_gam_summary.rds"))
+saveRDS(beheer_gam_plots,   paste0(rds_dir, "beheer_gam_plots.rds"))
+
+# GAM (sectie 4d): beheervariabelen zonder ruimtelijke term (bovengrens
+# beheereffect, ongezuiverd voor gebiedslocatie), voor de sectie
+# "Effect van beheervariabelen op erosie- en vernattingsrisico" in het rapport.
+saveRDS(beheer_gam_nospatial_summary, paste0(rds_dir, "beheer_gam_nospatial_summary.rds"))
+saveRDS(beheer_gam_nospatial_stable,  paste0(rds_dir, "beheer_gam_nospatial_stable.rds"))
 
 # XGBoost validatie/diagnostiek (residuen, Q-Q, uitschieter-bias per target):
 # samenvattende tabel voor alle doelvariabelen + het volledige 4-panel voor
@@ -4428,8 +4969,6 @@ saveRDS(xgb_diag_best_target, paste0(rds_dir, "xgb_diag_best_target.rds"))
 # zie sectie "Belangrijkste kantelpunten" in het rapport.
 saveRDS(kantelpunt_tbl,        paste0(rds_dir, "xgb_kantelpunt_tbl.rds"))
 saveRDS(xgb_kantelpunt_plot,   paste0(rds_dir, "xgb_kantelpunt_plot.rds"))
-
-
 
 # Aantal unieke sloten in de gefilterde dataset (voor toelichting bij
 # overfitting-risico in het rapport, sectie "Resultaten modelvergelijking").

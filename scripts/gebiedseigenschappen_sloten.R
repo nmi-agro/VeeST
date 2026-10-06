@@ -280,18 +280,21 @@ p_bodemtype_classificatie <- ggplot(bodem_wide_lbl,
     segment.color = "grey50", segment.size = 0.3,
     seed = 4218
   ) +
-  annotate("text", x = 3,  y = 55, label = "Veen",          fontface = "bold", color = "#8B4513") +
+  annotate("text", x = 6,  y = 55, label = "Veen",          fontface = "bold", color = "#8B4513") +
   annotate("text", x = 30, y = 55, label = "Klei-in-veen",  fontface = "bold", color = "#9ACD32") +
   annotate("text", x = 30, y = 8,  label = "Moerige klei",  fontface = "bold", color = "#4682B4") +
-  annotate("text", x = 3,  y = 13, label = "Moerige grond", fontface = "bold", color = "#F4A460") +
-  annotate("text", x = 3,  y = 3,  label = "Zand/leem",     fontface = "bold", color = "grey50") +
+  annotate("text", x = 6,  y = 13, label = "Moerige grond", fontface = "bold", color = "#F4A460") +
+  annotate("text", x = 6,  y = 3,  label = "Zand/leem",     fontface = "bold", color = "grey50") +
   scale_color_manual(values = bodemtype_colors) +
+  # Iets ruimte links van de laagste kleigehaltes zodat de "Veen"/"Moerige
+  # grond"/"Zand/leem"-labels (bij x = 6) niet tegen of buiten de linker
+  # plotrand vallen.
+  scale_x_continuous(expand = expansion(mult = c(0.08, 0.05))) +
   labs(
     x     = "Kleigehalte (%)",
     y     = "Organisch stofgehalte (%)",
     color = "Bodemtype",
-    title = "Basis voor bodemtype classificatie per sloot",
-    caption = "Labels: per gebied het meest kenmerkende punt (dicht bij een classificatiegrens, of het hoogste klei- of organisch-stofgehalte)."
+    title = "Basis voor bodemtype classificatie per sloot"
   ) +
   theme_figuur
 

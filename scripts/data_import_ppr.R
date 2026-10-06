@@ -58,7 +58,7 @@ locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
 
 ## 1.3 create cluster per loc data---------------------------
 cluster <- st_as_sf(cluster)
-clusters_locs <- st_join(locaties[!is.na(locaties$instanceID_veg) & !is.na(locaties$instanceID_abio) & !locaties$WP %in% 'WP2-prenul',], cluster, st_nearest_feature, left = TRUE)
+clusters_locs <- st_join(locaties[!is.na(locaties$instanceID_abio) & !locaties$WP %in% 'WP2-prenul',], cluster, st_nearest_feature, left = TRUE)
 # sel verschillende indicatoren
 # afwatopp: oppvl/ (omtrek_nat/ 2) brede percelen met weinig sloten is een hoog getal, smalle percelen met veel sloten is laag
 clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort',"Sloot_nr","sloot","Behandeling","Oeverzijde","jaar",'Slibmonster_Bware','Oevermonster_AgroCares','WP','MeenemenDataAnalyse_totaal','clusters','trofie','omtrek_nat','omtrek_length','GEOMETRIE_Area','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text','Zomerpeil_m_NAP','Maaiveld_niveau_m_NAP','Zomerdrooglegging_m_NOBV')])
@@ -702,7 +702,7 @@ slootID_penetrometerID <- dcast(penmerge, SlootID+name_gps+oever+jaar~dist_id) #
 # 3. Abiotiek ---------------------------------------------------------
 ## 3.1 import ----------------------------------------------------------
 inputdir <- paste0(workspace,"./ODK_abiotiek")
-abio <- fread(paste0(inputdir,'/VeeST_Veldform Abiotiek_v5_results_251104.csv'), dec = ',', na.strings = c(999,9999,-999,-99,'999,0','999,00','999,000','NA','999','999,0000'))
+abio <- fread(paste0(inputdir,'/VeeST_Veldform Abiotiek_v5_results_251104.csv'), dec = ',', na.strings = c(999,9999,-999,-99,'999,0','999,00','999,000','NA','999','999,0000','0.00'))
 abio2 <- fread(paste0(inputdir,'/VeeST_Veldform Abiotiek_v5_260901.csv'), sep = ',', dec = '.', na.strings = c(999,9999,-999,-99,'999.0','999.00','999.000','NA','999','999.0000'))
 abio_cols <- fread(paste0(workspace,"./hulp_tabellen/veest_kolomnamen.csv"), dec = ',')
 setnames(abio, abio_cols$nieuwe_kolomnamen, abio_cols$oude_kolomnamen, skip_absent = TRUE)
@@ -711,6 +711,7 @@ abio <- rbind(abio, abio2, fill = TRUE)
 abio <- unique(abio, by = "instanceID")  # verwijder echte duplicaten
 abio[, datum := as.Date(Date_start_auto) ]
 abio[, jaar:= year(datum)]
+abio <- abio[datum > as.Date("2024-04-30"), ]
 # remove columns without information
 cols <- colnames(abio)[unlist(abio[,lapply(.SD,function(x) sum(is.na(x))==nrow(abio))])]
 cols <- c(cols,"Date_start_auto","Date_end_auto","Device_ID","Datemanual","Waarnemer","Start_traject","End_traject",
@@ -731,12 +732,19 @@ abio[,Onderholling:= NULL]
 ## 3.2 process abio-----------------------------------------------------
 # correct values
 abio[watertemp_C > 50, watertemp_C := NA]
+# watertemp_C/water_pH/slib_pH == 0 zijn niet-gemeten/sensorfout-waarden
+# (geen geldige metingen), niet een echte waarde van 0 - gezien bij ZG-2024.
+# Zonder correctie trekt een 0 het gemiddelde bij aggregatie (meerdere
+# raw-records per SlootID) sterk omlaag (bv. slib_pH ~6.x + 0 -> ~3.3).
+abio[watertemp_C == 0, watertemp_C := NA]
+abio[water_pH == 0, water_pH := NA]
+abio[slib_pH == 0, slib_pH := NA]
 # merge with unique/ koppelnames
 setDT(locaties)
 # check if instanceID locaties allemaal voorkomen in abio
 abio_loc_instanceidcheck <- unique(abio[!instanceID %in% unique(locaties$instanceID_abio),c("SlootID",'instanceID','jaar')])
 loc_abio_instanceidcheck <- unique(locaties[!instanceID_abio %in% unique(abio$instanceID),c("SlootID",'instanceID_abio')])
-abio <- merge(abio, locaties, by.x ='instanceID', by.y ='instanceID_abio', all.x = TRUE, all.y = FALSE, suffixes = c('_abio',''))
+abio <- merge(abio, locaties[,c("instanceID_abio","instanceID_veg","SlootID_old_abio","SlootID","SlootID_kort","gebied","Gebiedsnaam","sloot","Behandeling","WP","MeenemenDataAnalyse_totaal")], by.x ='instanceID', by.y ='instanceID_abio', all.x = TRUE, all.y = FALSE, suffixes = c('_abio',''))
 #check if slootID_old_abio == SlootID_abio
 check_abio <- unique(abio[!SlootID_old_abio == SlootID_abio, c('SlootID_old_abio','SlootID_abio')])
 abio[, SlootID_old_abio := SlootID_abio]
@@ -784,9 +792,9 @@ abio_hier[,behandeling_2 := ifelse(grepl('AF', Behandeling),"AF",NA)]
 abio_hier[, ndatum := uniqueN(datum), by = c('SlootID','instanceID_abio')]
 checkabioloc <- unique(abio_hier[, c('SlootID','instanceID_abio','ndatum')])
 ### make matrix wq by ditch ID
-loc.wq <- unique(abio[,c('SlootID','gebied','sloot',"Oevermonster_AgroCares","bodemmonster_oeverzone2b3","bodemmonster_oeverzone2b3_subsamples", "bodemmonster_oever2b3_boven",  
+loc.wq <- unique(abio[,c('SlootID','gebied','sloot',"bodemmonster_oeverzone2b3","bodemmonster_oeverzone2b3_subsamples", "bodemmonster_oever2b3_boven",  
                          "bodemmonster_oever2b3_boven_subsamples"  ,"bodemmonster_oeverzone2b3_diep", "bodemmonster_oeverzone2b3_diep_subsamples", "slibmonster","slibmonster_subsamples","bodemmonster_water","porievochtmonster",                        
-                         "porievochtmonster_subsamples","porievochtmonster_code","Waterkwaliteitmonster", "watermonster_subsamples","watermonster_code")])
+                         "porievochtmonster_subsamples","porievochtmonster_code","watermonster", "watermonster_subsamples","watermonster_code")])
 # check if all locations are present in abio
 check_db <- locaties[!SlootID %in% unique(abio$SlootID),c('SlootID','oever','jaar','instanceID_abio')]
 
@@ -1023,7 +1031,7 @@ check_db <- locaties[!SlootID %in% unique(veg_srt$SlootID),]
 biotaxon <- read_xlsx(paste0(workspace,'/hulp_tabellen/veest_unieke_soorten_Groeivormen toegevoegd.xlsx'))
 veg_srt<- merge(veg_srt, biotaxon, by = 'wetnaam', all.x = TRUE, suffixes = c('','_biotaxon'))
 ## import vegetatie ekr en oeverindex LET OP DEZE DATA MIST 2026 nog
-veg_ekr_oev <- read_xlsx(paste0(workspace2,'/Indices_soortenrijkdom_260529.xlsx'))
+veg_ekr_oev <- read_xlsx(paste0(workspace2,'Indices_soortenrijkdom_260925.xlsx'))
 ### 5.2.1 unieke soorten per monster ------------------------------------------------
 veg_srt[, Submerse_groeivorm := as.numeric(Submerse_groeivorm)]
 veg_sub_srt <- unique(veg_srt[Submerse_groeivorm > 20, c('wetnaam','nednaam')])
@@ -1034,20 +1042,28 @@ veg_nsoorten_oev[`2` == 0, `2`:= `2a`+`2b`]
 veg_nsoorten <- merge(veg_nsoorten_sub[,c('SlootID','jaar','1')], veg_nsoorten_oev[,c('SlootID','jaar','2','2a','2b')], by = c('SlootID','jaar'), all = TRUE)
 setnames(veg_nsoorten, c('1','2','2a','2b'), c('n_soorten_sub_zone1','n_soorten_oev_zone2','n_soorten_oev_zone2a','n_soorten_oev_zone2b'))
 # 6. Waterbodemdata en waterkwaliteit---------------------------------------------------
-## Bware 2024
+## Bware 2024 ------------------------------------------------------------------------
 inputdir <- paste0(workspace,"./Bodemanalyses/data VeeST_data_2024_aangepast_27-02-2025.csv")
 watbod <- fread(inputdir, dec = '.', na.strings = c(-999,'NA',''), encoding = "Latin-1")
 watbod[, datum := as.POSIXct(datum_PW, format = "%d-%m-%Y") ]
 watbod[,jaar:= year(datum)]
 watbod<- watbod[!is.na(SlootID) & !is.na(`Fe_mmol/kg DW_SB`) & !is.na(`P_mmol/kg DW_SB`), ]
-## Bware 2025
+## Bware 2025------------------------------------------------------------------------
 inputdir <- paste0(workspace,"./Bodemanalyses/Data VEEST 2025_2.csv")
 watbod_25 <- fread(inputdir, dec = '.', na.strings = c(-999,'Niet gedaan','niet gedaan','foutmeting'), encoding = "Latin-1")
 watbod_25[, datum := as.POSIXct(datum, format = "%d-%m-%Y")]
 watbod_25 <- watbod_25[,jaar:= year(datum)]
 watbod_25 <- watbod_25[!is.na(SlootID) & !is.na(`Fe_mmol/kg DW_SB`) & !is.na(`P_mmol/kg DW_SB`), ]
-# merge 2024 and 2025 data
+## merge 2024 and 2025 data------------------------------------------------------------------------
 watbod <- rbind(watbod, watbod_25, fill = TRUE)
+## Bware 2026------------------------------------------------------------------------
+inputdir <- paste0(workspace,"./Bodemanalyses/B-WARE data VEEST 2026.csv")
+watbod_26 <- fread(inputdir, dec = '.', na.strings = c(-999,'Niet gedaan','niet gedaan','foutmeting'), encoding = "Latin-1")
+watbod_26[, datum := as.POSIXct(datum, format = "%d-%m-%Y")]
+watbod_26 <- watbod_26[,jaar:= year(datum)]
+watbod_26 <- watbod_26[!is.na(SlootID) & !is.na(`Fe_mmol/kg DW_SB`) & !is.na(`P_mmol/kg DW_SB`), ]
+## merge with 2026 data------------------------------------------------------------------------
+watbod <- rbind(watbod, watbod_26, fill = TRUE)
 # watbod[is.na(Waterkwaliteitmonster), Waterkwaliteitmonster := waterkwaliteitsmonster]
 # lege kolommen verwijderen
 cols <- colnames(watbod)[unlist(watbod[,lapply(.SD,function(x) sum(is.na(x))==nrow(watbod))])]
@@ -1062,8 +1078,8 @@ watbod_proj[, SlootID := gsub("_N$", "_Z", SlootID)]
 watbod <- rbind(watbod, watbod_proj, fill = TRUE)
 # remove double cols
 # check <- watbod[!(`Fe/P_PW` == feP_PW & `Fe/P_DW_SB` == feP_DW_SB & `Fe/S_DW_SB` == feS_DW_SB),c('SlootID','Fe/P_PW','Fe/P_DW_SB','Fe/S_DW_SB','feP_PW','feP_DW_SB','feS_DW_SB')]
-watbod[, c("Fe/P_PW", "Fe/P_DW_SB", "Fe/S_DW_SB") := NULL]
-## ArgoCares 2024
+watbod[, c("Fe/P_PW", "Fe/P_DW_SB", "Fe/S_DW_SB", "code2", "Nr","Locatie", "K_2_µmol/l_OW",  "Na_2_µmol/l_OW" ,  "K_2_µmol/l_PW",  "Cl_2_µmol/l_PW" , "SlootID_kort","Waterkwaliteitsmonster","Code_Bware" ) := NULL]
+## ArgoCares 2024 ------------------------------------------------------------------------
 inputdir <- paste0(workspace,"./Bodemanalyses/AgroCares_CustomPackage_Slib_1922.N.23_27-02-2025 COMPLETE.xlsx")
 tabbladen <- excel_sheets(inputdir)
 tab <- tabbladen[grepl("coding", tolower(tabbladen))]
@@ -1110,9 +1126,14 @@ watbod_ac <- watbod_ac[!is.na(GSL_ID),]
 colnames(watbod_ac) <- gsub("^C \\(", "", colnames(watbod_ac))
 colnames(watbod_ac) <- gsub(")_", "_xrf_", colnames(watbod_ac))
 colnames(watbod_ac) <- gsub("\r\n", "_", colnames(watbod_ac))
+# normalize N/P nutrient column names to one convention across years
+colnames(watbod_ac) <- gsub("N-NH4 \\(mg/kg\\)", "N-NH4_CC_mg/kg", colnames(watbod_ac))
+colnames(watbod_ac) <- gsub("N-NO3 \\(mg/kg\\)", "N-NO3_CC_mg/kg", colnames(watbod_ac))
+colnames(watbod_ac) <- gsub("N-NO2 \\(mg/kg\\)", "N-NO2_CC_mg/kg", colnames(watbod_ac))
+colnames(watbod_ac) <- gsub("P-PO4 \\(mg/kg\\)", "P-PO4_CC_mg/kg", colnames(watbod_ac))
 watbod_ac[, jaar := 2024]
 
-## ArgoCares 2025
+## ArgoCares 2025------------------------------------------------------------------------
 inputdir <- paste0(workspace,"./Bodemanalyses/project 1922_sediment XRF data.xlsx")
 tabbladen <- excel_sheets(inputdir)
 tab <- tabbladen[grepl("coding", tolower(tabbladen))]
@@ -1152,7 +1173,6 @@ watbod_xrf[, correction_factor := (100 + `Moist 105C (%)`)/100]
 # correct xrf values to per kg dry at 40 degrees
 xrf_cols <- colnames(watbod_xrf)[grepl('^C',colnames(watbod_xrf))]
 watbod_xrf[, (xrf_cols) := lapply(.SD, function(x) x / correction_factor), .SDcols = xrf_cols]
-
 #put all data frames into list
 df_list <- list(watbod_coding,watbod_pal,watbod_icpcc,watbod_dacc,watbod_phcc,watbod_xrf)      
 #remove duplicate columns
@@ -1165,10 +1185,78 @@ watbod_ac_25 <- watbod_ac_25[!is.na(GSL_ID),]
 colnames(watbod_ac_25) <- gsub("^C \\(", "", colnames(watbod_ac_25))
 colnames(watbod_ac_25) <- gsub(")_", "_xrf_", colnames(watbod_ac_25))
 colnames(watbod_ac_25) <- gsub("\r\n", "_", colnames(watbod_ac_25))
+# normalize N/P nutrient column names to one convention across years
+colnames(watbod_ac_25) <- gsub("N-NH4 \\(mg/kg\\)", "N-NH4_CC_mg/kg", colnames(watbod_ac_25))
+colnames(watbod_ac_25) <- gsub("N-NO3 \\(mg/kg\\)", "N-NO3_CC_mg/kg", colnames(watbod_ac_25))
+colnames(watbod_ac_25) <- gsub("N-NO2 \\(mg/kg\\)", "N-NO2_CC_mg/kg", colnames(watbod_ac_25))
+colnames(watbod_ac_25) <- gsub("P-PO4 \\(mg/kg\\)", "P-PO4_CC_mg/kg", colnames(watbod_ac_25))
 watbod_ac_25[, jaar := 2025]
-# merge 24 and 25 data
+## merge 24 and 25 data------------------------------------------------------------------------
 watbod_ac <- rbind(watbod_ac, watbod_ac_25, fill = TRUE)
+## ArgoCares 2026------------------------------------------------------------------------
+inputdir <- paste0(workspace,"./Bodemanalyses/NMI Sediments 26AC0961 - 26AC1024 p.1922.N.26 31_08_2026.xlsx")
+tabbladen <- excel_sheets(inputdir)
+tab <- tabbladen[grepl("coding", tolower(tabbladen))]
+watbod_coding <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
+tab <- tabbladen[grepl("P-AL", tabbladen)]
+watbod_pal <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
+watbod_pal[,`P-AL mg p2o5/100g` := (`P-AL mg/kg`/10)*2.29]
+watbod_pal <- watbod_pal[!GSL_ID == 0,]
+tab <- tabbladen[grepl("ICP-MS_CC", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1,skip = 1))
+cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_icpcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, col_names = cnames))
+watbod_icpcc <- watbod_icpcc[!GSL_ID == 0,]
+tab <- tabbladen[grepl("DA_CC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1, skip = 1))
+watbod_dacc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, na ='below LOD', col_names = cnames))
+watbod_dacc <- watbod_dacc[!GSL_ID == 0,]
+tab <- tabbladen[grepl("pH_CC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+watbod_phcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na = '', col_names = cnames))
+watbod_phcc[,pH_CC := as.numeric(pH_CC)]
+watbod_phcc <- watbod_phcc[!GSL_ID == 0,]
+# dit xrf blad 
+tab <- tabbladen[grepl("XRF", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 3))
+cnames <- paste0(as.character(cnames[1]),"_" ,as.character(cnames[2]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_xrf <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, col_names = cnames))
+watbod_xrf <- watbod_xrf[!GSL_ID == 0,]
+watbod_vocht <- setDT(readxl::read_xlsx(path = inputdir, sheet = "Moisture 105C"))
+watbod_vocht[, `Moist 105C (%)` := as.numeric(`MOISTURE (%)`)]
+watbod_vocht <- watbod_vocht <- watbod_vocht[!GSL_ID == 0,]
+# calculate correction factor
+watbod_xrf <- merge(watbod_xrf, watbod_vocht[,c('GSL_ID','Moist 105C (%)')], by = 'GSL_ID',all.x = TRUE, all.y = FALSE, suffixes = c('','_vocht'))
+watbod_xrf[, correction_factor := (100 + `Moist 105C (%)`)/100]
+# correct xrf values to per kg dry at 40 degrees
+xrf_cols <- colnames(watbod_xrf)[grepl('^C',colnames(watbod_xrf))]
+watbod_xrf[, (xrf_cols) := lapply(.SD, function(x) x / correction_factor), .SDcols = xrf_cols]
+#put all data frames into list
+df_list <- list(watbod_coding,watbod_pal,watbod_icpcc,watbod_dacc,watbod_phcc,watbod_xrf)      
+#remove duplicate columns
+cols <- as.data.table(lapply(df_list, function(x) { colnames(x) }))
+lapply(df_list, function(x) { x[,c("ID",'ID.x','ID.y','ID_NA','...1','NA_NA'):= NULL]})
+#merge all data frames together
+watbod_ac_26 <- Reduce(function(x, y) merge(x, y, by = 'GSL_ID', all=TRUE), df_list) 
+watbod_ac_26 <- watbod_ac_26[!is.na(GSL_ID),]
+# change colnames
+colnames(watbod_ac_26) <- gsub("^C \\(", "", colnames(watbod_ac_26))
+colnames(watbod_ac_26) <- gsub(")_", "_xrf_", colnames(watbod_ac_26))
+colnames(watbod_ac_26) <- gsub("\r\n", "_", colnames(watbod_ac_26))
+# normalize N/P nutrient column names to one convention across years
+colnames(watbod_ac_26) <- gsub("N-NH4 \\(mg/kg\\)", "N-NH4_CC_mg/kg", colnames(watbod_ac_26))
+colnames(watbod_ac_26) <- gsub("N-NO3 \\(mg/kg\\)", "N-NO3_CC_mg/kg", colnames(watbod_ac_26))
+colnames(watbod_ac_26) <- gsub("N-NO2 \\(mg/kg\\)", "N-NO2_CC_mg/kg", colnames(watbod_ac_26))
+colnames(watbod_ac_26) <- gsub("P-PO4 \\(mg/kg\\)", "P-PO4_CC_mg/kg", colnames(watbod_ac_26))
+watbod_ac_26[, jaar := 2026]
+# merge with 26 data
+watbod_ac <- rbind(watbod_ac, watbod_ac_26, fill = TRUE)
 ## process data bodem
+# set all 1.00 and 0.1 values in xrf to NA, these are below detection limit values
+xrf_cols <- colnames(watbod_ac)[grepl('xrf',colnames(watbod_ac))]
+watbod_ac[, (xrf_cols) := lapply(.SD, function(x) fifelse(x %in% c(1.00,0.1), NA_real_, x)), .SDcols = xrf_cols]
 # calc ratios
 watbod_ac[, feP_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
 watbod_ac[, feP_XRF := (`Fe2O3_xrf_g/kg`/ 55.85)/(`P2O5_xrf_g/kg`/ 30.97)]
@@ -1240,6 +1328,11 @@ oever_ac <- oever_ac[!is.na(GSL_ID),]
 colnames(oever_ac) <- gsub("^C \\(", "", colnames(oever_ac))
 colnames(oever_ac) <- gsub(")_", "_xrf_", colnames(oever_ac))
 colnames(oever_ac) <- gsub("\r\n", "_", colnames(oever_ac))
+# normalize N/P nutrient column names to one convention across years
+colnames(oever_ac) <- gsub("N-NH4 \\(mg/kg\\)", "N-NH4_CC_mg/kg", colnames(oever_ac))
+colnames(oever_ac) <- gsub("N-NO3 \\(mg/kg\\)", "N-NO3_CC_mg/kg", colnames(oever_ac))
+colnames(oever_ac) <- gsub("N-NO2 \\(mg/kg\\)", "N-NO2_CC_mg/kg", colnames(oever_ac))
+colnames(oever_ac) <- gsub("P-PO4 \\(mg/kg\\)", "P-PO4_CC_mg/kg", colnames(oever_ac))
 oever_ac[,jaar:= 2024]
 
 
@@ -1312,9 +1405,107 @@ oever_ac_25 <- oever_ac_25[!is.na(GSL_ID),]
 colnames(oever_ac_25) <- gsub("^C \\(", "", colnames(oever_ac_25))
 colnames(oever_ac_25) <- gsub(")_", "_xrf_", colnames(oever_ac_25))
 colnames(oever_ac_25) <- gsub("\r\n", "_", colnames(oever_ac_25))
+# normalize N/P nutrient column names to one convention across years
+colnames(oever_ac_25) <- gsub("N-NH4 \\(mg/kg\\)", "N-NH4_CC_mg/kg", colnames(oever_ac_25))
+colnames(oever_ac_25) <- gsub("N-NO3 \\(mg/kg\\)", "N-NO3_CC_mg/kg", colnames(oever_ac_25))
+colnames(oever_ac_25) <- gsub("N-NO2 \\(mg/kg\\)", "N-NO2_CC_mg/kg", colnames(oever_ac_25))
+colnames(oever_ac_25) <- gsub("P-PO4 \\(mg/kg\\)", "P-PO4_CC_mg/kg", colnames(oever_ac_25))
 oever_ac_25[,jaar:= 2025]
 ## merge 2024 and 2025 data----------------------------------------------------
 oever_ac <- rbind(oever_ac, oever_ac_25, fill = TRUE)
+## ArgoCares 2026-------------------------------------------------------------------------
+inputdir <- paste0(workspace,"./Bodemanalyses/NMI PEAT PROJECT 2026 p.1922.N24_31_08_2026.xlsx")
+tabbladen <- excel_sheets(inputdir)
+tab <- tabbladen[grepl("coding", tolower(tabbladen))]
+watbod_coding <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
+tab <- tabbladen[grepl("liab", tolower(tabbladen))]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1, skip = 1))
+watbod_liab <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, na ='', col_names = cnames))
+watbod_liab <- watbod_liab[ , lapply(.SD,as.numeric), .SDcols = (7:84), by = 'GSL_ID']
+# tab <- tabbladen[grepl("Mehlich-3", tabbladen)]
+# cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+# cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+# cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+# watbod_m3 <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, col_names = cnames))
+tab <- tabbladen[grepl("TOC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+watbod_toc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na ='below LOD', col_names = cnames))
+tab <- tabbladen[grepl("Cohex", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1,n_max = 1))
+cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_cohex <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, na ='below LOD', col_names = cnames))
+tab <- tabbladen[grepl("P-AL", tabbladen)]
+watbod_pal <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
+watbod_pal[,`P-AL mg p2o5/100g` := (`P-AL mg/kg`/10)*2.29]
+tab <- tabbladen[grepl("ICP-MS_CC", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1, skip = 1))
+cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_icpcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, col_names = cnames))
+watbod_icpcc <- watbod_icpcc[!is.na(GSL_ID),]
+tab <- tabbladen[grepl("DA_CC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1, skip = 1))
+watbod_dacc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 2, na ='below LOD', col_names = cnames))
+watbod_dacc <- watbod_dacc[!is.na(GSL_ID),]
+tab <- tabbladen[grepl("pH_CC", tabbladen)]
+cnames <- colnames(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1))
+watbod_phcc <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 1, na = '',col_names = cnames))
+watbod_phcc[,pH_CC := as.numeric(pH_CC)]
+watbod_phcc <- watbod_phcc[!is.na(GSL_ID),]
+tab <- tabbladen[grepl("XRF", tabbladen)]
+cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 1, skip = 1))
+cnames <- paste0(colnames(cnames),"_" ,as.character(cnames[1]))
+cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
+watbod_xrf <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, na =c('below LOD',' '), col_names = cnames))
+tab <- tabbladen[grepl("Moisture", tabbladen)]
+watbod_vocht <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab))
+watbod_vocht[,`Moist 105C (%)`:= `MOISTURE (%)`]
+# calculate correction factor op basis van bodemvocht
+watbod_xrf <- watbod_xrf[!is.na(GSL_ID),]
+watbod_xrf <- watbod_xrf[!(GSL_ID %in% c('0', 'NA')),]
+watbod_xrf <- merge(watbod_xrf, watbod_vocht[,c('GSL_ID','Moist 105C (%)')], by = 'GSL_ID', all.x = TRUE, all.y = FALSE, suffixes = c('','_vocht'))
+watbod_xrf <- watbod_xrf[!is.na(GSL_ID),]
+watbod_xrf[, correction_factor := (100 + `Moist 105C (%)`)/100]
+# watbod_xrf[!is.na(correction_factor),correction_factor:= mean(correction_factor, na.rm = TRUE)]
+# correct xrf values to per kg dry at 40 degrees
+xrf_cols <- colnames(watbod_xrf)[grepl('^C',colnames(watbod_xrf))]
+# Filter xrf_cols to only numeric columns
+watbod_xrf[, (xrf_cols) := lapply(.SD, function(x) x / correction_factor), .SDcols = xrf_cols]
+#put all data frames into list
+df_list <- list(watbod_coding = watbod_coding, watbod_cohex = watbod_cohex, watbod_toc = watbod_toc,
+                 watbod_liab = watbod_liab, watbod_pal = watbod_pal, watbod_icpcc = watbod_icpcc,
+                 watbod_dacc = watbod_dacc, watbod_phcc = watbod_phcc, watbod_xrf = watbod_xrf)
+#remove duplicate columns
+cols <- as.data.table(lapply(df_list, function(x) { colnames(x) }))
+lapply(df_list, function(x) { x[,c("ID",'ID.x','ID.y','ID_NA','...1','...2','NA_NA','Gps','SeQ.'):= NULL]})
+# Drop rows with no real GSL_ID (blank/unassigned Excel rows come through as
+# NA or the placeholder "0") before merging: these rows all collapse into one
+# group per table and cause a cartesian blow-up during the Reduce(merge(...))
+# chain below (all "0"/NA rows across tables get joined against each other).
+df_list <- lapply(df_list, function(x) x[!is.na(GSL_ID) & GSL_ID != "0", ])
+# Some tables contain exact duplicate rows for the same GSL_ID (e.g. 26AC0606);
+# these also cause a cartesian blow-up when merged across 9 tables, so keep
+# only one row per GSL_ID per table.
+df_list <- lapply(df_list, function(x) unique(x, by = "GSL_ID"))
+#merge all data frames together
+oever_ac_26 <- Reduce(function(x, y) merge(x, y, by = 'GSL_ID', all=TRUE), df_list) 
+oever_ac_26 <- oever_ac_26[!is.na(GSL_ID),]
+# change colnames
+colnames(oever_ac_26) <- gsub("^C \\(", "", colnames(oever_ac_26))
+colnames(oever_ac_26) <- gsub(")_", "_xrf_", colnames(oever_ac_26))
+colnames(oever_ac_26) <- gsub("\r\n", "_", colnames(oever_ac_26))
+# normalize N/P nutrient column names to one convention across years
+colnames(oever_ac_26) <- gsub("N-NH4 \\(mg/kg\\)", "N-NH4_CC_mg/kg", colnames(oever_ac_26))
+colnames(oever_ac_26) <- gsub("N-NO3 \\(mg/kg\\)", "N-NO3_CC_mg/kg", colnames(oever_ac_26))
+colnames(oever_ac_26) <- gsub("N-NO2 \\(mg/kg\\)", "N-NO2_CC_mg/kg", colnames(oever_ac_26))
+colnames(oever_ac_26) <- gsub("P-PO4 \\(mg/kg\\)", "P-PO4_CC_mg/kg", colnames(oever_ac_26))
+oever_ac_26[,jaar:= 2026]
+## merge with 2026 data----------------------------------------------------
+oever_ac <- rbind(oever_ac, oever_ac_26, fill = TRUE)
+# set all 1.00 and 0.1 values in xrf to NA, these are below detection limit values
+xrf_cols <- colnames(oever_ac)[grepl('xrf',colnames(oever_ac))]
+oever_ac[, (xrf_cols) := lapply(.SD, function(x) fifelse(x %in% c(1.00,0.1), NA_real_, x)), .SDcols = xrf_cols]
 #calc ratios
 oever_ac[, feP_CC := (`Fe_CC_mg/kg`/ 5584.5)/(`P_CC_mg/kg`/ 3097.3762)]
 oever_ac[, feP_XRF := (`Fe2O3_xrf_g/kg`/ 55.85)/(`P2O5_xrf_g/kg`/ 30.97)]

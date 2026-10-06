@@ -1,0 +1,123 @@
+
+
+processing file: rapport_modellering_VeeST.qmd
+1/97                                  
+2/97 [load-packages]                  
+3/97                                  
+4/97 [load-data]                      
+5/97                                  
+6/97 [tbl-targets]                    
+7/97                                  
+8/97 [draagkracht-diagnostiek]        
+9/97                                  
+10/97 [methode-variabelenselectie]     
+11/97                                  
+12/97 [methode-log-transform]          
+13/97                                  
+14/97 [fig-pfe-matrix]                 
+15/97                                  
+16/97 [fig-cluster-vergelijking]       
+17/97                                  
+18/97 [fig-cluster-bereik]             
+19/97                                  
+20/97 [fig-cluster-afwijking]          
+21/97                                  
+22/97 [fig-peil-vergelijk]             
+23/97                                  
+24/97 [resultaten-clusteranalyse-intro]
+25/97                                  
+26/97 [fig-clusteranalyse-boxplot]     
+27/97                                  
+28/97 [fig-clusteranalyse-kaart-158]   
+29/97                                  
+30/97 [fig-clusteranalyse-kaart-23467] 
+31/97                                  
+32/97 [tbl-gebieden-per-cluster]       
+33/97                                  
+34/97 [tbl-performance]                
+35/97                                  
+36/97 [fig-model-compare]              
+37/97                                  
+38/97 [resultaten-model-vergelijking]  
+39/97                                  
+40/97 [tbl-xgb-vs-rf-gap]              
+41/97                                  
+42/97 [resultaten-beste-targets]       
+43/97                                  
+44/97 [fig-vip-xgb]                    
+45/97                                  
+46/97 [fig-xgb-diag-best]              
+47/97                                  
+48/97 [tbl-xgb-diag-summary]           
+49/97                                  
+50/97 [fig-box-ws-target]              
+51/97                                  
+52/97 [tbl-cv-compare]                 
+53/97                                  
+54/97 [fig-cv-r2]                      
+55/97                                  
+56/97 [fig-cv-rmse]                    
+57/97                                  
+58/97 [fig-box-ws-pred]                
+59/97                                  
+60/97 [fig-xgb-kantelpunten]           
+61/97                                  
+62/97 [tbl-xgb-kantelpunten]           
+63/97                                  
+64/97 [tbl-gam-vs-xgb]                 
+65/97                                  
+66/97 [fig-gam-smooths]                
+67/97                                  
+68/97 [tbl-gam-veg-bodem]              
+69/97                                  
+70/97 [fig-gam-veg-bodem]              
+71/97                                  
+72/97 [tbl-gam-beheer]                 
+73/97                                  
+74/97 [fig-gam-beheer]                 
+75/97                                  
+76/97 [tbl-manual-exclude]             
+77/97                                  
+78/97 [tbl-parametertabel-bijlage]     
+79/97                                  
+80/97 [fig-pfe-matrix-pearson]         
+81/97                                  
+82/97 [fig-bodemtype-classificatie]    
+83/97                                  
+84/97 [fig-bodemfractie-gebied]        
+85/97                                  
+86/97 [fig-ir-egv]                     
+87/97                                  
+88/97 [fig-draagkracht-diepte-veentype]
+89/97                                  
+90/97 [fig-doorzicht-waterdiepte-slib] 
+91/97                                  
+92/97 [fig-redox-slib-water]           
+93/97                                  
+94/97 [fig-ammonium-toxiciteit]        
+95/97                                  
+96/97 [fig-p-nalevering-gebied]        
+97/97                                  
+output file: rapport_modellering_VeeST.knit.md
+
+pandoc 
+  to: html
+  output-file: rapport_modellering_VeeST.html
+  standalone: true
+  embed-resources: true
+  section-divs: true
+  html-math-method: mathjax
+  wrap: none
+  default-image-extension: png
+  number-sections: false
+  toc: true
+  
+metadata
+  document-css: false
+  link-citations: true
+  date-format: long
+  lang: nl
+  title: 'Modellering VeeST: XGBoost, Random Forest en GAM'
+  
+Output created: rapport_modellering_VeeST.html
+
