@@ -2797,9 +2797,12 @@ if (xgb_diag_best_target %in% names(xgb_diagnostics)) {
 # voorspellers op basis van gemiddeld genormaliseerd belang (Gain +
 # permutation importance); voor Draagkracht oever alleen "onderholling"
 # (verreweg de dominante voorspeller, overige variabelen dragen nauwelijks bij).
+# Oeverindex (testset-R² = 30%) is toegevoegd op verzoek, ook al valt deze
+# net buiten de top-6 op R² (laagste van de zes is Slibdikte met 32%): de
+# doelvariabele is inhoudelijk relevant voor oevervegetatie/-kwaliteit.
 kantelpunt_targets <- c(
   "P-AL mg p2o5/100g_SB", "n_soorten_sub_zone1", "Soortensamenstelling Helofyten",
-  "slib_redox_pH7", "max_slib", "draagkracht_oever"
+  "slib_redox_pH7", "max_slib", "draagkracht_oever", "oeverindex"
 )
 kantelpunt_predictors <- list(
   "P-AL mg p2o5/100g_SB"           = c("feP_PW", "drglg"),
@@ -2812,7 +2815,8 @@ kantelpunt_predictors <- list(
   # in de tekst hieronder inhoudelijk geduid (steilere oever -> minder slib;
   # hoger doorzicht/waterdiepte -> meer slib).
   "max_slib"                       = c("P-AL mg p2o5/100g_SB", "afscheur_opp", "zichtdiepte", "tldk_wtrwtr_perc"),
-  "draagkracht_oever"              = c("holleoever")
+  "draagkracht_oever"              = c("holleoever"),
+  "oeverindex"                     = c("OS_perc_OR_25", "P2O5_xrf_g/kg_OR_25")
 )
 
 # Haal per target/predictor-paar de ALE-curve (x, ale_effect) op uit de reeds
@@ -2935,42 +2939,107 @@ print(kantelpunt_tbl)
 # de ALE-curve (zonder de secundaire as van all_ale_plots, die bij 11 kleine
 # panelen naast elkaar te veel ruimte/overlap geeft) met het kantelpunt
 # gemarkeerd en het type omslag (plotseling/geleidelijk) in de subtitle.
-build_kantelpunt_panel <- function(tgt, feat, x_pt, vorm_label) {
+# Kleur per doelvariabele (vaste kleur per target, zodat dezelfde kleur ook
+# terugkomt in de paneelrand/titel-achtergrond hieronder en de zes
+# doelvariabelen visueel goed van elkaar te onderscheiden zijn).
+kantelpunt_target_kleur <- setNames(
+  okabe[seq_along(kantelpunt_targets)],
+  kantelpunt_targets
+)
+
+build_kantelpunt_panel <- function(tgt, feat, x_pt, vorm_label, toon_target_in_titel = TRUE) {
   ld <- layer_data(all_ale_plots[[tgt]][[feat]], 2)[, c("x", "y")]
   names(ld) <- c("x", "ale_effect")
 
-  ggplot(ld, aes(x = x, y = ale_effect)) +
+  # Zelfde detectie als in de per-target ALE_tipping_<target>.png-figuren
+  # (@fig-ale-tipping-*), zodat lokale extrema als rode stippen met label
+  # worden getoond naast de roze stippellijn (steilste helling).
+  tp <- detect_tipping_points(ld$x, ld$ale_effect)
+
+  kleur_tgt <- kantelpunt_target_kleur[[tgt]]
+
+  p <- ggplot(ld, aes(x = x, y = ale_effect)) +
     geom_line(color = "#1f77b4", linewidth = 1) +
     geom_hline(yintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.4) +
     geom_vline(xintercept = x_pt, linetype = "dashed", color = "#CC79A7", linewidth = 0.8) +
     labs(
-      title    = paste0(nederlandse_namen[feat], " (", target_names_dutch[tgt], ")"),
+      title    = if (toon_target_in_titel) {
+        paste0(nederlandse_namen[feat], " (", target_names_dutch[tgt], ")")
+      } else {
+        nederlandse_namen[feat]
+      },
       subtitle = paste0(vorm_label, " bij ", round(x_pt, 2)),
       x        = nederlandse_namen[feat],
       y        = "ALE effect"
     ) +
-    theme_minimal(base_size = 12) +
+    theme_minimal(base_size = 14) +
     theme(
-      plot.title    = element_text(size = 11, face = "bold", lineheight = 1.0),
-      plot.subtitle = element_text(size = 10, color = "grey40"),
-      axis.title    = element_text(size = 10.5),
-      axis.text     = element_text(size = 9.5),
-      panel.border  = element_rect(colour = "grey80", fill = NA, linewidth = 0.4),
+      plot.title    = element_text(size = 13, face = "bold", lineheight = 1.0),
+      plot.subtitle = element_text(size = 12, color = "grey40"),
+      axis.title    = element_text(size = 13),
+      axis.text     = element_text(size = 12),
+      # Paneelrand in de kleur van de doelvariabele: maakt in de gecombineerde
+      # figuur direct zichtbaar welke panelen bij welk model horen, ook al
+      # staan de panelen van eenzelfde doelvariabele niet meer per se naast elkaar.
+      panel.border  = element_rect(colour = kleur_tgt, fill = NA, linewidth = 1.1),
       plot.margin   = margin(5, 8, 5, 8)
     )
+
+  if (!is.null(tp) && !is.null(tp$local_extrema) && nrow(tp$local_extrema) > 0) {
+    p <- p +
+      geom_point(
+        data  = tp$local_extrema,
+        aes(x = x, y = y),
+        color = "red", size = 2.5, shape = 16, inherit.aes = FALSE
+      ) +
+      geom_label(
+        data  = tp$local_extrema,
+        aes(x = x, y = y, label = round(x, 2)),
+        vjust = -0.6, size = 2.2, color = "red", fill = "white",
+        label.padding = unit(0.12, "lines"), inherit.aes = FALSE
+      )
+  }
+
+  p
 }
 
-kantelpunt_plots <- lapply(seq_len(nrow(kantelpunt_tbl)), function(i) {
-  build_kantelpunt_panel(
-    kantelpunt_tbl$target[i], kantelpunt_tbl$predictor[i],
-    kantelpunt_tbl$x_omslag[i], kantelpunt_tbl$vorm[i]
-  )
+# Per doelvariabele een eigen rij panelen (i.p.v. één grid met alle 13
+# panelen door elkaar), met een gekleurde groepstitel boven elke rij; zo zijn
+# de zes doelvariabelen duidelijk van elkaar te onderscheiden. De rijen worden
+# daarna onder elkaar gezet tot één figuur.
+kantelpunt_target_groepen <- lapply(kantelpunt_targets, function(tgt) {
+  rows_tgt <- kantelpunt_tbl[target == tgt]
+  if (nrow(rows_tgt) == 0) return(NULL)
+
+  panelen_tgt <- lapply(seq_len(nrow(rows_tgt)), function(i) {
+    build_kantelpunt_panel(
+      rows_tgt$target[i], rows_tgt$predictor[i],
+      rows_tgt$x_omslag[i], rows_tgt$vorm[i],
+      toon_target_in_titel = FALSE
+    )
+  })
+
+  kleur_tgt <- kantelpunt_target_kleur[[tgt]]
+  r2_tgt    <- rows_tgt$r2_test[1]
+
+  wrap_plots(panelen_tgt, nrow = 1) +
+    plot_annotation(
+      title = paste0(target_names_dutch[tgt], "  (testset-R\u00b2 XGBoost = ", round(r2_tgt * 100), "%)"),
+      theme = theme(
+        plot.title = element_text(
+          size = 14, face = "bold", color = kleur_tgt,
+          margin = margin(b = 4)
+        )
+      )
+    )
 })
-xgb_kantelpunt_plot <- wrap_plots(kantelpunt_plots, ncol = 3)
+kantelpunt_target_groepen <- kantelpunt_target_groepen[!vapply(kantelpunt_target_groepen, is.null, logical(1))]
+
+xgb_kantelpunt_plot <- wrap_plots(kantelpunt_target_groepen, ncol = 1)
 print(xgb_kantelpunt_plot)
 ggsave(
   paste0(workspace, "output/AlleGebieden/Tussenrapportage/XGBoost_kantelpunten_uitgelicht.png"),
-  plot = xgb_kantelpunt_plot, width = 30, height = 28, units = "cm", dpi = 200
+  plot = xgb_kantelpunt_plot, width = 34, height = 42, units = "cm", dpi = 200
 )
 
 
