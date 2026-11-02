@@ -1,0 +1,1010 @@
+---
+title: "VeeST: kortetermijneffecten van beheer (WP2)"
+subtitle: "Concept: rapportskelet met figuren en eerste tekst"
+lang: nl
+number-sections: true
+format:
+  html:
+    toc: true
+    embed-resources: true
+  docx:
+    reference-doc: template_veest.docx
+    toc: true
+params:
+  figuren_dir: "C:/Users/LauraMoria/Stichting Veenweiden Innovatiecentrum/VIPNL Themas - VIPNL Veenweidensloot/D. Data en analyse/figuren_wp2_analyse_LM/"
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+<!--
+Opbouw: figuren en tabellen komen uit scripts/wp2_analyse.R,
+scripts/wp2_respons_abiotiek.R, scripts/wp2_effect_beginwaarde.R en
+scripts/wp2_profielen_sloot.R (eerst die scripts draaien). Figuren voor de hoofdtekst staan in <figuren_dir>/rapport,
+bijlagefiguren in <figuren_dir>/bijlage en de figuren per sloot (bijlage D) in
+<figuren_dir>/profielen_sloot.
+Getallen in de tekst worden uit de csv-tabellen in <figuren_dir> gelezen.
+[TODO] = nog aanvullen of controleren. Alle tekst is concept en moet inhoudelijk
+gecontroleerd worden voor verzending.
+-->
+
+
+```{r}
+#| label: setup
+library(data.table)
+library(dplyr)
+library(knitr)
+
+# params bestaat alleen bij renderen; bij het interactief draaien van chunks
+# valt fig_dir terug op de standaardmap.
+fig_dir_standaard <- "C:/Users/LauraMoria/Stichting Veenweiden Innovatiecentrum/VIPNL Themas - VIPNL Veenweidensloot/D. Data en analyse/figuren_wp2_analyse_LM/"
+fig_dir <- if (exists("params") && !is.null(params$figuren_dir)) params$figuren_dir else fig_dir_standaard
+if (!dir.exists(fig_dir)) warning("Figurenmap niet gevonden: ", fig_dir)
+# Pad normaliseren (o.a. stationsletter als hoofdletter): met "c:/" in plaats
+# van "C:/" stopte pandoc zonder foutmelding.
+fig_dir <- paste0(normalizePath(fig_dir, winslash = "/", mustWork = FALSE), "/")
+
+# Een ontbrekende figuur (script nog niet gedraaid) stopt het renderen niet,
+# maar geeft een waarschuwing en een lege plek met bijschrift.
+options(knitr.graphics.error = FALSE)
+rapport_fig <- function(naam) {
+  pad <- file.path(fig_dir, "rapport", paste0(naam, ".png"))
+  ontbreekt <- pad[!file.exists(pad)]
+  if (length(ontbreekt) > 0) {
+    warning("Figuur niet gevonden (eerst het bijbehorende script draaien?): ", paste(ontbreekt, collapse = ", "))
+  }
+  pad
+}
+
+lees_tabel <- function(naam) {
+  pad <- file.path(fig_dir, paste0(naam, ".csv"))
+  if (!file.exists(pad)) {
+    warning("Tabel niet gevonden (eerst de analysescripts draaien?): ", pad)
+    return(data.table())
+  }
+  fread(pad, sep = ";", dec = ",", encoding = "UTF-8")
+}
+
+# Getallen in Nederlandse notatie
+nl <- function(x, digits = 2) formatC(x, digits = digits, format = "f", decimal.mark = ",", big.mark = ".")
+pct <- function(x) paste0(nl(100 * x, 0), "%")
+
+proefopzet  <- lees_tabel("tabel_proefopzet_gebied")
+variantie   <- lees_tabel("tabel_niveaus_variantiedecompositie")
+toets_alles <- lees_tabel("tabel_niveau_alles_toets_basisbeheer")
+paarsgewijs <- lees_tabel("tabel_thema_verandering_toets_paarsgewijs")
+sign_contr  <- lees_tabel("tabel_significante_contrasten")
+hw          <- lees_tabel("tabel_contrast_hegewarren_factorial")
+afkreeften  <- lees_tabel("tabel_afkreeften_RH_Oukoop")
+nvo         <- lees_tabel("tabel_spaarnwoude_nvo_oevernutrienten")
+
+thema_namen <- c(profiel = "profiel", waterbodem = "waterbodem", oever = "oever",
+                 vegetatie = "vegetatie", oevermorfologie = "oevermorfologie")
+```
+
+# Inleiding
+
+De onderzoeksvragen van VeeST zijn:
+
+1. Hoe kan aangepast beheer (baggeren, slootschonen en oever-, randen- en perceelbeheer) in de huidige situatie leiden tot de randvoorwaarden die nodig zijn voor het bereiken en behouden van het wensbeeld (vorm en stabiliteit van het sloot- en oeverprofiel en de bijbehorende vegetatie in de verschillende slootzones, en omstandigheden waarbij methaanemissies uit bagger en sloot beperkt zijn)?
+2. Wat is het te verwachten gevolg van peilverhoging (en toename van peilfluctuatie) op de waterkwaliteit, de agrarische gebruikswaarde van de perceelrand en broeikasgasemissies, door veranderingen in morfologie van sloot en slootrand, vegetatieontwikkeling, oeverafkalving en -verzakking en baggeraanwas?
+3. Hoe moet bij een systeemaanpassing (een hoger en flexibeler slootpeil) het beheer worden aangepast om te zorgen dat het nieuwe wensbeeld wordt bereikt en behouden?
+
+Dit rapport behandelt de kortetermijneffecten van beheer uit werkpakket 2 (WP2) en draagt vooral bij aan onderzoeksvraag 1. [TODO: koppeling met vraag 2 en 3 en met WP1 beschrijven.]
+
+**Leeswijzer.** Hoofdstuk 2 beschrijft de opzet en de analyse. Hoofdstuk 3 geeft de effecten van terughoudend beheer op alle kwaliteitsparameters en gaat daarna in op de ontwikkeling van de oeverzones 2a en 2b. Figuren per sloot, per jaar en per beheerparameter staan in de bijlagen.
+
+# Opzet en analyse
+
+## Proefopzet
+
+In WP2 liggen verschillende behandelingen naast elkaar langs dezelfde sloot (een geblokte opzet), in zes gebieden: Hegewarren (HW), Krimpenerwaard (KW), Ronde Hoep (RH), Spaarnwoude (SW), Bloemerdalergouw (WL) en Zegveld (ZG). Het basisbeheer is regulier (R) of minimaal (M), al dan niet met afrastering (AF). Op een deel van de locaties is daarnaast een natuurvriendelijke oever (NVO) aangelegd of zijn kreeften weggevangen (KR). Een locatie (SlootID) is één behandelingsvak langs een sloot. De behandeling volgt de kolom `Behandeling` (de werkelijk uitgevoerde behandeling was in de praktijk soms anders dan de geplande behandeling), niet de code in de SlootID. @tbl-behandeling-per-vak in bijlage B geeft per vak de behandeling per jaar, met de veldnotities en bekende afwijkingen in de uitvoering. Welke vakken in de vergelijking van behandelingen meedoen, volgt uit de kolom `MeenemenDataAnalyse_WP2` in de locatietabel (zie Datakwaliteit en selecties). In de selectie komen regulier (R), minimaal (M) en minimaal met afrastering (M-AF) voor; afkreeften (KR) is daarbij een extra maatregel bovenop het basisbeheer (R-KR telt bij R, M-AF-KR bij M-AF).
+
+```{r}
+#| label: proefopzet-cijfers
+jaar_kol <- sort(grep("^n_20", names(proefopzet), value = TRUE))
+meetjaren <- sub("n_", "", jaar_kol)
+```
+
+In totaal omvat WP2 `r sum(proefopzet$n_locaties)` locaties in `r sum(proefopzet$n_sloten)` sloten. Alle locaties zijn in `r paste(meetjaren, collapse = ", ")` bemeten, met uitzondering van enkele locaties die in één jaar ontbreken (@tbl-proefopzet).
+
+```{r}
+#| label: tbl-proefopzet
+#| tbl-cap: "Aantal sloten en locaties per gebied, het aantal locaties in de selectie voor de vergelijking van behandelingen, het aantal bemeten locaties per jaar en de uitgevoerde behandelingen (alle locaties)."
+gebied_namen <- c(
+  HW = "Hegewarren", KW = "Krimpenerwaard", RH = "Ronde Hoep",
+  SW = "Spaarnwoude", WL = "Bloemerdalergouw", ZG = "Zegveld"
+)
+tab_opzet <- proefopzet[, c(
+  list(Gebied = paste0(gebied_namen[gebied], " (", gebied, ")"), Sloten = n_sloten, Locaties = n_locaties, Selectie = n_locaties_selectie),
+  setNames(.SD, meetjaren),
+  list(Behandelingen = behandelingen)
+), .SDcols = jaar_kol]
+tab_opzet <- rbind(
+  tab_opzet,
+  c(list(Gebied = "Totaal", Sloten = sum(proefopzet$n_sloten), Locaties = sum(proefopzet$n_locaties), Selectie = sum(proefopzet$n_locaties_selectie)),
+    setNames(as.list(colSums(proefopzet[, ..jaar_kol])), meetjaren),
+    list(Behandelingen = ""))
+)
+knitr::kable(tab_opzet, align = c("l", rep("r", 3 + length(meetjaren)), "l"))
+```
+
+## Verandering als maat voor het effect
+
+Per locatie en parameter is de **verandering** berekend: de waarde in het laatste meetjaar min de waarde in het eerste meetjaar waarin die parameter gemeten is (meestal 2024 → 2026). Een positieve verandering betekent een toename en een negatieve een afname. Het label bij elke figuur geeft de inhoudelijke betekenis van een toename (bijvoorbeeld: waterdiepte, + = dieper, − = ondieper).
+
+## Statistiek
+
+- **Gemengde modellen.** Locaties in dezelfde sloot en in hetzelfde gebied hangen met elkaar samen en vormen daardoor geen onafhankelijke waarnemingen. De modellen bevatten daarom gebied en sloot als random effect. Het model houdt zo rekening met verschillen tussen gebieden en sloten, maar toetst niet óf gebieden of sloten van elkaar verschillen; de toets betreft alleen het effect van de behandeling.
+- **Paarsgewijze vergelijkingen.** De Holm-methode corrigeert de p-waarden van de paarsgewijze vergelijkingen (regulier, minimaal, afrastering) voor meervoudig toetsen.
+- **Meervoudig toetsen.** De Benjamini-Hochberg-methode (BH) corrigeert de p-waarden over de parameters heen. Bij circa 800 toetsen leveren naar verwachting alleen al door toeval ongeveer 40 toetsen een p-waarde onder 0,05 op. Dit rapport beschouwt resultaten met p < 0,05 die na correctie niet significant zijn daarom als aanwijzing en niet als aangetoond effect.
+- **"niet significant"** linksboven in een figuur geeft aan dat p ≥ 0,05 zonder correctie; ook zonder correctie is er dan geen aanwijzing voor een verschil.
+
+## Datakwaliteit en selecties
+
+- **Nullen als ontbrekende waarde.** Doorzicht en zichtdiepte van 0 m in 2024 (SW_3 en ZG_2_M_O) en onderholling van 0 cm in Zegveld in 2024 zijn ontbrekende metingen en als ontbrekend behandeld. Voor onderholling in Zegveld is de verandering daardoor berekend over 2025–2026.
+- **Redox in de Krimpenerwaard in 2025.** Op 6 juni 2025 was de redoxmeter defect, waardoor op KW_1, KW_2_M en KW_2_R geen redox is gemeten. De waarden die voor KW_2_M en KW_2_R in de data stonden, zijn gelijk aan die van KW_2_M-AF op 3 juni. Ook die meting is onjuist: de slibredox van circa 0 mV wijkt sterk af van de −239 tot −300 mV in de andere jaren. De redox van alle drie de vakken van KW_2 in 2025 is daarom als ontbrekend behandeld.
+- **Slibtemperatuur.** Waarden van 9.994 °C (SW_5, 2026) en 677 °C (ZG_2_M_O, 2025) zijn invoerfouten en als ontbrekend behandeld.
+- **Correcties van de dwarsprofielen.** In de profielen van alle jaren zijn twee soorten fouten gecorrigeerd. Punten die als oever zijn ingedeeld maar onder de waterlijn liggen en aansluiten op het water, zijn als water ingedeeld. Waterpunten zonder peiling van de vaste bodem die duidelijk dieper liggen dan de gepeilde punten in hetzelfde profiel (meer dan 15 cm onder de mediaan) zijn vermoedelijk met de stok op de vaste bodem ingemeten; hun waterdiepte is als ontbrekend behandeld. Vooral in 2026 kwamen zulke punten veel voor. De maximale waterdiepte en de taludhoek zijn na deze correcties berekend.
+- **Selectie van meetlocaties.** In de vergelijking van behandelingen doen alleen de vakken mee met `MeenemenDataAnalyse_WP2` = ja in de locatietabel. Daarmee vallen de sloten zonder verschillende behandelingen weg (SW_3: alle vakken uiteindelijk R; SW_5: alleen R en R-NVO; RH_1: in 2026 afrastering overal weg en geen vak gemaaid), en ook de vakken met regulier beheer en afrastering (R-AF) en met een NVO. Twee analyses vormen hierop een uitzondering en gebruiken alle vakken van het gebied, ook de vakken buiten de selectie: de combinatie van basisbeheer en afrastering in Hegewarren en de vergelijking van locaties met en zonder NVO in Spaarnwoude.
+- **Redox in KW_3 in 2025.** De redox in de vakken van KW_3 op 3 juni 2025 (circa −75 tot −100 mV) ligt veel hoger dan in 2024 en 2026 (circa −155 tot −275 mV). Op 6 juni 2025 was de redoxmeter defect (zie hierboven); mogelijk week de meter op 3 juni al af. In de veldnotities staat hierover niets. Deze waarden zijn meegenomen, maar vormen een aandachtspunt bij de interpretatie van de redox.
+- **Sloten zonder waargenomen effect.** Bij een beoordeling in het veld in 2026 is per sloot vastgesteld of sinds de start van WP2 een effect op vegetatie, draagkracht of morfologie zichtbaar was. In RH_1, RH_8, RH_10 en RH_11 was dat niet zo. Deze sloten blijven in de analyse (RH_1 valt al buiten de selectie, zie hierboven); de veldbeoordeling wordt alleen gebruikt bij de interpretatie van de resultaten. In een aantal figuren zijn deze sloten met een × gemarkeerd.
+- **Hydrofyten in 2026.** In 2026 zijn op veel locaties geen hydrofyten aangetroffen. Deze nullen zijn echte waarnemingen en zijn als 0 meegenomen, niet als ontbrekende waarde.
+
+# Kortetermijneffecten van beheer (WP2)
+
+## Effecten van terughoudend beheer op alle kwaliteitsparameters
+
+### Herkomst van de variatie in de verandering
+
+```{r}
+#| label: variantie-cijfers
+v_alle <- variantie
+med_aandeel <- v_alle[, .(med = median(aandeel)), by = niveau]
+aandeel <- function(niv) med_aandeel[niveau == niv, med]
+
+# De twee parameters met het grootste aandeel voor een niveau, als tekst;
+# hoofdletter = TRUE voor gebruik aan het begin van een zin
+top2 <- function(niv, hoofdletter = FALSE) {
+  t <- v_alle[niveau == niv][order(-aandeel)][1:2]
+  # leesbare naam: het label zonder eenheid
+  tekst <- paste0(sub(" \\(.*$", "", t$label), " (", pct(t$aandeel), ")", collapse = " en ")
+  if (hoofdletter) tekst <- paste0(toupper(substr(tekst, 1, 1)), substring(tekst, 2))
+  tekst
+}
+```
+
+Om de behandelingseffecten in perspectief te plaatsen, laat deze paragraaf eerst zien waar de verschillen in de verandering vandaan komen. Daartoe is per parameter de totale variatie in de verandering opgedeeld in vijf bronnen (@fig-variantie). Elke balk vertegenwoordigt 100% van de variatie in de verandering van die parameter.
+
+```{r}
+#| label: fig-variantie
+#| fig-cap: "Aandeel van de variatie in de verandering (laatste − eerste meetjaar) per bron, voor alle vakken in de selectie voor de vergelijking van behandelingen. Per thema staan de parameters gesorteerd op het aandeel van de behandeling (links in de balk), van groot naar klein."
+knitr::include_graphics(rapport_fig("niveaus_variantiedecompositie"))
+```
+
+**Betekenis van de niveaus.** Het volgende voorbeeld illustreert de niveaus aan de hand van de verandering in slibdikte in drie sloten:
+
+| | R | M | gemiddelde sloot |
+|---|---|---|---|
+| Sloot A (gebied X) | +8 cm | +12 cm | +10 cm |
+| Sloot B (gebied X) | −6 cm | −4 cm | −5 cm |
+| Sloot C (gebied Y) | +2 cm | +1 cm | +1,5 cm |
+
+- **Behandeling (gemiddeld effect, alle gebieden):** het gemiddelde verschil tussen R, M en M-AF over alle sloten en gebieden, na correctie voor verschillen tussen sloten en gebieden. Alleen dit deel heeft rechtstreeks betrekking op het beheer. In het voorbeeld is M ten opzichte van R +4 cm in sloot A, +2 cm in sloot B en −1 cm in sloot C, gemiddeld ongeveer +1,7 cm.
+- **Behandeling × gebied (afwijking van het effect binnen een gebied):** hoeveel het behandelingseffect binnen een gebied afwijkt van het gemiddelde effect. In het voorbeeld is M − R in gebied X gemiddeld +3 cm (sloot A en B) en in gebied Y −1 cm (sloot C): in het ene gebied een toename bij minimaal beheer, in het andere een afname.
+- **Gebied:** hoeveel gebieden als geheel verschillen in hun gemiddelde verandering, over alle behandelingen samen. Omdat de verandering het verschil is tussen twee meetronden, vallen kenmerken die niet veranderen (zoals bodemtype en hydrologie) weg. Een groot aandeel betekent dat alle locaties in een gebied tussen de meetronden in dezelfde richting zijn veranderd. Dat kan een werkelijke verandering zijn, maar ook een verschil in meetomstandigheden tussen de meetronden (bijvoorbeeld een warme meetdag of een ander waterpeil).
+- **Sloot (binnen gebied):** hoeveel sloten in hetzelfde gebied verschillen in hun gemiddelde verandering. In het voorbeeld verandert sloot A gemiddeld +10 cm en sloot B −5 cm, terwijl beide in gebied X liggen. Het verschil tussen gebied X en Y zit al in het gebiedsaandeel; gebied en sloot samen geven het verschil tussen alle sloten. Ook hier vallen slootkenmerken die niet veranderen weg. Een groot aandeel wijst op processen die tussen de meetronden op de hele sloot inwerken, zoals baggeren, of op slootkenmerken die de snelheid van verandering bepalen, zoals stroomsnelheid of morfologie.
+- **Rest: binnen sloot:** alles wat overblijft na aftrek van de niveaus hierboven, dus de verschillen tussen de vakken van één sloot die niet door het gemiddelde behandelingseffect, het gebied en de sloot worden verklaard. Hieronder vallen drie bronnen: (1) een behandelingseffect dat per sloot in grootte of richting verschilt (behandeling × sloot), in het voorbeeld +4 cm in sloot A en +2 cm in sloot B, hoewel beide in gebied X liggen; (2) omstandigheden die per vak verschillen en los van de behandeling de verandering beïnvloeden, zoals een drinkplek van vee, de ligging ten opzichte van wind en zon of de aanwezigheid van kreeft; en (3) meetruis: het verschil tussen de gemeten en de werkelijke waarde, dus wat je zou zien als je hetzelfde vak op dezelfde dag twee keer zou meten. Voorbeelden zijn een bedekking die op het oog wordt geschat (een andere waarnemer of een ander moment in het seizoen geeft al snel 10 procentpunt verschil), een profiel dat niet elk jaar op precies dezelfde plek ligt en een bodem- of slibmonster met net ander materiaal. Bron (2) is niet hetzelfde als het behandelingseffect: ook twee vakken met hetzelfde beheer veranderen niet precies gelijk. In de selectie heeft elke sloot één vak per basisbeheer en is elk vak één keer per jaar bemeten. Het verschil tussen het M- en het R-vak van een sloot is daarom altijd behandelingseffect plus vakeffect plus meetruis, en die drie bronnen laten zich niet van elkaar scheiden. Het niet-uniforme deel van het behandelingseffect (verschillende grootte en richting per sloot) zit dus in de rest, maar de rest is niet alleen dat.
+
+**Resultaat.** Het basisbeheer verklaart weinig van de variatie: de mediaan over de parameters is `r pct(aandeel("behandeling (basisbeheer)"))`. Het grootste deel valt in de rest (mediaan `r pct(aandeel("locatie binnen sloot (rest)"))`): binnen sloten verschillen de behandelingsvakken wel, maar niet steeds in dezelfde richting. 
+
+`r top2("gebied", hoofdletter = TRUE)` veranderen vooral per gebied, `r top2("sloot")` vooral per sloot. Een behandelingseffect dat per gebied verschilt, speelt het sterkst bij `r top2("behandeling × gebied")`.
+
+**Kanttekeningen.** Een aandeel van 0% betekent meestal dat het model de variantie op de grens van 0 heeft geschat, niet dat er precies geen verschil is. Met zes gebieden is het aandeel van het gebied onzeker.
+
+```{r}
+#| label: gebied-meetronde-cijfers
+gebied_niv <- lees_tabel("tabel_gebied_verandering_niveau")
+setnames(gebied_niv, "niveau_gebied × jaar (meetronde)", "niveau_meetronde")
+rho_meetronde <- gebied_niv[, cor(verandering_gebied, niveau_meetronde, method = "spearman", use = "pairwise.complete.obs")]
+rho_vast <- gebied_niv[, cor(verandering_gebied, niveau_gebied, method = "spearman", use = "pairwise.complete.obs")]
+gn <- function(nm) gebied_niv[naam == nm]
+```
+
+**Gebiedsaandeel en meetronden.** Elk gebied is per jaar in één tot vier dagen bemeten; dit rapport noemt dat een meetronde. De verandering is het verschil tussen twee meetronden op dezelfde locatie. Een verschil tussen gebieden dat niet verandert, bijvoorbeeld een gebied dat in alle jaren een lagere redox heeft dan de andere, zit in beide meetronden en valt bij het berekenen van de verandering dus weg. Een groot gebiedsaandeel in @fig-variantie betekent daarom iets anders: alle locaties in een gebied zijn tussen de twee meetronden in dezelfde richting veranderd. Dat kan een werkelijke verandering zijn, maar ook een verschil in omstandigheden tussen de meetdagen, zoals de temperatuur, het waterpeil of de afstelling van de meetapparatuur.
+
+Om dit te controleren, zijn ook de gemeten waarden zelf (niet de verandering) opgedeeld in twee delen: een vast verschil tussen gebieden in alle meetjaren en een verschil per meetronde (een gebied ligt in één jaar hoger of lager dan in de andere jaren) (@tbl-gebied-meetronde). Parameters met een groot gebiedsaandeel in de verandering blijken vrijwel altijd ook een groot verschil per meetronde te hebben (ρ = `r nl(rho_meetronde, 2)`), en geen groter vast verschil tussen gebieden (ρ = `r nl(rho_vast, 2)`). Het gebiedsaandeel in de verandering is dus vooral variatie van jaar tot jaar binnen een gebied. Het duidelijkst is dit bij de redox van het slib: `r pct(gn("redox_slib")$verandering_gebied)` van de variatie in de verandering valt op gebiedsniveau, en in de gemeten waarden verschilt de redox sterk per meetronde (`r pct(gn("redox_slib")$niveau_meetronde)` van de variatie). Een uitzondering is P-AL in het slib. Het gebiedsaandeel in de verandering is groot (`r pct(gn("pal_waterbodem")$verandering_gebied)`) in alle meetjaren (`r pct(gn("pal_waterbodem")$niveau_gebied)`) terwijl het verschil per meetronde juist klein is (`r pct(gn("pal_waterbodem")$niveau_meetronde)`); zie de duiding per parameter hieronder.
+
+Met twee tot drie meetronden per gebied is niet te onderscheiden of een verschil tussen meetronden een werkelijke verandering is of door de omstandigheden op de meetdag komt. Een voor de hand liggende meetomstandigheid is de temperatuur; die is hieronder nader bekeken. 
+
+```{r}
+#| label: tbl-gebied-meetronde
+#| tbl-cap: "Aandeel van het gebied in de variatie van de verandering (zoals in @fig-variantie), naast de opdeling van de gemeten waarden in een vast gebiedsverschil over alle meetjaren en een verschil per meetronde (gebied × jaar). Parameters met een gebiedsaandeel in de verandering van minstens 10%."
+tab_gn <- gebied_niv[verandering_gebied >= 0.1][order(-verandering_gebied)]
+knitr::kable(
+  tab_gn[, .(
+    Parameter = label,
+    `Gebied (verandering)` = pct(verandering_gebied),
+    `Gebied, vast (niveau)` = pct(niveau_gebied),
+    `Meetronde (niveau)` = pct(niveau_meetronde)
+  )],
+  align = "lrrr"
+)
+```
+
+```{r}
+#| label: meetomstandigheden-cijfers
+meet_var <- lees_tabel("tabel_meetomstandigheden_variantie")
+meet_aandeel <- function(nm, niv) meet_var[naam == nm & niveau == niv, aandeel]
+redox_t <- lees_tabel("tabel_redox_temperatuur")
+rt <- function(resp, verkl, sch) redox_t[respons == resp & verklarend == verkl & schaal == sch]
+rt_loc <- rt("redox slib (pH 7)", "watertemperatuur", "binnen locatie, tussen jaren")
+rt_ronde <- rt("redox slib (pH 7)", "watertemperatuur", "binnen meetronde, tussen locaties")
+# al hier ingelezen: de tabelkop van tbl-redox-opvallend gebruikt de drempels
+redox_opv <- lees_tabel("tabel_redox_opvallend")
+rt_tussen <- rt("redox slib (pH 7)", "watertemperatuur", "tussen meetronden")
+pal_redox <- rt("P-AL slib", "redox slib (pH 7)", "binnen locatie, tussen jaren")
+ppw_redox <- rt("P poriewater", "redox slib (pH 7)", "binnen locatie, tussen jaren")
+meetronden <- lees_tabel("tabel_meetronden")
+# Grootste verschil in gemiddelde redox tussen jaren binnen een gebied
+redox_sprong <- meetronden[, .(sprong = max(slib_redox_pH7, na.rm = TRUE) - min(slib_redox_pH7, na.rm = TRUE)), by = gebied][, max(sprong)]
+# Gemiddelde redox per jaar over de gebiedsgemiddelden per meetronde
+redox_jaar <- meetronden[, .(gem = mean(slib_redox_pH7, na.rm = TRUE)), by = jaar]
+```
+
+**Temperatuur en redox.** De redoxpotentiaal van het slib heeft `r if (v_alle[niveau == "gebied"][which.max(aandeel), naam] == "redox_slib") "van alle parameters het grootste" else "een groot"` gebiedsaandeel in de verandering (`r pct(gn("redox_slib")$verandering_gebied)`). Redox is een momentopname die afhangt van de temperatuur: bij een hogere temperatuur breken micro-organismen meer organisch materiaal af en verbruiken ze meer zuurstof, waardoor de redoxpotentiaal daalt. Onder zulke gereduceerde omstandigheden kan bovendien fosfaat uit het slib vrijkomen. Als de temperatuur tussen de meetdagen verschilt, kan dat het grote gebiedsaandeel van redox verklaren. Daarom is nagegaan of de temperatuur per meetronde verschilt en of de redox daarmee samenhangt.
+
+De watertemperatuur verschilt inderdaad vooral per meetronde (`r pct(meet_aandeel("watertemperatuur", "gebied × jaar (meetronde)"))` van de variatie) en nauwelijks structureel tussen gebieden of jaren. Voor de slibtemperatuur geldt hetzelfde (`r pct(meet_aandeel("slibtemperatuur", "gebied × jaar (meetronde)"))` per meetronde). Ook de redoxpotentiaal van het slib verschilt sterk per meetronde (`r pct(meet_aandeel("redox slib (pH 7)", "gebied × jaar (meetronde)"))`): binnen een gebied loopt de gemiddelde redox tussen jaren tot `r nl(redox_sprong, 0)` mV uiteen.
+
+Op dezelfde locatie `r if (rt_loc$p_waarde < 0.05) "gaat een hogere watertemperatuur samen met een lagere redoxpotentiaal" else "hangt de redoxpotentiaal echter niet aantoonbaar samen met de watertemperatuur"` (`r nl(rt_loc$helling, 1)` mV per °C, p = `r nl(rt_loc$p_waarde, 2)`; @fig-redox-temperatuur). Ook tussen locaties binnen dezelfde meetronde (p = `r nl(rt_ronde$p_waarde, 2)`) en tussen de gemiddelden per meetronde (ρ = `r nl(rt_tussen$rho, 2)`) is er geen duidelijk verband. De redoxpotentiaal hangt bovendien nauwelijks samen met P-AL in het slib (ρ = `r nl(pal_redox$rho_alle, 2)`) en met P in het poriewater (ρ = `r nl(ppw_redox$rho_alle, 2)`). De verschillen in redox tussen meetronden zijn met deze data dus niet te verklaren uit de temperatuur op de meetdag. Mogelijke andere oorzaken zijn de meting zelf (stabilisatietijd, kalibratie van de elektrode), de bemonsteringsdiepte of andere seizoensinvloeden, zoals de maandgemiddelde temperatuur en het zuurstofgehalte van het water. 
+
+In de veldnotities is voor de grootste afwijkingen in redox geen verklaring gevonden. @tbl-redox-opvallend in bijlage C geeft de metingen die het sterkst afwijken van de andere vakken in dezelfde sloot (gemeten op dezelfde dag) of van de vorige meting op dezelfde locatie. Deze waarden zijn in de analyses meegenomen, maar verdienen voorzichtigheid bij de interpretatie.
+
+```{r}
+#| label: fig-redox-temperatuur
+#| fig-cap: "Afwijking van de redoxpotentiaal van het slib (pH 7) tegen de afwijking van de watertemperatuur, beide ten opzichte van het gemiddelde van dezelfde locatie over de meetjaren. Een punt boven 0 is een meting die minder reducerend was dan gemiddeld op die locatie; het is geen positieve meetwaarde."
+knitr::include_graphics(rapport_fig("redox_temperatuur_binnen_locatie"))
+```
+
+De punten in @fig-redox-temperatuur zijn afwijkingen van het gemiddelde per locatie, geen meetwaarden. Zo vallen de vaste verschillen tussen locaties (zoals slibsamenstelling, veentype en waterdiepte) weg en blijft alleen over hoe de redox op dezelfde plek van jaar tot jaar verandert. Als de temperatuur de redox stuurt, moet een warmere meetdag op dezelfde locatie samengaan met een lagere redox. Met de meetwaarden zelf zou een verschil tussen locaties (een locatie die toevallig warmer én sterker reducerend is) voor een temperatuureffect kunnen worden aangezien. Alle gemeten slibredoxwaarden zijn negatief. De metingen van 2025 liggen in de figuur vaak boven 0: in 2025 was het slib op de meeste locaties minder reducerend dan in 2024 en 2026 (gemiddeld over de gebieden `r nl(redox_jaar[jaar == 2024, gem], 0)` mV in 2024, `r nl(redox_jaar[jaar == 2025, gem], 0)` mV in 2025 en `r nl(redox_jaar[jaar == 2026, gem], 0)` mV in 2026). Dat verschil hangt niet samen met de watertemperatuur en is daarom mogelijk (deels) een meeteffect. De metingen van 2025 zijn in de analyses meegenomen, maar verdienen voorzichtigheid bij de interpretatie.
+
+```{r}
+#| label: duiding-cijfers
+# Aandeel van een niveau in de verandering van een parameter (alle sloten)
+va <- function(nm, niv) v_alle[naam == nm & niveau == niv, aandeel]
+stab <- lees_tabel("tabel_stabiliteit_samenvatting")
+stab_g <- lees_tabel("tabel_stabiliteit_gebied")
+slib_rho <- lees_tabel("tabel_slibdikte_samenhang")
+st <- function(var) stab[variabele == var]
+sg <- function(var, geb) stab_g[variabele == var & gebied == geb]
+rho_paar <- function(p) slib_rho[paar == p, rho]
+nap_samenhang <- lees_tabel("tabel_profiel_nap_samenhang")
+nap <- function(m) nap_samenhang[maat == m, waarde]
+# Gebieden waar de slibdikte gemiddeld meer dan 5 cm afneemt
+slib_af <- stab_g[variabele == "slibdikte" & gem_verandering < -0.05, gebied]
+# "alle" of "x% van de" voor een aandeel locaties
+aandeel_loc <- function(x) if (isTRUE(all.equal(x, 1))) "alle" else paste(pct(x), "van de")
+# De twee gebieden met de grootste toename in waterdiepte
+wtd_op <- stab_g[variabele == "waterdiepte"][order(-gem_verandering)][1:2]
+# en de twee gebieden met de grootste afname
+wtd_af <- stab_g[variabele == "waterdiepte"][order(gem_verandering)][1:2]
+gebied_namen_kort <- c(
+  HW = "Hegewarren", KW = "Krimpenerwaard", RH = "Ronde Hoep",
+  SW = "Spaarnwoude", WL = "Bloemerdalergouw", ZG = "Zegveld"
+)
+opsomming <- function(x) if (length(x) <= 1) x else paste(paste(head(x, -1), collapse = ", "), "en", tail(x, 1))
+# Sloten waarvan de vakken in een jaar op verschillende dagen zijn bemeten
+meetdagen <- lees_tabel("tabel_meetdagen_sloot")
+meetdagen_ver <- meetdagen[spreiding_dagen > 2][order(-spreiding_dagen)]
+meetdagen_tekst <- opsomming(meetdagen_ver[, paste0(sloot_nummer, " in ", jaar, " (", spreiding_dagen, " dagen)")])
+# Taludhoek: verschil in verandering tussen behandelingen in dezelfde sloot (%-punt)
+talud_c <- lees_tabel("tabel_talud_contrast_sloot")
+talud_g <- lees_tabel("tabel_talud_contrast_gebied")
+talud_s <- lees_tabel("tabel_talud_vernatting_samenhang")
+ts <- function(m) talud_s[maat == m, waarde]
+# p-waarde uit talud_s als tekst, inclusief "=" of "<"
+tsp <- function(m) if (ts(m) < 0.001) "< 0,001" else paste("=", nl(ts(m), 2))
+contrast_tekst <- function(d) opsomming(d[, paste0(sloot_nummer, " (", contrast, ": ", ifelse(verschil > 0, "+", "−"), nl(abs(verschil), 0), ")")])
+talud_steiler <- talud_c[afrastering == TRUE & verschil > 5][order(-verschil)]
+talud_flauwer <- talud_c[afrastering == TRUE & verschil < -5][order(verschil)]
+talud_mr <- talud_c[afrastering == FALSE]
+gebied_steiler <- talud_g[afrastering == TRUE & gem_verschil > 5, gebied]
+gebied_flauwer <- talud_g[afrastering == TRUE & gem_verschil < -5, gebied]
+```
+
+**Duiding per parameter.** Met de bevindingen hierboven zijn de opvallendste patronen in @fig-variantie stap voor stap te verklaren.
+
+- **Redox van het slib verschilt vooral per gebied.** Van de variatie in de verandering valt `r pct(va("redox_slib", "gebied"))` op gebiedsniveau. Omdat alle vakken in een gebied in dezelfde meetronde zijn bemeten, betekent dit dat de redox per meetronde verschilt. De temperatuur op de meetdag verklaart dat niet. De verandering in redox is daarom niet als trend te interpreteren. *Kanttekening:* voor de vergelijking van behandelingen is dit geen bezwaar. De vakken van een sloot zijn in `r meetdagen[n_dagen == 1, .N]` van de `r nrow(meetdagen)` combinaties van sloot en jaar op één dag bemeten, en in de meeste andere gevallen binnen enkele dagen, zodat effecten van de meetdag binnen een sloot wegvallen. Uitzonderingen met een groter verschil tussen de vakken zijn `r meetdagen_tekst`. De grote variatie per meetronde maakt een effect van beheer op redox wel moeilijk aantoonbaar. Voor redox zijn herhaalde of continue metingen (bijvoorbeeld met loggers) geschikter dan één meting per jaar.
+- **Slibdikte verschilt vooral per sloot.** Van de variatie in de verandering valt `r pct(va("slibdikte", "sloot"))` op slootniveau. Bij echte aangroei neemt de slibdikte toe en de waterdiepte af, terwijl de diepte van de vaste bodem gelijk blijft. De verandering in slibdikte volgt echter vooral de diepte waarop de vaste bodem is gevonden (ρ = `r nl(rho_paar("slibdikte ~ vaste_bodem"), 2)`) en veel minder de waterdiepte (ρ = `r nl(rho_paar("slibdikte ~ waterdiepte"), 2)`). De slibdikte is bovendien slecht herhaalbaar tussen de jaren (rangcorrelatie `r nl(st("slibdikte")$rho_jaren, 2)`) en neemt in `r opsomming(gebied_namen_kort[slib_af])` gemiddeld meer dan 5 cm af. De verandering in slibdikte weerspiegelt dus vooral verschillen in het peilen van de vaste bodem, en geen aangroei. Omdat de vakken van een sloot op dezelfde dag worden gepeild, werkt zo'n verschil door in alle vakken van die sloot en verschijnt het als slootaandeel. Een vergelijking van de NAP-hoogtes per profielpunt bevestigt dit. De perceelhoogte verandert tussen de jaren mediaan `r nl(100 * nap("perceel_mediaan_abs_verandering_m"), 0)` cm, dus de GPS-hoogtes zijn consistent. De gepeilde hoogte van de vaste bodem verschuift per gebied echter gemiddeld tot `r nl(100 * nap("vaste_bodem_max_abs_gebied_m"), 0)` cm, en de verandering in slibdikte volgt die verschuiving (ρ = `r nl(nap("rho_slibdikte_vaste_bodem"), 2)`) en niet de hoogte van het slibniveau (ρ = `r nl(nap("rho_slibdikte_slibniveau"), 2)`). In de veldnotities zijn in 2025 en 2026 geen sporen van baggeren genoteerd.
+- **Waterdiepte verschilt vooral tussen gebieden en sloten en verandert weinig.** Na de correctie van de dwarsprofielen (zie Datakwaliteit) is de maximale waterdiepte goed herhaalbaar tussen de jaren (rangcorrelatie `r nl(st("waterdiepte")$rho_jaren, 2)`). Het niveau van de waterdiepte verschilt vooral tussen gebieden (`r pct(meet_aandeel("waterdiepte", "gebied"))` van de variatie) en sloten (`r pct(meet_aandeel("waterdiepte", "sloot"))`), en nauwelijks per meetronde (`r pct(meet_aandeel("waterdiepte", "gebied × jaar (meetronde)"))`). De verandering is klein. Gemiddeld per gebied werd het water dieper in `r gebied_namen_kort[wtd_op$gebied[1]]` (`r nl(100 * wtd_op$gem_verandering[1], 0)` cm) en `r gebied_namen_kort[wtd_op$gebied[2]]` (`r nl(100 * wtd_op$gem_verandering[2], 0)` cm), en ondieper in `r gebied_namen_kort[wtd_af$gebied[1]]` (`r nl(100 * abs(wtd_af$gem_verandering[1]), 0)` cm) en `r gebied_namen_kort[wtd_af$gebied[2]]` (`r nl(100 * abs(wtd_af$gem_verandering[2]), 0)` cm). Van de variatie in de verandering valt `r pct(va("waterdiepte", "sloot"))` op slootniveau en `r pct(va("waterdiepte", "locatie binnen sloot (rest)"))` binnen de sloot. *Kanttekening:* aan die variatie binnen de sloot dragen ook het waterpeil op de meetdag en de precieze ligging van het profiel bij. Bij de zichtdiepte (doorzicht gedeeld door waterdiepte) valt `r pct(va("zichtdiepte", "locatie binnen sloot (rest)"))` binnen de sloot en `r pct(va("zichtdiepte", "behandeling × gebied"))` op behandeling × gebied: het effect van de behandeling op de zichtdiepte heeft per gebied een andere richting.
+- **P-AL in het slib: elk gebied heeft een eigen niveau; de verandering zit vooral in de Krimpenerwaard.** P-AL is een voorraad en geen momentopname: de slibmonsters worden vóór analyse gedroogd (60 °C, door B-ware), waardoor gereduceerd ijzer weer oxideert en P-AL weinig afhangt van de redoxtoestand op de dag van monstername. Het poriewater, dat niet wordt gedroogd, is wel een momentopname. De rangorde van de locaties is stabiel tussen de jaren (rangcorrelatie `r nl(st("pal_slib")$rho_jaren, 2)`) en het meetronde-aandeel in het niveau is klein (`r pct(gn("pal_waterbodem")$niveau_meetronde)`). Toch verandert P-AL per locatie in twee jaar mediaan `r pct(st("pal_slib")$mediaan_rel_verandering)`. Voor een voorraad die langzaam verandert, is dat waarschijnlijk vooral variatie in de bemonstering. Het grote gebiedsaandeel in de verandering (`r pct(va("pal_waterbodem", "gebied"))`) komt vooral uit de Krimpenerwaard, waar P-AL op `r aandeel_loc(1 - sg("pal_slib", "KW")$aandeel_toename)` locaties daalde (gemiddeld van `r nl(sg("pal_slib", "KW")$gem_eerste, 0)` naar `r nl(sg("pal_slib", "KW")$gem_laatste, 0)` mg P~2~O~5~/100 g). *Kanttekening:* de slibmonsters zijn in beide jaren op dezelfde wijze genomen (bovenste 25 cm van de sliblaag) en door hetzelfde laboratorium geanalyseerd. Het totaal-P-gehalte (XRF) verandert per locatie in dezelfde richting als P-AL (ρ = `r nl(rho_paar("pal_slib ~ ptot_slib (relatief)"), 2)`, relatieve verandering), in de Krimpenerwaard met gemiddeld `r pct(sg("ptot_slib", "KW")$gem_rel_verandering)`. De verschillen zitten dus in het bemonsterde materiaal en niet in de analyse. De sliblaag is zacht, ruimtelijk heterogeen en dynamisch: slib wordt verplaatst, opgewerveld en aangevuld met vers organisch materiaal. Een momentopname van de bovenste 25 cm bevat daardoor per jaar deels ander materiaal. Dat verklaart de spreiding per locatie, maar niet volledig de daling op alle locaties in de Krimpenerwaard. Om effecten van beheer op de fosfaattoestand van het slib vast te stellen, zijn mengmonsters van meerdere steken per vak en een langere meetreeks nodig.
+- **Het effect van afrastering op de taludhoek verschilt per gebied.** Van de variatie in de verandering van de taludhoek rond de waterlijn valt `r pct(va("talud", "behandeling × gebied"))` op behandeling × gebied: het effect van de behandeling heeft per gebied een andere richting. Vergeleken met een vak zonder afrastering in dezelfde sloot werd de oever met afrastering steiler in `r contrast_tekst(talud_steiler)`, en flauwer in `r contrast_tekst(talud_flauwer)` (verschil in verandering, %-punt). Gemiddeld per gebied werd de oever met afrastering steiler in `r opsomming(gebied_namen_kort[gebied_steiler])` en flauwer in `r opsomming(gebied_namen_kort[gebied_flauwer])`. Minimaal beheer zonder afrastering gaf ten opzichte van regulier beheer `r if (max(talud_mr$verschil) <= 2) "een gelijke of flauwere oever" else "een wisselend beeld"` (`r contrast_tekst(talud_mr)`). *Kanttekening:* vakken die in 2024 flauw waren, werden vaker steiler, en steile vakken vaker flauwer (ρ = `r nl(ts("rho_talud_begin_verandering"), 2)` tussen beginwaarde en verandering, p `r tsp("p_talud_begin_verandering")`). Zo'n negatief verband ontstaat ook zonder echte verandering, door toevallige meetfouten (regressie naar het gemiddelde), maar kan ook wijzen op een echte beweging naar een evenwichtshelling. In dat laatste geval zou de spreiding tussen de vakken afnemen. Dat is niet zo: de standaardafwijking van de taludhoek is in het eerste meetjaar `r nl(ts("sd_talud_eerste"), 1)` en in het laatste `r nl(ts("sd_talud_laatste"), 1)` %-punt (Pitman-Morgan, p `r tsp("p_talud_pitman_morgan")`), en de verandering hangt niet samen met het gemiddelde van beide jaren (ρ = `r nl(ts("rho_talud_oldham"), 2)`, p `r tsp("p_talud_oldham")`). Het patroon past dus bij meetvariatie en niet bij een echte beweging naar een evenwichtshelling. Een bron van die meetvariatie is dat het profiel niet elk jaar op precies dezelfde plek ligt. Ook ligt de waterlijn, waarrond de taludhoek wordt gemeten, bij een ander waterpeil op een andere plek op de oever; de verandering in taludhoek hangt echter niet aantoonbaar samen met het verschil in waterpeil tussen de meetdagen (ρ = `r nl(ts("rho_talud_peil"), 2)`, p `r tsp("p_talud_peil")`, n = `r ts("n_talud_peil")`). De verschillen per sloot zijn daarom geen aangetoond effect van beheer.
+- **De vernattingsindex volgt vooral de oevervegetatie.** De taludhoek is een van de drie onderdelen van de vernattingsindex, naast kale oever met productiegras en emerse vegetatie in zone 2b. De verandering in de index hangt het sterkst samen met die in kale oever en productiegras (ρ = `r nl(ts("rho_vernatting_kaal_productiegras"), 2)`) en emerse vegetatie (ρ = `r nl(ts("rho_vernatting_emerse_vegetatie"), 2)`), en minder met die in de taludhoek (ρ = `r nl(ts("rho_vernatting_taludhoek"), 2)`). Het aandeel behandeling × gebied is bij de index daardoor kleiner dan bij de taludhoek (`r pct(va("vernattingsindex", "behandeling × gebied"))` tegen `r pct(va("talud", "behandeling × gebied"))`).
+- **Nutriënten in de oever verschillen vooral per sloot en binnen sloten.** P-AL in de oever verandert per locatie mediaan `r pct(st("pal_oever")$mediaan_rel_verandering)` in twee jaar, wat ook hier wijst op een grote variatie in de bemonstering. *Kanttekening:* een effect van beheer op de nutriënten in de oever is op deze termijn daardoor moeilijk aan te tonen. Het slootaandeel bij N-mineraal (`r pct(va("nmin", "sloot"))`) en P-AL (`r pct(va("pal_oever", "sloot"))`) is hieronder nader onderzocht.
+
+```{r}
+#| label: sloot-covariaten-cijfers
+sloot_cov <- lees_tabel("tabel_sloot_covariaten_variantie")
+cov_r <- function(nm, cov) sloot_cov[naam == nm & covariaat == cov]
+n_bh_cov <- sloot_cov[p_bh < 0.05, .N]
+pal_koe <- cov_r("pal_oever", "koeien per perceel per dag")
+nmin_temp <- cov_r("nmin", "verandering watertemperatuur")
+# Grootste afname van het slootaandeel door een bodemcovariaat bij N-mineraal en P-AL in de oever
+bodem_oever <- sloot_cov[groep == "bodem" & naam %in% c("nmin", "pal_oever")]
+```
+
+**Nutriënten in de oever: verklaring van het slootaandeel.** Het slootaandeel is het deel van de variatie in de verandering dat op het niveau van de sloot ligt (@fig-variantie): sommige sloten veranderen als geheel meer dan andere. Bij de nutriënten in de oever (N-mineraal en P-AL) is dat aandeel groot. Mogelijke verklaringen zijn verschillen in beweiding en bemesting en in bodemeigenschappen zoals het gehalte aan organische stof en ijzer. Deze bodemeigenschappen variëren vooral tussen sloten en minder tussen gebieden. Beweiding en bemesting zijn in de beheerenquête per sloot of perceel vastgelegd en verschillen alleen in Ronde Hoep en Spaarnwoude tussen sloten.
+
+Om deze verklaringen te toetsen, is het gemengde model achter @fig-variantie (verandering per locatie met basisbeheer als vast effect en gebied, gebied × basisbeheer en sloot als random effect) telkens uitgebreid met één extra verklarende variabele (covariaat). Dat is een bodemeigenschap (beginwaarde in de oever), een beheerkenmerk (beheerenquête 2024) of een meetomstandigheid (verandering in water- en slibtemperatuur en waterdiepte tussen de meetdagen). Verklaart zo'n variabele waarom de ene sloot meer verandert dan de andere, dan wordt de overgebleven variatie tussen sloten kleiner. @fig-sloot-covariaten toont per variabele hoeveel kleiner: 30% betekent dat de variatie tussen sloten met de variabele in het model 30% kleiner is dan zonder. Een negatieve waarde betekent dat de variatie tussen sloten niet kleiner wordt; die ontstaat door onzekerheid in de schatting, omdat het model per respons maar enkele tientallen locaties in ongeveer twintig sloten heeft. Omdat slootkenmerken die niet veranderen in de verandering wegvallen, kan een bodemeigenschap het slootaandeel alleen verklaren als de snelheid van verandering van die eigenschap afhangt, bijvoorbeeld een snellere mineralisatie bij een hoger gehalte aan organische stof.
+
+Na BH-correctie hangt `r if (n_bh_cov == 0) "geen enkele covariaat" else paste(n_bh_cov, "covariaat/covariaten")` significant samen met de verandering. Organische stof, ijzer en klei in de oever verkleinen het slootaandeel van N-mineraal en P-AL nauwelijks (hoogstens `r pct(max(bodem_oever$afname_sloot, na.rm = TRUE))`). Het aantal koeien per perceel verkleint het slootaandeel van P-AL in de oever met `r pct(pal_koe$afname_sloot)` (p = `r nl(pal_koe$p_waarde, 3)` zonder correctie): bij meer koeien neemt P-AL meer toe. Dit resultaat berust op de verschillen tussen sloten in Ronde Hoep en Spaarnwoude en geldt daarom als aanwijzing. Bij N-mineraal in de oever gaat een grotere stijging van de watertemperatuur tussen de meetdagen samen met een kleinere toename van N-mineraal (p = `r nl(nmin_temp$p_waarde, 3)` zonder correctie).
+
+De richting bij P-AL past bij aanvoer van fosfaat via de mest (vlaaien) van grazend vee op en langs de oever; rundvee scheidt fosfor vrijwel volledig uit via de mest en nauwelijks via de urine. Bij N-mineraal is bij een hogere temperatuur juist meer mineralisatie te verwachten, en daarmee meer minerale stikstof. N-mineraal is echter een momentane voorraad: de aanvoer door mineralisatie min de opname door de vegetatie en de verliezen. Bij een hogere temperatuur neemt de vegetatie ook meer stikstof op, en gaat er in een natte veenoever meer stikstof verloren door denitrificatie. Dat de toename kleiner is bij een grotere temperatuurstijging, past daarom bij wat in veengebied te verwachten is. De watertemperatuur op de meetdag is wel een indirecte maat voor de bodemtemperatuur in de oever. Beide verbanden zijn na correctie niet significant en gelden als aanwijzing.
+
+```{r}
+#| label: fig-sloot-covariaten
+#| fig-cap: "Hoeveel kleiner de variatie tussen sloten in de verandering (2024 → 2026) wordt als één extra variabele aan het model van @fig-variantie wordt toegevoegd, per respons (paneel). 30% betekent dat de variatie tussen sloten met die variabele 30% kleiner is dan zonder; een negatieve waarde betekent geen afname. Kleur: soort variabele. Dicht symbool: de variabele hangt samen met de verandering (p < 0,05 zonder correctie)."
+knitr::include_graphics(rapport_fig("sloot_covariaten_variantie"))
+```
+
+### Verandering per basisbeheer
+
+```{r}
+#| label: basisbeheer-cijfers
+# Verandering per basisbeheer (R, M, M-AF) en de verschillen daartussen
+bb <- lees_tabel("tabel_basisbeheer_verandering")
+bb_con <- bb[type == "contrast"]
+n_con <- nrow(bb_con)
+n_con_sign <- bb_con[p_waarde < 0.05, .N]
+n_con_holm <- bb_con[p_holm < 0.05, .N]
+# Waarde voor een groep (R, M, M-AF) of een contrast ("M − R", "M-AF − M", "M-AF − R")
+bg <- function(nm, g, k = "schatting") bb[naam == nm & type == "groep" & naam_schatting == g][[k]][1]
+bc <- function(nm, cc, k = "p_waarde") bb[naam == nm & type == "contrast" & naam_schatting == cc][[k]][1]
+# p-waarde als tekst, inclusief "=" of "<"
+pt <- function(p) if (is.na(p)) "n.v.t." else if (p < 0.001) "< 0,001" else paste("=", nl(p, 3))
+# Oevervegetatie zone 2b in sloten met waargenomen verruiging
+verruiging <- lees_tabel("tabel_verruiging_zone2b")
+verr <- verruiging[, .(emers = mean(verandering_emers, na.rm = TRUE),
+                       productiegras = mean(verandering_productiegras, na.rm = TRUE)), keyby = afrastering]
+nl_pp <- function(x) paste0(ifelse(x > 0, "+", ifelse(x < 0, "−", "")), nl(abs(x), 0))
+```
+
+@fig-basisbeheer-profiel tot en met @fig-basisbeheer-oevermorfologie tonen per parameter links de gemiddelde verandering per basisbeheer (regulier R, minimaal M en minimaal met afrastering M-AF) ten opzichte van 2024, met het 95%-betrouwbaarheidsinterval. De waarde in 2024 staat op 0; het label geeft de gemiddelde waarde in 2024 en 2026. Rechts staat het verschil in verandering tussen M en R, M-AF en M, en M-AF en R. Raakt het interval de 0 niet, dan is het verschil significant (p < 0,05). Van de `r n_con` verschillen hebben er `r n_con_sign` p < 0,05 zonder correctie en `r n_con_holm` na Holm-correctie per parameter; bij `r n_con` toetsen zijn er door toeval ongeveer `r round(0.05 * n_con)` te verwachten. Gemiddeld over alle gebieden zijn de effecten van het basisbeheer op deze termijn dus klein; de duidelijkste verschillen zitten in de vegetatie en de breedte van zone 2a.
+
+Vooraf werd verwacht dat minimaal beheer vooral de vegetatie in zone 2b zou veranderen (minder kale oever, mogelijk meer verschillende soorten, meer emerse vegetatie en een hogere EKR voor helofyten), dat afrastering zou leiden tot een ander talud (minder verzakking en vertrapping), en dat meer emerse (of kruiden)vegetatie de draagkracht van de oever zou verhogen. Dat de meeste van deze effecten gemiddeld niet aantoonbaar zijn, betekent niet dat beheer er niet toe doet. Er zijn meerdere redenen waarom een effect op deze termijn moeilijk aan te tonen is:
+
+- **Korte termijn.** De behandelingen zijn in 2024 begonnen. De laatste meting in 2026 volgde dus na twee groeiseizoenen, en is in de meeste gebieden eerder in het seizoen gedaan dan in 2024, wanneer de oevervegetatie nog minder ontwikkeld is.
+- **Uitvoering.** Het beheer is niet overal volgens plan uitgevoerd: in RH_1 was in 2026 de afrastering overal weg en is geen vak gemaaid, in RH_2 is toch gemaaid en de draad weggehaald, in RH_4 is het minimaal beheerde vak toch meegemaaid en is de draad mogelijk weggehaald, RH_5 heeft maar één behandeling, in RH_7 staat geen draad meer en in SW_5 is vegetatie uit de sloot gemaaid en mogelijk verwijderd. Dit is verwerkt in de data, maar daardoor zijn er minder vakken met een echt contrast tussen behandelingen.
+- **Variatie.** De verschillen tussen vakken binnen een sloot en tussen sloten zijn groot (@fig-variantie), en een deel daarvan is meetvariatie (zie de duiding per parameter). Met enkele vakken per behandeling per gebied zijn kleine effecten dan niet van die variatie te onderscheiden.
+- **Tegengestelde richtingen.** Bij sommige parameters verschilt de richting van het effect per gebied (behandeling × gebied); in het gemiddelde over alle gebieden heffen die elkaar dan op.
+
+In een aantal sloten is in het veld wel de verwachte verruiging van de oevervegetatie gezien. @sec-oeverzones gaat daarop in, samen met de uitgangssituatie van deze sloten.
+
+```{r}
+#| label: fig-basisbeheer-profiel
+#| fig-cap: "Verandering per basisbeheer, alle gebieden: profiel."
+knitr::include_graphics(rapport_fig("niveau_alles_profiel"))
+```
+
+- Waterdiepte, slibdikte en taludhoek veranderen in alle groepen weinig; de verschillen tussen basisbeheer zijn niet significant.
+- Het doorzicht nam bij M-AF iets af ten opzichte van R (`r nl(100 * bc("doorzicht", "M-AF − R", "schatting"), 0)` cm, p `r pt(bc("doorzicht", "M-AF − R"))`) en de zichtdiepte bij M ten opzichte van R (p `r pt(bc("zichtdiepte", "M − R"))`). Na Holm-correctie zijn deze kleine verschillen niet significant. De afname van de zichtdiepte bij M komt grotendeels door één vak: in WL_2_M_O daalde de zichtdiepte van 1,00 naar 0,31, maar in 2024 staat daar een maximale waterdiepte van 3 cm (in de andere jaren circa 14 cm), zodat het doorzicht tot de bodem reikte. Die waterdiepte is verdacht laag. Zonder dit vak is de afname bij M ongeveer 0,04 en is er vrijwel geen verschil met R. Ook het doorzicht zelf nam bij M niet af.
+
+@fig-diepte-gebied toont per gebied en basisbeheer het doorzicht, de maximale waterdiepte en de diepte tot de vaste bodem in 2024 en 2026, met de bandbreedte over de vakken. De dwarsprofielen en dieptes per sloot en vak staan in bijlage D.
+
+```{r}
+#| label: fig-diepte-gebied
+#| fig-cap: "Doorzicht, maximale waterdiepte en diepte tot de vaste bodem per gebied en basisbeheer (regulier, minimaal, afrastering) in 2024 en 2026: gemiddelde over de vakken (staaf) met het minimum en maximum over de vakken (lijn). Het basisbeheer volgt de behandeling in dat jaar; alleen vakken uit de selectie. De slibdikte is het verschil tussen de diepte tot de vaste bodem en de waterdiepte. Waterdiepte en slibdikte zijn maxima over het dwarsprofiel en kunnen van verschillende profielpunten komen."
+knitr::include_graphics(rapport_fig("gebied_diepte_doorzicht"))
+```
+
+```{r}
+#| label: fig-basisbeheer-waterbodem
+#| fig-cap: "Verandering per basisbeheer, alle gebieden: waterbodem."
+knitr::include_graphics(rapport_fig("niveau_alles_waterbodem"))
+```
+
+- Ammonium en fosfaat in het poriewater namen in alle groepen sterk af (ammonium bij R van gemiddeld `r nl(bg("NH4", "R", "eerste"), 0)` naar `r nl(bg("NH4", "R", "laatste"), 0)` µmol/l), zonder verschil tussen basisbeheer. Dit is een verschil tussen de meetjaren en geen effect van beheer.
+- P-AL en redox van het slib: geen significant verschil tussen basisbeheer.
+
+```{r}
+#| label: fig-basisbeheer-oever
+#| fig-cap: "Verandering per basisbeheer, alle gebieden: oever."
+knitr::include_graphics(rapport_fig("niveau_alles_oever"))
+```
+
+- Erosie-index en vernattingsindex daalden licht in alle groepen, zonder verschil tussen basisbeheer.
+- Draagkracht, onderholling, N-mineraal en P-AL in de oever: geen significant verschil tussen basisbeheer.
+
+```{r}
+#| label: fig-basisbeheer-vegetatie
+#| fig-cap: "Verandering per basisbeheer, alle gebieden: vegetatie."
+knitr::include_graphics(rapport_fig("niveau_alles_vegetatie"))
+```
+
+- **De structuur van de oevervegetatie nam bij M-AF duidelijk toe**, van gemiddeld `r nl(bg("structuur", "M-AF", "eerste"), 1)` naar `r nl(bg("structuur", "M-AF", "laatste"), 1)`. Dat is significant meer dan bij M (p `r pt(bc("structuur", "M-AF − M"))`) en bij R (p `r pt(bc("structuur", "M-AF − R"))`), ook na Holm-correctie. Bij M nam de structuur iets toe, maar niet significant meer dan bij R (p `r pt(bc("structuur", "M − R"))`).
+- **Emerse vegetatie in zone 2a nam alleen bij M-AF toe**, van `r nl(bg("opp_emers", "M-AF", "eerste"), 2)` naar `r nl(bg("opp_emers", "M-AF", "laatste"), 2)` m² per meter sloot. Dat is meer dan bij R (p `r pt(bc("opp_emers", "M-AF − R"))`), maar niet significant meer dan bij M (p `r pt(bc("opp_emers", "M-AF − M"))`). In zone 2b is er geen verschil tussen basisbeheer.
+- **Productiegras in zone 2b nam in alle groepen af**, het sterkst bij M-AF (van `r nl(bg("productiegras", "M-AF", "eerste"), 2)` naar `r nl(bg("productiegras", "M-AF", "laatste"), 2)` m²). De verschillen tussen basisbeheer zijn niet significant.
+- **Terrestrische grassen en kruiden namen alleen bij R toe** (+`r nl(bg("gras_kruid", "R"), 2)` m² per meter sloot); bij M en M-AF bleef het oppervlak gelijk (M − R: p `r pt(bc("gras_kruid", "M − R"))`). Een toename bij afrastering is niet gevonden.
+- **De oeverindex daalde in alle groepen**, het sterkst bij M-AF (R `r nl(bg("oeverindex", "R"), 1)`, M `r nl(bg("oeverindex", "M"), 1)`, M-AF `r nl(bg("oeverindex", "M-AF"), 1)`); de verschillen zijn niet significant (M-AF − R: p `r pt(bc("oeverindex", "M-AF − R"))`). De oeverindex als geheel laat dus geen effect van afrastering zien, de deelindicator structuur wel.
+- **Het aantal emerse soorten in zone 2 daalde in alle groepen**, het sterkst bij M-AF (`r nl(bg("n_emers", "M-AF"), 1)` soorten, tegen `r nl(bg("n_emers", "R"), 1)` bij R; p `r pt(bc("n_emers", "M-AF − R"))`, ook na Holm-correctie significant).
+- De EKR voor helofyten daalde ook in alle groepen, het sterkst bij M-AF (niet significant); de EKR voor hydrofyten veranderde niet.
+- *Kanttekening:* dat oeverindex, soortenaantal en EKR helofyten in alle groepen dalen, past bij de vroegere meting in 2026 (zie hierboven). Minimaal beheer zonder afrastering zit bij structuur, emers 2a en productiegras tussen R en M-AF in, maar verschilt nergens significant van R.
+
+```{r}
+#| label: fig-basisbeheer-oevermorfologie
+#| fig-cap: "Verandering per basisbeheer, alle gebieden: oevermorfologie (oeverbreedte, zone 2a en 2b)."
+knitr::include_graphics(rapport_fig("niveau_alles_oevermorfologie"))
+```
+
+- Zone 2a werd bij M-AF breder, van gemiddeld `r nl(bg("breedte_2a", "M-AF", "eerste"), 0)` naar `r nl(bg("breedte_2a", "M-AF", "laatste"), 0)` cm. Dat is meer dan bij R (p `r pt(bc("breedte_2a", "M-AF − R"))`), maar niet significant meer dan bij M (p `r pt(bc("breedte_2a", "M-AF − M"))`).
+- Zone 2b en de totale oeverbreedte: geen significant verschil tussen basisbeheer.
+
+### Verschillen per gebied
+
+[TODO: de figuren niveau_gebied_* staan nu in de map overig en dus niet in bijlage A: opnemen of verwijzing schrappen. Per gebied de opvallendste patronen beschrijven.]
+
+### Wel of geen afrastering en minimaal of regulier beheer per gebied
+
+```{r}
+#| label: contrasten-tekst
+heeft_sign <- nrow(sign_contr) > 0
+sign_tekst <- if (heeft_sign) {
+  paste0(
+    sign_contr[, paste0(gebied, ", ", label, " (", contrast, "; p (BH) = ", nl(p_bh, 3), ")")],
+    collapse = "; "
+  )
+} else ""
+```
+
+Per gebied is getoetst of de verandering verschilt tussen minimaal en regulier beheer en tussen wel en geen afrastering. De mediane waarden per jaar staan in de bijlage. `r if (heeft_sign) paste0("Na BH-correctie is alleen het volgende verschil significant: ", sign_tekst, " (@fig-sign-contrasten). Voor alle andere getoetste parameters zijn er geen significante verschillen.") else "Na BH-correctie zijn er voor geen van de getoetste parameters significante verschillen."`
+
+```{r}
+#| label: fig-sign-contrasten
+#| fig-cap: "Significante verschillen binnen een gebied na BH-correctie: mediaan per jaar en groep."
+#| eval: !expr nrow(sign_contr) > 0
+knitr::include_graphics(rapport_fig("significante_contrasten_jaar"))
+```
+
+[TODO: duiden.]
+Over alle gebieden samen is een effect van afrastering op de breedte van zone 2a niet aantoonbaar; @sec-oeverzones werkt dit per sloot uit.
+
+### Hegewarren: basisbeheer × afrastering
+
+*Deze vergelijking gebruikt alle vakken in Hegewarren, ook de vakken met regulier beheer en afrastering (R-AF) die buiten de selectie vallen.*
+
+```{r}
+#| label: hw-tekst
+hw_sign <- hw[!is.na(p_bh) & p_bh < 0.05]
+hw_term <- c(basis_mr = "minimaal t.o.v. regulier", afrastering = "afrastering",
+             `basis_mr:afrastering` = "interactie basisbeheer × afrastering")
+hw_lbl <- function(d) paste0(tolower(sub(" \\(.*$", "", d$label[1])), " (", opsomming(hw_term[d$term]), ")")
+hw_tekst <- if (nrow(hw_sign) > 0) {
+  opsomming(vapply(split(hw_sign, by = "naam", sorted = FALSE), hw_lbl, ""))
+} else "geen enkele term"
+# doorzicht: effect van afrastering bij regulier (referentie) en bij minimaal beheer
+hw_t <- function(nm, t) hw[naam == nm & term == t]
+hw_af_r <- hw_t("doorzicht", "afrastering")
+hw_inter <- hw_t("doorzicht", "basis_mr:afrastering")
+hw_af_m <- hw_af_r$schatting + hw_inter$schatting
+hw_zd_pmin <- min(hw[naam == "zichtdiepte", p_bh])
+```
+
+In Hegewarren komen alle vier combinaties van basisbeheer en afrastering voor (full factorial), in twee sloten (@fig-hw). Na BH-correctie zijn significant: `r hw_tekst`. Omdat dit resultaat op twee sloten berust, geldt het als aanwijzing die nog bevestiging vraagt.
+
+`r if (nrow(hw_af_r) == 1 && nrow(hw_inter) == 1) paste0("Het doorzicht nam met afrastering meer toe, maar vooral bij regulier beheer: daar was de toename met afrastering ", nl(hw_af_r$schatting, 2), " m groter dan zonder afrastering, bij minimaal beheer ", nl(hw_af_m, 2), " m (interactie basisbeheer × afrastering, p (BH) = ", nl(hw_inter$p_bh, 3), "). Een mogelijke verklaring is dat bij regulier beheer de oever kort wordt gehouden en het vee zonder raster tot aan het water komt; het raster voorkomt dan vertrapping van de oever en het opwervelen van slib. Bij minimaal beheer staat er al meer vegetatie op de oever, zodat een raster weinig toevoegt. Dit is een hypothese die met deze data niet te toetsen is. Bij de zichtdiepte (doorzicht gedeeld door waterdiepte) is geen enkel effect significant (p (BH) ≥ ", nl(hw_zd_pmin, 2), "), mogelijk doordat ook de waterdiepte tussen de vakken en jaren verschilt.") else ""`
+
+```{r}
+#| label: fig-hw
+#| fig-cap: "Hegewarren: verandering per combinatie van basisbeheer en afrastering."
+knitr::include_graphics(rapport_fig("contrast_hegewarren_factorial"))
+```
+
+### Afkreeften
+
+```{r}
+#| label: kreeft-tekst
+kr_n <- afkreeften[, .N]
+kr_sign <- afkreeften[p_waarde < 0.05]
+kr_bh <- afkreeften[!is.na(p_bh) & p_bh < 0.05, .N]
+kr <- function(geb, lbl) afkreeften[gebied == geb & label == lbl]
+kr_ou_dz <- kr("Oukoop", "Doorzicht (m)")
+kr_ou_oh <- kr("Oukoop", "Onderholling (cm)")
+kr_rh_oh <- kr("Ronde Hoep", "Onderholling (cm)")
+nl_teken <- function(x, d) paste0(ifelse(x > 0, "+", ifelse(x < 0, "−", "")), nl(abs(x), d))
+# kreeftvangst per afgekreefte sloot (Oukoop) en samenhang met het effect
+kv <- lees_tabel("tabel_oukoop_kreeftvangst")
+kve <- lees_tabel("tabel_oukoop_kreeftvangst_effect")
+kv_dz <- kve[kolom == "doorzicht2_mid_m"]
+kv_oh <- kve[kolom == "holleoever"]
+kv_min <- kv[which.min(vangst_kg)]
+kv_max <- kv[which.max(vangst_kg)]
+kv_sign <- kve[p_waarde < 0.05]
+# verschil per paar (met - zonder afkreeften) voor onderholling
+kvp <- lees_tabel("tabel_oukoop_kreeftvangst_paren")[kolom == "holleoever"]
+kvp_neg <- kvp[verschil < 0]
+```
+
+Het effect van afkreeften is onderzocht in Ronde Hoep (afkreeften geldt daar voor de hele sloot, dus de vergelijking is tussen sloten) en in Oukoop (sloten met en zonder afkreeften in paren). Van de `r kr_n` toetsen `r if (nrow(kr_sign) == 0) "heeft geen enkele" else if (nrow(kr_sign) == 1) "heeft er 1" else paste("hebben er", nrow(kr_sign))` p < 0,05`r if (nrow(kr_sign) > 0) paste0(" (", paste(kr_sign[, paste0(sub(" \\(.*$", "", label), ", ", gebied)], collapse = "; "), ")") else ""`; na BH-correctie `r kr_bh`. Afkreeften heeft op deze termijn dus geen aantoonbaar effect.
+
+In Oukoop wijzen doorzicht en onderholling wel in de verwachte richting: in de sloten waar kreeften zijn weggevangen nam het doorzicht iets meer toe (`r nl_teken(kr_ou_dz$schatting, 3)` m, p = `r nl(kr_ou_dz$p_waarde, 2)`) en de onderholling minder (`r nl_teken(kr_ou_oh$schatting, 1)` cm, p = `r nl(kr_ou_oh$p_waarde, 2)`) dan in de sloten zonder afkreeften. De analyse van de proefsloten in Oukoop (2026) vindt eveneens een licht positieve trend van afkreeften op doorzicht en onderholling, vooral op plekken waar veel kreeft voorkwam. In Ronde Hoep nam de onderholling in de afgekreefde sloten juist meer toe (`r nl_teken(kr_rh_oh$schatting, 1)` cm, p = `r nl(kr_rh_oh$p_waarde, 3)` zonder correctie). Daar geldt afkreeften voor de hele sloot, zodat sloten met elkaar worden vergeleken; met drie afgekreefde sloten is die vergelijking gevoelig voor verschillen tussen sloten die niets met de kreeften te maken hebben.
+
+```{r}
+#| label: fig-kreeft
+#| fig-cap:
+#|   - "Afkreeften in Ronde Hoep en Oukoop: profiel. ×: sloot waar bij de veldbeoordeling in 2026 geen effect is gezien (ter duiding; telt mee in de toets)."
+#|   - "Afkreeften in Ronde Hoep en Oukoop: waterbodem. ×: sloot waar bij de veldbeoordeling in 2026 geen effect is gezien (ter duiding; telt mee in de toets)."
+#|   - "Afkreeften in Ronde Hoep en Oukoop: oever. ×: sloot waar bij de veldbeoordeling in 2026 geen effect is gezien (ter duiding; telt mee in de toets)."
+#|   - "Afkreeften in Ronde Hoep en Oukoop: vegetatie. ×: sloot waar bij de veldbeoordeling in 2026 geen effect is gezien (ter duiding; telt mee in de toets)."
+#|   - "Afkreeften in Ronde Hoep en Oukoop: oevermorfologie. ×: sloot waar bij de veldbeoordeling in 2026 geen effect is gezien (ter duiding; telt mee in de toets)."
+knitr::include_graphics(rapport_fig(paste0("afkreeften_", thema_namen)))
+```
+
+**Kreeftvangst in Oukoop.** De toetsen hierboven houden geen rekening met de hoeveelheid kreeft die is weggevangen; een effect dat alleen bij veel kreeft optreedt, wordt daardoor verdund. De vangst is per maand bijgehouden van juli 2024 tot en met december 2025, per afgekreefte sloot. De vangst verschilt sterk tussen de sloten: van `r nl(kv_min$vangst_kg, 0)` kg in `r kv_min$sloot_paar` tot `r nl(kv_max$vangst_kg, 0)` kg in `r kv_max$sloot_paar` (in totaal `r nl(sum(kv$vangst_kg), 0)` kg; het aantal kreeften in de vangstgegevens is berekend als 30 per kg). Per sloot-paar is het effect van afkreeften berekend als de verandering in de afgekreefte sloot min die in de bijbehorende sloot zonder afkreeften, per maaibeheer en daarna gemiddeld. @fig-kreeftvangst zet dat effect af tegen de vangst. Bij het doorzicht is de rangcorrelatie met de vangst ρ = `r nl(kv_dz$rho, 2)`: `r if (kv_dz$rho >= 0.6) "het doorzicht nam meer toe naarmate meer kreeft is weggevangen" else if (kv_dz$rho <= -0.6) "het doorzicht nam juist minder toe naarmate meer kreeft is weggevangen" else "er is geen duidelijke samenhang"`. Bij de onderholling is ρ = `r nl(kv_oh$rho, 2)`: `r if (kv_oh$rho <= -0.6) "de onderholling nam minder toe naarmate meer kreeft is weggevangen" else if (kv_oh$rho >= 0.6) "de onderholling nam juist meer toe naarmate meer kreeft is weggevangen" else "er is geen duidelijke samenhang"`. `r if (nrow(kvp) > 0 && nrow(kvp_neg) >= nrow(kvp) - 1) paste0("Wel nam de onderholling in ", if (nrow(kvp_neg) == nrow(kvp)) paste("alle", nrow(kvp)) else paste(nrow(kvp_neg), "van de", nrow(kvp)), " paren in de afgekreefte sloot minder toe dan in de sloot waar de kreeft bleef (", nl(min(abs(kvp_neg$verschil)), 0), " tot ", nl(max(abs(kvp_neg$verschil)), 0), " cm minder). Dat past bij de verwachting en bij de analyse van de proefsloten in Oukoop (2026); alleen hangt de grootte van dat verschil niet samen met de vangst. ") else ""``r if (kv_dz$n_paren < nrow(kv)) paste0("Het paar DR_4 valt af, omdat het alleen in 2024 is bemeten. ") else ""`Met `r kv_dz$n_paren` paren is dit beschrijvend`r if (kv_dz$n_paren <= 4) paste0(" en kan een rangcorrelatie niet significant worden (kleinste mogelijke p = ", nl(2 / factorial(kv_dz$n_paren), 2), ")") else ""`: `r if (nrow(kv_sign) == 0) "geen enkele samenhang is significant" else paste0("alleen ", opsomming(sub(" \\(.*$", "", kv_sign$label)), " is significant zonder correctie")` (Spearman, p = `r nl(kv_dz$p_waarde, 2)` voor doorzicht en `r nl(kv_oh$p_waarde, 2)` voor onderholling). *Kanttekening:* de vangst is een maat voor de hoeveelheid weggevangen kreeft, niet voor de kreeftdichtheid die overbleef; een hoge vangst kan ook betekenen dat er veel kreeft bleef.
+
+```{r}
+#| label: fig-kreeftvangst
+#| fig-cap: "Oukoop: effect van afkreeften (verandering in de afgekreefte sloot min die in de bijbehorende sloot zonder afkreeften) tegen de kreeftvangst per afgekreefte sloot, voor doorzicht, onderholling en zichtdiepte. Positief: de afgekreefte sloot nam meer toe; negatief: de sloot waar de kreeft bleef nam meer toe."
+knitr::include_graphics(rapport_fig("afkreeften_vangst_oukoop"))
+```
+
+### Maaimaand (Oukoop)
+
+```{r}
+#| label: maaimaand-cijfers
+mm <- lees_tabel("tabel_oukoop_maaibeheer_beginwaarde")
+mmr <- function(k, t) mm[kenmerk == k & term == t]
+mm_2a <- mmr("Emerse vegetatie zone 2a (m²)", "augustus t.o.v. juli")
+mm_2b <- mmr("Emerse vegetatie zone 2b (m²)", "augustus t.o.v. juli")
+mm_dk <- mmr("Draagkracht oever 0-10 cm (MPa)", "augustus t.o.v. juli")
+mm_begin <- mm[term == "beginwaarde (per SD)" & grepl("Emerse", kenmerk)]
+# toetsen op alle parameters (zelfde opzet als de rest van het rapport)
+om <- lees_tabel("tabel_oukoop_maaimaand_minimaal_regulier")
+om_sign <- om[p_waarde < 0.05][order(contrast, p_waarde)]
+om_bh <- om[!is.na(p_bh) & p_bh < 0.05, .N]
+om_zin <- function(d) opsomming(d[, paste0(
+  tolower(sub(" \\(.*$", "", label)), " (",
+  mapply(\(x, dg) nl_teken(x, dg), schatting, ifelse(abs(schatting) >= 10, 0, 2)),
+  " ", sub("^.*\\((.*)\\)$", "\\1", label), ", p = ", nl(p_waarde, 3), ")"
+)])
+om_mr <- om_sign[contrast == "minimaal vs regulier"]
+om_mm <- om_sign[contrast == "maaien augustus vs juli"]
+# vooraf geformuleerde hypothesen (Oukoop): minder/later maaien -> meer emerse
+# vegetatie en een stevigere oever; deze zonder correctie beoordelen, de
+# overige parameters zijn verkennend
+om_hyp_naam <- c("draagkracht_oever", "opp_emers")
+om_contrast_tekst <- c("minimaal vs regulier" = "bij minimaal t.o.v. regulier beheer",
+                       "maaien augustus vs juli" = "bij maaien in augustus t.o.v. juli")
+om_zin2 <- function(d) opsomming(paste0(
+  tolower(sub(" \\(.*$", "", d$label)), " ", om_contrast_tekst[d$contrast], " (",
+  mapply(\(x, dg) nl_teken(x, dg), d$schatting, ifelse(abs(d$schatting) >= 10, 0, 2)),
+  " ", sub("^.*\\((.*)\\)$", "\\1", d$label), ", p = ", nl(d$p_waarde, 3), ")"
+))
+om_h <- om_sign[naam %in% om_hyp_naam]
+om_v <- om_sign[!naam %in% om_hyp_naam]
+```
+
+In Oukoop is bij minimaal beheer in juli of in augustus gemaaid. Voor alle Oukoop-vakken (`r mm_2a$n_vakken` vakken in `r mm_2a$n_sloten` sloten) is getoetst of de verandering verschilt tussen maaien in augustus en in juli, met de sloot als blok en de beginwaarde als verklarende variabele. Bij maaien in augustus nam het oppervlak emerse vegetatie in zone 2a iets meer toe (`r nl_teken(mm_2a$schatting, 2)` m², p = `r nl(mm_2a$p_waarde, 2)`) en werd de oever in de bovenste 10 cm iets steviger (`r nl_teken(mm_dk$schatting, 2)` MPa, p = `r nl(mm_dk$p_waarde, 2)`) dan bij maaien in juli. Dat is de richting die ook de analyse van de proefsloten in Oukoop (2026) vindt, maar in deze analyse niet significant. Het oppervlak emerse vegetatie in zone 2b nam bij maaien in augustus juist minder toe (`r nl_teken(mm_2b$schatting, 2)` m², p = `r nl(mm_2b$p_waarde, 3)`), terwijl de analyse van de proefsloten daar een niet-significante toename vindt. De beginwaarde verklaart een groot deel van de verandering in emerse vegetatie: vakken met weinig emerse vegetatie bij de start namen het meest toe (p `r if (max(mm_begin$p_waarde) < 0.01) "< 0,01" else paste("≤", nl(max(mm_begin$p_waarde), 2))`). [TODO: verschil met de analyse van de proefsloten bij zone 2b nagaan.]
+
+Ook op de overige parameters is in Oukoop getoetst, met dezelfde opzet als in de rest van dit rapport (verandering per vak, sloot als blok, gecorrigeerd voor afkreeften): minimaal tegen regulier beheer (`r om[contrast == "minimaal vs regulier", max(n_locaties)]` vakken) en maaien in augustus tegen juli (`r om[contrast == "maaien augustus vs juli", max(n_locaties)]` vakken). Voor Oukoop waren vooraf hypothesen geformuleerd: minder of later maaien geeft meer emerse vegetatie en een stevigere oever, en afkreeften geeft meer doorzicht en minder onderholling. Deze hypothesen zijn zonder correctie voor meervoudig toetsen beoordeeld. `r if (nrow(om_h) > 0) paste0("Significant is: ", om_zin2(om_h), ". ") else "Geen van deze hypothesen is bevestigd. "``r if (any(om_h$naam == "draagkracht_oever" & om_h$contrast == "minimaal vs regulier" & om_h$schatting > 0)) "De oever werd bij minimaal beheer dus steviger dan bij regulier beheer, zoals verwacht: minder maaien en meer vegetatie anders dan gras versterken de oever. " else ""``r if (nrow(om_v) > 0) paste0("Daarnaast zijn verkennend, dus zonder vooraf geformuleerde hypothese, zonder correctie significant: ", om_zin2(om_v), "; na BH-correctie ", if (om_bh == 0) "is daarvan geen enkel verschil significant" else paste(om_bh, "verschil(len) significant"), ". ") else ""`Met acht sloten en drie behandelingen per sloot blijven dit aanwijzingen.
+
+### Natuurvriendelijke oever (Spaarnwoude)
+
+*Deze vergelijking gebruikt alle vakken in Spaarnwoude, ook de NVO-vakken die buiten de selectie vallen.*
+
+```{r}
+#| label: nvo-tekst
+nvo_sign <- nvo[!is.na(p_bh) & p_bh < 0.05]
+nvo_tekst <- if (nrow(nvo_sign) > 0) paste0(unique(nvo_sign$naam), collapse = ", ") else "geen enkele parameter"
+```
+
+In Spaarnwoude zijn de nutriënten in de oever vergeleken tussen locaties met en zonder NVO (@fig-nvo), in vier sloten waarvan twee met NVO. Na BH-correctie verschillen de niveaus of de ontwikkeling over de jaren voor: `r nvo_tekst`. Bij de aanleg van een NVO wordt grond verplaatst of aangebracht; verschillen in bijvoorbeeld kalium of organische stof kunnen daardoor ook het gevolg zijn van de aanleg en niet van het beheer. [TODO: duiden.]
+
+```{r}
+#| label: fig-nvo
+#| fig-cap: "Spaarnwoude: nutriënten in de oever bij wel en geen NVO."
+knitr::include_graphics(rapport_fig("spaarnwoude_nvo_oevernutrienten"))
+```
+
+### Draagkracht van de oever
+
+De indringingsweerstand is per 5 cm diepte gemeten. @fig-draagkracht geeft de verandering per basisbeheer over alle gebieden, @fig-draagkracht-gebied per gebied. @fig-draagkracht-veg zet de verandering in draagkracht af tegen de verandering in vegetatiehoogte in zone 2b.
+
+```{r}
+#| label: draagkracht-cijfers
+dl <- lees_tabel("tabel_draagkracht_laag_gebied")
+dlv <- function(g, l, b) { x <- dl[gebied == g & laag == l & behandeling == b, gem_verandering]; if (length(x) == 0) NA_real_ else x }
+dlt <- function(g, l, b) nl_teken(dlv(g, l, b), 2)
+lagen <- c("0-20 cm", "20-40 cm", "40-85 cm")
+hw_m_r <- vapply(lagen, \(l) dlv("HW", l, "M") - dlv("HW", l, "R"), 0)
+dk_hw <- lees_tabel("tabel_contrast_hegewarren_factorial")[kolom == "draagkracht_oever" & term == "basis_mr"]
+dk_zg <- lees_tabel("tabel_contrasten_per_gebied")[gebied == "ZG" & kolom == "draagkracht_oever" & contrast == "wel vs geen afrastering"]
+n_sl <- function(g) max(dl[gebied == g, n_sloten])
+```
+
+Over alle gebieden samen verandert de draagkracht van de oever niet aantoonbaar per basisbeheer. Per gebied zijn er wel tendensen. In Hegewarren werd de oever bij minimaal beheer `r if (all(hw_m_r > 0)) "in alle lagen" else "in een deel van de lagen"` steviger dan bij regulier beheer (gemiddelde verandering in indringingsweerstand per vak, minimaal tegen regulier: `r dlt("HW", "0-20 cm", "M")` tegen `r dlt("HW", "0-20 cm", "R")` MPa in 0–20 cm, `r dlt("HW", "20-40 cm", "M")` tegen `r dlt("HW", "20-40 cm", "R")` MPa in 20–40 cm en `r dlt("HW", "40-85 cm", "M")` tegen `r dlt("HW", "40-85 cm", "R")` MPa in 40–85 cm). Dat verschil is niet significant (draagkracht oever, minimaal t.o.v. regulier: `r nl_teken(dk_hw$schatting, 2)` MPa, p = `r nl(dk_hw$p_waarde, 2)`). Afrastering gaf in Hegewarren in de bovenste 20 cm geen stevigere oever (M-AF `r dlt("HW", "0-20 cm", "M-AF")` tegen M `r dlt("HW", "0-20 cm", "M")` MPa; R-AF `r dlt("HW", "0-20 cm", "R-AF")` tegen R `r dlt("HW", "0-20 cm", "R")` MPa). In Zegveld, waar minimaal beheer met en zonder afrastering voorkomt, werd de bovenste 20 cm met afrastering `r if (dlv("ZG", "0-20 cm", "M-AF") > dlv("ZG", "0-20 cm", "M")) "iets steviger" else "niet steviger"` (M-AF `r dlt("ZG", "0-20 cm", "M-AF")` tegen M `r dlt("ZG", "0-20 cm", "M")` MPa); dieper is er nauwelijks verschil, en over de hele oever is het verschil niet significant (`r nl_teken(dk_zg$schatting, 2)` MPa, p = `r nl(dk_zg$p_waarde, 2)`). Deze tendensen rusten op `r n_sl("HW")` sloten in Hegewarren en `r n_sl("ZG")` in Zegveld. In @fig-draagkracht-gebied zijn enkele diepteklassen zonder correctie significant; bij een toets per diepteklasse van 5 cm en per gebied (ongeveer 90 toetsen) is een handvol daarvan door toeval te verwachten. In Oukoop, met acht sloten, werd de oever bij minimaal beheer wel significant steviger dan bij regulier beheer (zie "Maaimaand (Oukoop)").
+
+[TODO: verband met vegetatiehoogte duiden. Mogelijke verklaring voor het negatieve verband: minder betreding bij hogere vegetatie geeft een minder aangedrukte bodem (hypothese).]
+
+```{r}
+#| label: fig-draagkracht
+#| fig-cap: "Verandering in indringingsweerstand van de oever per dieptebin en basisbeheer."
+knitr::include_graphics(rapport_fig("profiel_draagkracht_diepte"))
+```
+
+```{r}
+#| label: fig-draagkracht-gebied
+#| fig-cap: "Verandering in indringingsweerstand per gebied en basisbeheer."
+knitr::include_graphics(rapport_fig("profiel_draagkracht_diepte_per_gebied"))
+```
+
+```{r}
+#| label: fig-draagkracht-veg
+#| fig-cap: "Verandering in draagkracht van de oever tegen verandering in vegetatiehoogte in zone 2b, per locatie."
+knitr::include_graphics(rapport_fig("verschil_draagkracht_vs_verschil_vegetatiehoogte"))
+```
+
+### Effect van beheer en de uitgangssituatie van de sloot
+
+```{r}
+#| label: effect-beginwaarde-cijfers
+eb <- lees_tabel("tabel_effect_beginwaarde")
+eb_sloot <- lees_tabel("tabel_effect_per_sloot")
+eb_n <- eb_sloot[, .(n_sloten = uniqueN(sloot_nummer), gebieden = opsomming(sort(unique(gebied)))), by = contrast]
+ebn <- function(c) eb_n[contrast == c]
+eb_toets <- eb[!is.na(p_waarde), .(n = .N, n_sign = sum(p_waarde < 0.05), n_bh = sum(p_bh < 0.05), min_p = min(p_waarde)), by = contrast]
+# Beginwaarden voor voedselrijkdom en soortenrijkdom
+eb_voedsel <- c("P-AL mg p2o5/100g_SB", "P-AL mg p2o5/100g_OR_25", "N_mineraal_OR_25", "P2O5_xrf_g/kg_OR_25")
+eb_soort <- c("Soortensamenstelling Helofyten", "Soortensamenstelling Hydrofyten")
+eb_groep <- function(kol) eb[kolom_begin %in% kol & !is.na(p_waarde) & contrast != "M − R", .(n = .N, n_sign = sum(p_waarde < 0.05))]
+# Effect op een variabele tegen de beginwaarde van diezelfde variabele
+eb_zelf <- eb[kolom_begin == kolom_effect & !is.na(p_waarde)]
+eb_zelf_sign <- eb_zelf[p_waarde < 0.05 & contrast != "M − R"]
+```
+
+Is het effect van minimaal beheer of afrastering groter in sloten die bij de start voedselrijker, soortenrijker of anders waren? Om dat na te gaan, is per sloot het effect berekend als de verandering (laatste − eerste meetjaar) in het ene vak min die in het andere vak van dezelfde sloot. Dat is gedaan voor de doelvariabelen en drie vergelijkingen: minimaal tegen regulier beheer (M − R, `r ebn("M − R")$n_sloten` sloten in `r ebn("M − R")$gebieden`), afrastering bij minimaal beheer (M-AF − M, `r ebn("M-AF − M")$n_sloten` sloten) en beide samen (M-AF − R, `r ebn("M-AF − R")$n_sloten` sloten in `r ebn("M-AF − R")$gebieden`). De laatste vergelijking is toegevoegd omdat in Ronde Hoep geen M-vakken liggen. Dit effect is per sloot uitgezet tegen de beginwaarde: het gemiddelde van beide vakken in het eerste meetjaar, voor de doelvariabelen, de tien belangrijkste voorspellers uit de XGBoost-modellen van WP1 en P-AL en N-mineraal in de oever (@fig-effect-beginwaarde). Doordat het gemiddelde van beide vakken als beginwaarde dient, geeft regressie naar het gemiddelde geen schijnverband tussen de beginwaarde en het effect op dezelfde variabele.
+
+```{r}
+#| label: fig-effect-beginwaarde
+#| fig-cap: "Rangcorrelatie (Spearman, ρ) tussen het effect per sloot (verschil in verandering tussen twee vakken van dezelfde sloot, kolom) en de beginwaarde van de sloot (gemiddelde van beide vakken in het eerste meetjaar, rij), voor drie vergelijkingen van basisbeheer. Oranje: hoe hoger de beginwaarde, hoe groter (positiever) het effect; blauw: hoe hoger de beginwaarde, hoe kleiner of negatiever. * p < 0,05 zonder correctie; ** p < 0,05 na BH-correctie per vergelijking. Verkennend."
+#| fig-height: 11
+#| fig-width: 16
+knitr::include_graphics(rapport_fig("effect_beginwaarde_overzicht"))
+```
+
+- **Geen aantoonbare samenhang.** Per vergelijking zijn `r eb_toets$n[1]` combinaties van effect en beginwaarde getoetst. Daarvan hebben er `r opsomming(paste0(eb_toets$n_sign, " (", eb_toets$contrast, ")"))` p < 0,05 zonder correctie; door toeval zijn er ongeveer `r round(0.05 * eb_toets$n[1])` per vergelijking te verwachten. Na BH-correctie is `r if (sum(eb_toets$n_bh) == 0) "geen enkele samenhang" else paste(sum(eb_toets$n_bh), "samenhang(en)")` significant.
+- **Minimaal tegen regulier beheer.** Met `r ebn("M − R")$n_sloten` sloten kan een rangcorrelatie geen kleinere p-waarde bereiken dan `r nl(eb_toets[contrast == "M − R", min_p], 3)`, ook niet bij een perfect verband (ρ = ±1); na correctie voor `r eb_toets$n[1]` toetsen is daarmee niets aan te tonen. Deze kolom in @fig-effect-beginwaarde is daarom alleen beschrijvend.
+- **Voedselrijkdom en soortenrijkdom.** Voor de beginwaarden van de voedselrijkdom (P-AL in slib en oever, N-mineraal en totaal-P in de oever) hebben `r eb_groep(eb_voedsel)$n_sign` van de `r eb_groep(eb_voedsel)$n` combinaties bij M-AF − M en M-AF − R p < 0,05; voor de soortenrijkdom (EKR helofyten en hydrofyten) `r eb_groep(eb_soort)$n_sign` van de `r eb_groep(eb_soort)$n`. Uit deze data is dus niet af te leiden dat het effect van afrastering vooral in voedselarme of juist voedselrijke, of in soortenrijke of soortenarme sloten optreedt.
+- **Effect tegen de eigen beginwaarde.** `r if (nrow(eb_zelf_sign) == 0) "Bij geen enkele doelvariabele hangt het effect van afrastering samen met de beginwaarde van die variabele." else paste0("Alleen bij ", opsomming(paste0(tolower(eb_zelf_sign$effect_label), " (", eb_zelf_sign$contrast, ", ρ = ", nl(eb_zelf_sign$rho, 2), ", p = ", nl(eb_zelf_sign$p_waarde, 2), ")")), " hangt het effect samen met de beginwaarde van dezelfde variabele", if (all(eb_zelf_sign$rho > 0)) ": in sloten met een hogere beginwaarde nam die variabele met afrastering meer toe." else ".")`
+- *Kanttekening:* het effect per sloot is het verschil tussen twee vakken en bevat daardoor de volledige variatie binnen de sloot (de rest in @fig-variantie), die voor de meeste parameters groot is. De sterkste verbanden (@fig-effect-beginwaarde-sterkste) berusten vaak op één of twee sloten of op het verschil tussen gebieden: sloten uit hetzelfde gebied hebben een vergelijkbare beginwaarde. Met deze aantallen sloten zijn alleen grote, consistente verbanden aan te tonen.
+
+```{r}
+#| label: fig-effect-beginwaarde-sterkste
+#| fig-cap: "Effect per sloot tegen de beginwaarde voor de combinaties uit @fig-effect-beginwaarde met de laagste p-waarde (p < 0,05 zonder correctie, hoogstens twaalf). Punt = sloot; kleur: gebied."
+#| fig-height: 11
+#| fig-width: 16
+knitr::include_graphics(rapport_fig("effect_beginwaarde_sterkste"))
+```
+
+```{r}
+#| label: effect-beginwaarde-vak-cijfers
+ebv <- lees_tabel("tabel_effect_beginwaarde_vak")
+ebv_toets <- ebv[!is.na(p_waarde), .(n = .N, n_sign = sum(p_waarde < 0.05), n_bh = sum(p_bh < 0.05)), by = contrast]
+ebv_zelf <- ebv[kolom_begin == kolom_effect & !is.na(p_waarde)]
+```
+
+**Beginwaarde van het vak zelf.** Bij bijvoorbeeld de vegetatie kan juist de uitgangssituatie van het vak bepalen hoe het reageert: een vak dat bij de start al veel emerse vegetatie heeft, kan minder toenemen dan een kaal vak. Het gemiddelde van beide vakken beschrijft de sloot, niet het vak. De beginwaarde van alleen het behandelde vak geeft echter een schijnverband door regressie naar het gemiddelde. Daarom is daarnaast per vergelijking een model op vakniveau gefit, met de sloot als blok: verandering ~ sloot + behandeling × beginwaarde van het vak zelf. Regressie naar het gemiddelde werkt in beide vakken even sterk en komt in het hoofdeffect van de beginwaarde terecht. De interactie meet of het behandelingseffect afhangt van de beginwaarde van het vak. Verandering en beginwaarde zijn eerst in rangen omgezet, zodat één afwijkende sloot het resultaat niet bepaalt. Voor M − R is dit model met `r ebn("M − R")$n_sloten` sloten niet te schatten. Bij M-AF − M en M-AF − R hebben `r opsomming(paste0(ebv_toets$n_sign, " (", ebv_toets$contrast, ")"))` van de `r ebv_toets$n[1]` combinaties p < 0,05 zonder correctie, ongeveer wat door toeval te verwachten is, en na BH-correctie `r if (sum(ebv_toets$n_bh) == 0) "geen enkele" else sum(ebv_toets$n_bh)` (@fig-effect-beginwaarde-vak). Het effect van afrastering op een doelvariabele hangt bij `r if (ebv_zelf[p_waarde < 0.05, .N] == 0) "geen enkele doelvariabele" else paste(ebv_zelf[p_waarde < 0.05, .N], "doelvariabele(n)")` aantoonbaar samen met de beginwaarde van die variabele in het vak zelf. Ook op vakniveau is dus niet aan te tonen dat afrastering vooral werkt in vakken die bij de start kaal, soortenarm of juist voedselrijk waren.
+
+```{r}
+#| label: fig-effect-beginwaarde-vak
+#| fig-cap: "Samenhang tussen het behandelingseffect (kolom) en de beginwaarde van het vak zelf (rij): partiële correlatie van de interactie behandeling × beginwaarde in een rang-ANCOVA per vergelijking, met de sloot als blok. Oranje: hoe hoger de beginwaarde van het vak, hoe groter (positiever) het effect; blauw: hoe kleiner of negatiever. * p < 0,05 zonder correctie; ** p < 0,05 na BH-correctie per vergelijking. Grijs: te weinig sloten (M − R). Verkennend."
+#| fig-height: 11
+#| fig-width: 16
+knitr::include_graphics(rapport_fig("effect_beginwaarde_vak_overzicht"))
+```
+
+## Ontwikkeling van de oeverzones 2a en 2b {#sec-oeverzones}
+
+@fig-oeverbreedte toont de breedte van de oever en van zone 2a en 2b per jaar, gebied en basisbeheer. In Hegewarren is de breedte van zone 2a nauwelijks veranderd: de zone is smal en blijft smal. De breedte van zone 2b verandert wel enigszins, maar per locatie en behandeling in verschillende richting. Het peil is in HW_1 en HW_2 in de meetperiode niet verhoogd, dus deze verschillen komen niet voort uit een peilverhoging.
+
+```{r}
+#| label: zone2a-afrastering-cijfers
+z2a_alle <- lees_tabel("tabel_zone2a_afrastering")
+```
+
+Over alle sloten werd zone 2a in de afgerasterde vakken gemiddeld `r nl(z2a_alle$gem_met_af, 0)` cm breder, tegen `r nl(z2a_alle$gem_zonder_af, 0)` cm in de vakken zonder afrastering. Binnen dezelfde sloot verbreedde het afgerasterde vak in `r z2a_alle$n_sloten_af_breder` van de `r z2a_alle$n_sloten_vergelijk` sloten meer dan het vak zonder afrastering. Dit verschil `r if (z2a_alle$p_waarde < 0.05) "is significant zonder correctie" else "is niet significant"` (`r nl(z2a_alle$schatting, 0)` cm, p = `r nl(z2a_alle$p_waarde, 3)`; aanvullende toets op wel of geen afrastering, naast de toets op basisbeheer). Het rust vooral op `r z2a_alle$grootste_verschil``r grootste_geen <- intersect(strsplit(z2a_alle$grootste_verschil, ", ")[[1]], c("RH_1", "RH_8", "RH_10", "RH_11")); if (length(grootste_geen) > 0) paste0("; daarvan ", if (length(grootste_geen) == 1) "is " else "zijn ", opsomming(grootste_geen), if (length(grootste_geen) == 1) " een sloot" else " sloten", " waar in het veld geen effect is waargenomen") else ""`. `r if (z2a_alle$p_waarde < 0.05) "Er is dus een aanwijzing dat zone 2a met afrastering breder wordt." else "Zone 2a werd met afrastering gemiddeld iets breder, maar dat verschil is niet aantoonbaar."` Bovendien hangt de breedte van zone 2a af van het waterpeil op de meetdag.
+
+```{r}
+#| label: fig-oeverbreedte
+#| fig-cap: "Oeverbreedte en breedte van zone 2a en 2b per jaar, gebied en basisbeheer. Vage lijnen: sloten waar bij de veldbeoordeling in 2026 geen effect is gezien (ter duiding; ze tellen mee in de mediaan en de toets)."
+knitr::include_graphics(rapport_fig("oeverbreedte_zone2a_2b"))
+```
+
+### Waar nemen structuur en zone 2a toe?
+
+```{r}
+#| label: respons-structuur-2a-cijfers
+rc_vak <- lees_tabel("tabel_respons_structuur_2a_per_vak")
+rc <- lees_tabel("tabel_respons_structuur_2a_abiotiek")
+rr <- lees_tabel("tabel_respons_abiotiek")
+groep_beide <- "structuur én zone 2a"
+n_groep <- function(g) rc_vak[respons_groep == g, .N]
+n_beide_maf <- rc_vak[respons_groep == groep_beide & basisbeheer == "M-AF", .N]
+n_beide_rh <- rc_vak[respons_groep == groep_beide & gebied == "RH", .N]
+# mediaan uitgangswaarde per groep en p-waarde (Kruskal-Wallis) voor een abiotische variabele
+rcm <- function(ab, k) rc[abiotiek == ab][[k]][1]
+p_min <- rc[which.min(p_waarde)]
+# samenhang relatieve respons (t.o.v. R-vak) met uitgangswaarde
+rrs <- function(resp, ab, k) rr[respons_naam == resp & abiotiek == ab][[k]][1]
+rr_str_min <- rr[respons_naam == "structuur"][which.min(p_waarde)]
+```
+
+Bij minimaal beheer namen de structuur van de oevervegetatie en de breedte van zone 2a niet overal toe. Om na te gaan of de abiotische uitgangssituatie daarbij een rol speelt, zijn de `r nrow(rc_vak)` vakken met minimaal beheer (M en M-AF) ingedeeld naar de verandering tussen het eerste en laatste meetjaar: de structuur nam met minstens 0,5 toe en/of zone 2a werd minstens 10 cm breder. De grens voor structuur is ongeveer de helft van de gemiddelde toename bij M-AF; voor zone 2a zijn het twee breedteklassen van 5 cm. Per groep is de uitgangssituatie in het eerste meetjaar vergeleken (@fig-respons-structuur-2a). Daarnaast is per vak de verandering ten opzichte van het R-vak in dezelfde sloot uitgezet tegen de uitgangswaarde (Spearman). Beide analyses zijn verkennend.
+
+```{r}
+#| label: fig-respons-structuur-2a
+#| fig-cap: "Abiotische uitgangssituatie (eerste meetjaar) van de vakken met minimaal beheer (M en M-AF), ingedeeld naar of de structuur van de oevervegetatie (≥ +0,5) en de breedte van zone 2a (≥ +10 cm) toenamen. p = Kruskal-Wallis over de drie groepen, over alle vakken en binnen gebieden (na aftrek van het gebiedsgemiddelde), zonder correctie voor meervoudig toetsen. Kleur: gebied; open symbool: M, dicht symbool: M-AF."
+#| fig-height: 11
+#| fig-width: 14
+knitr::include_graphics(rapport_fig("respons_structuur_2a_abiotiek"))
+```
+
+- **Indeling.** In `r n_groep(groep_beide)` vakken namen structuur én zone 2a toe (`r n_beide_maf` M-AF, waarvan `r n_beide_rh` in Ronde Hoep), in `r n_groep("één van beide")` vakken één van beide en in `r n_groep("geen van beide")` vakken geen van beide. De respons hangt dus vooral samen met afrastering en met het gebied.
+- **Geen duidelijk verschil in abiotiek.** Geen enkele abiotische variabele verschilt significant tussen de groepen (kleinste p `r pt(p_min$p_waarde)`, `r p_min$abiotiek`; na BH-correctie p `r pt(p_min$p_bh)`). Binnen gebieden zijn de verschillen nog kleiner.
+- **Tendens: nattere, slappere en minder voedselrijke oevers.** Vakken waar beide toenamen hadden in het eerste meetjaar een lagere drooglegging (mediaan `r nl(rcm("drooglegging", "mediaan_beide"), 2)` tegen `r nl(rcm("drooglegging", "mediaan_geen"), 2)` m), een slappere oever (`r nl(rcm("draagkracht oever", "mediaan_beide"), 2)` tegen `r nl(rcm("draagkracht oever", "mediaan_geen"), 2)` MPa), een sterker reducerend slib (`r nl(rcm("redox slib", "mediaan_beide"), 0)` tegen `r nl(rcm("redox slib", "mediaan_geen"), 0)` mV) en minder N-mineraal en P-AL in de oever. Deze verschillen zijn niet significant en vallen deels samen met het gebied (Ronde Hoep).
+- **Zone 2a ten opzichte van het R-vak.** Zone 2a werd ten opzichte van het R-vak in dezelfde sloot meer breder bij een flauwer talud (ρ = `r nl(rrs("breedte zone 2a", "talud oever", "rho"), 2)`, p `r pt(rrs("breedte zone 2a", "talud oever", "p_waarde"))`) en een sterker reducerend slib (ρ = `r nl(rrs("breedte zone 2a", "redox slib", "rho"), 2)`, p `r pt(rrs("breedte zone 2a", "redox slib", "p_waarde"))`). Binnen gebieden en na BH-correctie zijn deze verbanden niet significant.
+- **Structuur ten opzichte van het R-vak.** De toename van de structuur hangt met geen enkele abiotische variabele samen (kleinste p `r pt(rr_str_min$p_waarde)`, `r rr_str_min$abiotiek`).
+- *Kanttekening:* met `r n_groep(groep_beide)` vakken in de groep met beide toenames en een sterke clustering in Ronde Hoep zijn effecten van de abiotiek niet los te zien van het gebied. Veentype is niet meegenomen, omdat dat in WP2 vrijwel samenvalt met het gebied.
+
+### Vegetatie in zone 2b: sloten met een verwacht effect
+
+In een aantal sloten is bij de veldbeoordeling in 2026 wel de verwachte verruiging van de oevervegetatie waargenomen: `r opsomming(unique(verruiging$sloot_nummer))`. In deze sloten veranderde de bedekking met emerse vegetatie in zone 2b in de afgerasterde vakken gemiddeld met `r nl_pp(verr[afrastering == TRUE, emers])` procentpunt, tegen `r nl_pp(verr[afrastering == FALSE, emers])` in de vakken zonder afrastering. De bedekking met productiegras veranderde in de afgerasterde vakken met `r nl_pp(verr[afrastering == TRUE, productiegras])` procentpunt, tegen `r nl_pp(verr[afrastering == FALSE, productiegras])` zonder afrastering. Het aantal soorten en de EKR voor helofyten namen in deze sloten niet toe. Omdat deze sloten zijn gekozen op basis van een veldwaarneming, is dit geen toets maar een aanwijzing dat afrastering de oevervegetatie in zone 2b binnen twee jaar in de verwachte richting kan veranderen.
+
+```{r}
+#| label: uitgang-cijfers
+uitg <- lees_tabel("tabel_uitgangssituatie_waargenomen_effect")
+uitg_vt <- lees_tabel("tabel_uitgangssituatie_veentype")
+u <- function(k) uitg[kenmerk == k]
+n_sign_uitg <- uitg[p_bh < 0.05, .N]
+vt <- function(g, v) uitg_vt[groep == g & veentype == v, sum(n)]
+vt_n <- function(g) uitg_vt[groep == g, sum(n)]
+```
+
+**Uitgangssituatie van deze sloten.** Om na te gaan of de sloten waar de verwachte verandering wel is gezien een andere uitgangssituatie hadden, is per sloot de toestand in het eerste meetjaar vergeleken met de sloten waar geen effect is gezien (RH_1, RH_8, RH_10 en RH_11) en met de overige sloten (@fig-uitgangssituatie). Na BH-correctie verschilt `r if (n_sign_uitg == 0) "geen enkel kenmerk" else paste(n_sign_uitg, "kenmerk(en)")` significant. Er zijn wel tendensen: in de sloten met een verwacht effect was de EKR voor helofyten bij de start hoger (mediaan `r nl(u("EKR helofyten")$mediaan_verwacht, 2)` tegen `r nl(u("EKR helofyten")$mediaan_overig, 2)` in de overige sloten en `r nl(u("EKR helofyten")$mediaan_geen, 2)` in de sloten zonder effect) en was het slib minder gereduceerd (redox `r nl(u("Redox slib (mV)")$mediaan_verwacht, 0)` mV tegen `r nl(u("Redox slib (mV)")$mediaan_overig, 0)` en `r nl(u("Redox slib (mV)")$mediaan_geen, 0)` mV). De sloten zonder effect hadden bij de start meer productiegras in zone 2b (mediaan `r nl(u("Productiegras zone 2b (%)")$mediaan_geen, 0)`% tegen `r nl(u("Productiegras zone 2b (%)")$mediaan_verwacht, 0)`% in de sloten met een verwacht effect). Bij `r vt("verwacht effect gezien", "zeggeveen_rietzeggeveen_broekveen")` van de `r vt_n("verwacht effect gezien")` sloten met een verwacht effect valt het veentype in de klasse zeggeveen/rietzeggeveen/broekveen, tegen `r vt("overige sloten", "zeggeveen_rietzeggeveen_broekveen")` van de `r vt_n("overige sloten")` overige sloten; de sloten zonder effect vallen alle in de klasse broekveen. Waterdiepte, drooglegging, de voedselrijkdom van oever en slib (P-AL, N-mineraal, P en NH~4~ in het poriewater), organische stof en klei verschillen nauwelijks. Deze tendensen vallen grotendeels samen met het gebied: de sloten zonder effect liggen alle in Ronde Hoep, en geen van de sloten met een verwacht effect. Uit deze vergelijking is dus niet af te leiden welke uitgangssituatie een reactie op het beheer bevordert.
+
+```{r}
+#| label: fig-uitgangssituatie
+#| fig-cap: "Uitgangssituatie (eerste meetjaar, gemiddeld per sloot) van sloten waar bij de veldbeoordeling in 2026 de verwachte verruiging van de oevervegetatie is gezien, de overige sloten en de sloten waar geen effect is gezien. Kleur: gebied."
+#| fig-height: 9
+#| fig-width: 13
+knitr::include_graphics(rapport_fig("uitgangssituatie_waargenomen_effect"))
+```
+
+### Creëren van een 2a-zone door peilopzet
+
+```{r}
+#| label: peilopzet-cijfers
+peil <- lees_tabel("tabel_peilopzet_wp1")
+peil_gebieden <- lees_tabel("tabel_peilopzet_gebieden")
+peil_enquete <- lees_tabel("tabel_peilopzet_vernat_vs_enquete")
+
+peil_r <- function(var) peil[naam == var]
+peil_tekst <- function(var, eenheid, digits = 2) {
+  r <- peil_r(var)
+  if (nrow(r) == 0) return("[n.v.t.]")
+  paste0("mediaan ", nl(r$mediaan_vernat, digits), " ", eenheid, " met en ", nl(r$mediaan_geen, digits), " ", eenheid,
+         " zonder peilopzet; p = ", nl(r$p_alle, 3), ", na BH-correctie ", nl(r$p_alle_bh, 2))
+}
+n_enq <- function(v, e) {
+  x <- peil_enquete[vernat == v & enquete == e, n]
+  if (length(x) == 0) 0L else x
+}
+n_vernat <- sum(peil_enquete[vernat == TRUE, n])
+n_enquete <- n_enq(FALSE, "omhoog")
+n_geen <- sum(peil_enquete[vernat == FALSE, n]) - n_enquete
+gebieden_vergelijk <- peil_gebieden[n_vernat > 0 & n_vernat < n, Gebiedsnaam]
+peil_2a <- peil[groep == "2a-zone"]
+peil_2a_namen <- peil_2a[p_alle < 0.05 | p_enquete < 0.05 | p_binnen < 0.05, naam]
+peil_2a_tekst <- if (length(peil_2a_namen) == 0) "is geen enkel verschil" else paste0("is alleen ", paste(peil_2a_namen, collapse = " en "), " verschillend")
+talud <- peil_r("taludhoek oever")
+talud_ow <- peil_r("taludhoek onder water")
+
+# Vooraf verwachte effecten (binnen gebieden, BH over deze set)
+verwacht <- lees_tabel("tabel_peilopzet_verwachte_effecten")
+verwacht_sign <- verwacht[p_binnen < 0.05, naam]
+verwacht_bh <- verwacht[p_binnen_bh_verwacht < 0.05, naam]
+verwacht_laagste <- verwacht[which.min(p_binnen)]
+```
+
+In WP2 heeft geen enkele locatie een peilopzet. Het effect van peilopzet is daarom onderzocht met de WP1-locaties. Elke WP1-locatie is eenmaal bemeten; de analyse vergelijkt daarom de toestand van locaties en niet de verandering in de tijd. Verschillen kunnen dus ook voortkomen uit andere verschillen tussen de locaties.
+
+**Welke locaties hebben peilopzet?** Leidend is de kolom `Vernat?` uit de locatietabel: `r n_vernat` locaties hebben volgens die kolom een peilopzet. De beheerenquête (verandering van het waterpeil in de afgelopen 5 jaar) wijkt daar op een deel van de locaties van af. Bij `r n_enq(TRUE, "nee")` van de `r n_vernat` vernatte locaties staat in de enquête dat het peil niet veranderd is. Bij `r n_enquete` locaties zonder peilopzet volgens `Vernat?` staat juist dat het peil omhoog is gegaan. `Vernat?` geldt als betrouwbaarder dan de enquête. De locaties die alleen volgens de enquête een peilopzet hebben, vormen daarom een aparte derde groep. Zo ontstaan drie groepen: `r n_vernat` locaties met peilopzet volgens `Vernat?`, `r n_enquete` alleen volgens de beheerenquête en `r n_geen` zonder peilopzet.
+
+De toetsing bestaat uit twee vergelijkingen. De eerste vergelijkt over alle locaties de vernatte locaties en de enquêtegroep met de locaties zonder peilopzet, met gebied als random effect. De tweede vergelijkt de vernatte locaties met andere locaties in dezelfde gebieden: `r paste(gebieden_vergelijk, collapse = ", ")`. Stein Noord (vernat) en Stein Zuid (niet vernat) gelden daarbij als één gebied. Deze keuze beïnvloedt de uitkomst: met Stein worden de verschillen in onderholling en draagkracht duidelijker. [TODO: onderbouwen dat Stein Noord en Zuid vergelijkbaar zijn.]
+
+Ter controle: bij peilopzet volgens `Vernat?` is de drooglegging inderdaad kleiner (`r peil_tekst("drooglegging", "m")`). Voor de 2a-zone (breedte, emerse vegetatie, kragge en onderholling) `r peil_2a_tekst` (p < 0,05 zonder correctie; @fig-peilopzet). De onderholling: `r peil_tekst("onderholling", "cm", 0)`. De draagkracht van de oever: `r peil_tekst("draagkracht oever", "MPa")`. [TODO: duiden.]
+
+```{r}
+#| label: fig-peilopzet
+#| fig-cap: "WP1-locaties met peilopzet (Vernat?), met peilopzet alleen volgens de beheerenquête en zonder peilopzet: 2a-zone, 2b-zone en slootmorfologie."
+knitr::include_graphics(rapport_fig("peilopzet_wp1_alle"))
+```
+
+**Verwachte effecten.** Op voorhand was een effect van peilopzet te verwachten op de breedte van zone 2a en 2b, de taludhoek, de waterbreedte, de waterdiepte, de slibdikte, de redox van het slib en mogelijk P-AL. Voor deze `r nrow(verwacht)` kenmerken zijn de vernatte locaties vergeleken met andere locaties in dezelfde gebieden (@fig-peilopzet-verwacht), met BH-correctie alleen over deze set. `r if (length(verwacht_sign) == 0) paste0("Geen van deze kenmerken verschilt significant; de laagste p is ", nl(verwacht_laagste$p_binnen, 2), " (", verwacht_laagste$naam, ").") else paste0("Zonder correctie verschillen: ", paste(verwacht_sign, collapse = ", "), if (length(verwacht_bh) == 0) "; na BH-correctie geen enkel kenmerk." else paste0("; na BH-correctie: ", paste(verwacht_bh, collapse = ", "), "."))`
+
+Daarnaast is nagegaan of het talud bij de vernatte locaties flauwer is. Voor de taludhoek van de oever bedraagt het verschil binnen gebieden gemiddeld `r nl(talud$schatting_binnen, 1)` %-punt (p = `r nl(talud$p_binnen, 2)`), voor de taludhoek onder water `r nl(talud_ow$schatting_binnen, 1)` %-punt (p = `r nl(talud_ow$p_binnen, 2)`). Een negatief verschil betekent een flauwer talud bij de vernatte locaties. [TODO: duiden en per gebied bekijken (tabel_peilopzet_verwachte_effecten_per_gebied.csv). De vergelijking rust op weinig locaties per gebied; in Hegewarren op één vernatte en één andere locatie.]
+
+```{r}
+#| label: fig-peilopzet-verwacht
+#| fig-cap: "Vooraf verwachte effecten van peilopzet: vernatte locaties en andere locaties in dezelfde gebieden (WP1)."
+knitr::include_graphics(rapport_fig("peilopzet_verwachte_effecten_binnen_gebied"))
+```
+
+De vergelijking binnen gebieden voor alle kenmerken staat in de bijlage.
+
+# Conclusies
+
+[TODO]
+
+# Bijlagen {.appendix}
+
+## Bijlage A: aanvullende figuren
+
+```{r}
+#| label: bijlage-lijst
+bijlage_bestanden <- sort(list.files(file.path(fig_dir, "bijlage"), pattern = "\\.png$", full.names = TRUE))
+# de contrastenfiguur staat hieronder apart, met uitleg
+bijlage_bestanden <- bijlage_bestanden[basename(bijlage_bestanden) != "contrasten_per_gebied_heatmap.png"]
+bijlage_namen <- tools::file_path_sans_ext(basename(bijlage_bestanden))
+
+# Bijschriften op basis van de bestandsnaam
+thema_uit <- function(x, prefix) sub(prefix, "", x)
+bijlage_caps <- vapply(bijlage_namen, \(n) {
+  if (startsWith(n, "thema_verandering_")) return(paste0("Verandering per SlootID per basisbeheer (kleur per sloot): ", thema_uit(n, "thema_verandering_"), "."))
+  if (startsWith(n, "thema_jaar_afrastering_")) return(paste0("Mediane waarde per jaar, wel en geen afrastering: ", thema_uit(n, "thema_jaar_afrastering_"), "."))
+  if (startsWith(n, "thema_jaar_minimaal_regulier_")) return(paste0("Mediane waarde per jaar, minimaal en regulier beheer: ", thema_uit(n, "thema_jaar_minimaal_regulier_"), "."))
+  if (startsWith(n, "niveau_gebied_")) return(paste0("Verandering per basisbeheer per gebied: ", thema_uit(n, "niveau_gebied_"), "."))
+  if (startsWith(n, "niveau_sloot_")) return(paste0("Verschil tussen behandelingen binnen dezelfde sloot: ", thema_uit(n, "niveau_sloot_"), ". Achter de slootnaam de veldbeoordeling in 2026 (ter duiding)."))
+  if (startsWith(n, "beheer_")) return(paste0("Verandering tegen ", gsub("_", " ", thema_uit(n, "beheer_")), "."))
+  if (startsWith(n, "respons_abiotiek_")) return(paste0("Verandering ten opzichte van het referentievak in dezelfde sloot tegen de abiotische uitgangssituatie: EKR ", gsub("_", " ", thema_uit(n, "respons_abiotiek_")), "."))
+  if (startsWith(n, "peilverhoging_")) return(paste0("Peilverhoging binnen een gebied: ", thema_uit(n, "peilverhoging_"), "."))
+  switch(n,
+    profiel_draagkracht_diepte_per_gebied = "Verandering in indringingsweerstand per gebied en basisbeheer.",
+    contrasten_per_gebied_heatmap = "Overzicht van de contrasten per gebied.",
+    draagkracht_oever_vs_vegetatiehoogte = "Draagkracht van de oever tegen vegetatiehoogte in zone 2b (locatie × jaar).",
+    peilopzet_wp1_binnen_gebied = "WP1: alle kenmerken bij vernatte en andere locaties in dezelfde gebieden.",
+    gsub("_", " ", n)
+  )
+}, character(1), USE.NAMES = FALSE)
+```
+
+```{r}
+#| label: contrasten-cijfers
+cg <- lees_tabel("tabel_contrasten_per_gebied")[!is.na(schatting)]
+cg_sign <- cg[p_waarde < 0.05][order(gebied, label)]
+cg_bh <- cg[!is.na(p_bh) & p_bh < 0.05, .N]
+contrast_tekst <- c("minimaal vs regulier" = "minimaal t.o.v. regulier beheer",
+                    "wel vs geen afrastering" = "met t.o.v. zonder afrastering")
+cg_lijst <- opsomming(cg_sign[, paste0(gebied_namen_kort[gebied], ", ", tolower(sub(" \\(.*$", "", label)), " (",
+                                       contrast_tekst[contrast], ": ", ifelse(schatting > 0, "grotere", "kleinere"), " toename)")])
+# parameters waarvan de effecten in (vrijwel) alle contrasten dezelfde kant op wijzen
+cg_richting <- cg[, .(n = .N, pos = sum(schatting > 0), neg = sum(schatting < 0)), by = label][
+  , zelfde := pmax(pos, neg)][n >= 6 & zelfde >= n - 1][order(-zelfde / n)]
+cg_richting_tekst <- opsomming(cg_richting[, paste0(tolower(sub(" \\(.*$", "", label)), " (", zelfde, " van de ", n, " contrasten een ",
+                                                    ifelse(pos > neg, "grotere", "kleinere"), " toename)")])
+```
+
+```{r}
+#| label: fig-contrasten-gebied
+#| fig-cap: "Contrasten per gebied: per parameter (rij) en per gebied en contrast (kolom) het verschil in verandering (laatste − eerste meetjaar) tussen de vakken met minimaal beheer en met regulier beheer, of tussen de vakken met en zonder afrastering, gedeeld door de standaarddeviatie van de verandering van die parameter. Oranje: in het vak met minimaal beheer of afrastering nam de parameter meer toe (of minder af) dan in het vergelijkingsvak; blauw: minder toe (of meer af); wit: geen verschil; grijs: niet te schatten. Hoe donkerder de kleur, hoe groter het verschil. Eén ster: p < 0,05 zonder correctie; twee sterren: p na BH-correctie < 0,05."
+knitr::include_graphics(file.path(fig_dir, "bijlage", "contrasten_per_gebied_heatmap.png"))
+```
+
+Zonder correctie voor meervoudig toetsen zijn `r nrow(cg_sign)` van de `r nrow(cg)` contrasten significant: `r cg_lijst`. Bij `r nrow(cg)` toetsen zijn er door toeval ongeveer `r round(0.05 * nrow(cg))` te verwachten; na BH-correctie `r if (cg_bh == 0) "is geen enkel contrast significant" else paste(cg_bh, "contrast(en) significant")`. Bij de meeste parameters wijzen de effecten in de verschillende gebieden niet dezelfde kant op. `r if (nrow(cg_richting) > 0) paste0("Uitzonderingen zijn ", cg_richting_tekst, ". ") else ""``r if (any(grepl("helofyten", cg_richting$label))) "Dat de EKR helofyten bij minimaal beheer en afrastering steeds minder gunstig veranderde dan in het vergelijkingsvak, is tegengesteld aan de verwachting; de verschillen zijn per gebied wel klein." else ""`
+
+```{r}
+#| label: fig-bijlage
+#| fig-cap: !expr bijlage_caps
+knitr::include_graphics(bijlage_bestanden)
+```
+
+## Bijlage B: behandeling per vak en uitvoering
+
+```{r}
+#| label: tbl-behandeling-per-vak
+#| tbl-cap: "Behandeling per vak en meetjaar (kolom Behandeling), met de veldnotities over afwijkend beheer uit het veldformulier en de bekende afwijkingen in de uitvoering per sloot. Leeg = in dat jaar niet bemeten."
+beh_vak <- lees_tabel("tabel_behandeling_per_vak")
+uitvoering <- fread("hulptabellen/uitvoering_beheer_wp2.csv", sep = ";", encoding = "UTF-8")
+beh_vak <- merge(beh_vak, uitvoering, by = "sloot_nummer", all.x = TRUE, sort = FALSE)
+setorder(beh_vak, gebied, sloot_nummer, SlootID)
+# Uitvoering per sloot alleen bij het eerste vak van die sloot tonen
+beh_vak[, uitvoering := fifelse(seq_len(.N) == 1 & !is.na(uitvoering), uitvoering, ""), by = sloot_nummer]
+beh_vak[, opmerkingen := trimws(paste(
+  fifelse(uitvoering != "", paste0("Uitvoering: ", uitvoering), ""),
+  fifelse(!is.na(veldnotities) & veldnotities != "", paste0("Veld: ", veldnotities), "")
+))]
+knitr::kable(
+  beh_vak[, .(Sloot = sloot_nummer, Vak = SlootID, `2024` = b_2024, `2025` = b_2025, `2026` = b_2026, Opmerkingen = opmerkingen)],
+  align = "llcccl"
+)
+```
+
+Het regulier beheer per gebied en behandeling volgens de beheerenquête van 2024 staat in @tbl-beheer-enquete.
+
+```{r}
+#| label: tbl-beheer-enquete
+#| tbl-cap: "Beheer per gebied en behandeling volgens de beheerenquête (2024): maaimaanden en maaifrequentie van de oever, maaimaanden van de sloot, maaifrequentie van de bemestingsvrije zone, of het perceel even vaak wordt gemaaid als de bemestingsvrije zone en de oever, baggermaand en baggerfrequentie. Per cel de voorkomende antwoorden, gescheiden door een schuine streep; – = niet ingevuld, onbekend of niet van toepassing; 0 = niet gemaaid of gebaggerd. Maanden als nummer (6 = juni; 7,5 = eind juli); frequenties per jaar."
+beh_enq <- lees_tabel("tabel_beheer_maai_baggermaand")
+knitr::kable(
+  beh_enq[, .(
+    Gebied = gebied, Behandeling, Vakken = n_vakken,
+    `Maaimaanden oever` = maaimaanden_oever, `Maaien oever (per jaar)` = maaifrequentie_oever,
+    `Maaimaanden sloot` = maaimaanden_sloot, `Maaien bemestingsvrije zone (per jaar)` = maaifrequentie_bvz, `Perceel even vaak gemaaid` = perceel_even_vaak,
+    Baggermaand = baggermaand, `Baggeren (per jaar)` = baggerfrequentie
+  )],
+  align = "llrlllllll"
+)
+```
+
+## Bijlage C: verdachte data
+
+Deze bijlage geeft de redoxmetingen in het slib die sterk afwijken van de andere vakken in dezelfde sloot of van de vorige meting op dezelfde locatie (zie "Temperatuur en redox"). In de veldnotities is voor deze afwijkingen geen verklaring gevonden. De waarden zijn in de analyses meegenomen, maar verdienen voorzichtigheid bij de interpretatie.
+
+```{r}
+#| label: tbl-redox-opvallend
+#| tbl-cap: !expr paste0("Opvallende redoxmetingen in het slib (mV, genormaliseerd naar pH 7). 'Afwijking' = verschil met de mediaan van de andere vakken in dezelfde sloot en hetzelfde jaar; 'Sprong' = verschil met de vorige meting op dezelfde locatie. Opgenomen zijn de 5% grootste afwijkingen (meer dan ", nl(redox_opv$drempel_afwijking[1], 0), " mV) en de 5% grootste sprongen (meer dan ", nl(redox_opv$drempel_sprong[1], 0), " mV).")
+opmerking_redox <- function(afwijkend, sprong, n_vakken) {
+  paste(c(
+    if (afwijkend && n_vakken > 2) "wijkt af van de andere vakken",
+    if (afwijkend && n_vakken <= 2) "verschilt van het andere vak; niet te zeggen welk vak afwijkt",
+    if (sprong && !afwijkend) "sprong t.o.v. vorige meting; past bij de andere vakken in dit jaar",
+    if (sprong && afwijkend) "ook een grote sprong t.o.v. vorige meting"
+  ), collapse = "; ")
+}
+knitr::kable(
+  redox_opv[, .(
+    Locatie = SlootID,
+    Jaar = jaar,
+    Redox = nl(redox, 0),
+    `Mediaan andere vakken` = nl(mediaan_andere, 0),
+    Afwijking = nl(afwijking_sloot, 0),
+    `Vorige meting` = ifelse(is.na(vorige_redox), "–", paste0(nl(vorige_redox, 0), " (", vorig_jaar, ")")),
+    Sprong = ifelse(is.na(sprong), "–", nl(sprong, 0)),
+    Opmerking = mapply(opmerking_redox, afwijkend_sloot, grote_sprong, n_vakken)
+  )],
+  align = "llrrrrrl"
+)
+```
+
+## Bijlage D: dwarsprofielen en diepte per sloot
+
+Per sloot staan hieronder twee figuren: het gemeten dwarsprofiel van oever tot oever per behandelingsvak en meetjaar, en de maximale waterdiepte, de diepte tot de vaste bodem en het doorzicht per vak en jaar. In de dwarsprofielen is de x-as de afstand tot de eerste waterlijn, zodat de jaren goed te vergelijken zijn. Rode punten zijn waterpunten waar de peilstok vermoedelijk op de vaste bodem stond; hun waterdiepte is als ontbrekend behandeld (zie Datakwaliteit).
+
+```{r}
+#| label: bijlage-profielen-lijst
+profiel_bestanden <- list.files(
+  file.path(fig_dir, "profielen_sloot"),
+  pattern = "^sloot_(profiel|diepte)_[A-Z]+_[0-9]+\\.png$", full.names = TRUE
+)
+profiel_namen <- tools::file_path_sans_ext(basename(profiel_bestanden))
+profiel_sloot <- sub("^sloot_(profiel|diepte)_", "", profiel_namen)
+profiel_soort <- sub("^sloot_(profiel|diepte)_.*$", "\\1", profiel_namen)
+# Per gebied op slootnummer (RH_10 na RH_9), per sloot eerst het profiel
+volgorde <- order(
+  sub("_.*$", "", profiel_sloot), as.integer(sub("^.*_", "", profiel_sloot)),
+  profiel_soort != "profiel"
+)
+profiel_bestanden <- profiel_bestanden[volgorde]
+profiel_caps <- ifelse(
+  profiel_soort[volgorde] == "profiel",
+  paste0("Dwarsprofiel van oever en sloot ", profiel_sloot[volgorde], " per behandelingsvak en meetjaar (m NAP, verticaal 2× overdreven). Lichtblauw: water; bruin: slib; lichtgroen: vaste bodem; rood: waterpunt waar de peilstok vermoedelijk op de vaste bodem stond."),
+  paste0("Doorzicht, maximale waterdiepte en diepte tot de vaste bodem per behandelingsvak en meetjaar, sloot ", profiel_sloot[volgorde], ". Slibdikte = verschil tussen diepte tot vaste bodem en waterdiepte.")
+)
+if (length(profiel_bestanden) == 0) warning("Geen figuren per sloot gevonden (eerst wp2_profielen_sloot.R draaien?)")
+```
+
+```{r}
+#| label: fig-profielen-sloot
+#| fig-cap: !expr profiel_caps
+knitr::include_graphics(profiel_bestanden)
+```
