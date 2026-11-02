@@ -1,5 +1,4 @@
 # Data import and processing
-
 # 0. Load packages -----------------------------------------------------------
 library(data.table)
 library(sf)
@@ -58,12 +57,49 @@ locaties <- st_as_sf(locaties) %>% st_transform(crs = 28992)
 
 ## 1.3 create cluster per loc data---------------------------
 cluster <- st_as_sf(cluster)
-clusters_locs <- st_join(locaties[!is.na(locaties$instanceID_abio) & !locaties$WP %in% 'WP2-prenul',], cluster, st_nearest_feature, left = TRUE)
+locs_sel <- locaties[!is.na(locaties$instanceID_abio) & !locaties$WP %in% 'WP2-prenul',]
+clusters_locs <- st_join(locs_sel, cluster, st_nearest_feature, left = TRUE)
+# afstand tot gekoppeld clusterperceel; de clusterkaart bevat alleen veenpercelen,
+# daarbuiten wordt een perceel ver weg gekoppeld (bv. EEM: ~15 km)
+clusters_locs$afstand_cluster_m <- as.numeric(st_distance(locs_sel, cluster[st_nearest_feature(locs_sel, cluster), ], by_element = TRUE))
 # sel verschillende indicatoren
 # afwatopp: oppvl/ (omtrek_nat/ 2) brede percelen met weinig sloten is een hoog getal, smalle percelen met veel sloten is laag
-clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort',"Sloot_nr","sloot","Behandeling","Oeverzijde","jaar",'Slibmonster_Bware','Oevermonster_AgroCares','WP','MeenemenDataAnalyse_totaal','clusters','trofie','omtrek_nat','omtrek_length','GEOMETRIE_Area','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text','Zomerpeil_m_NAP','Maaiveld_niveau_m_NAP','Zomerdrooglegging_m_NOBV')])
+clusters_locs <- unique(clusters_locs[,c('SlootID','SlootID_kort',"Sloot_nr","sloot","Behandeling","Oeverzijde","jaar",'Slibmonster_Bware','Oevermonster_AgroCares','WP','MeenemenDataAnalyse_totaal','clusters','trofie','omtrek_nat','omtrek_length','GEOMETRIE_Area','afwatopp','drlg','breedtewl',"A_SOM_LOI" ,"A_CLAY_MI",'text','Zomerpeil_m_NAP','Maaiveld_niveau_m_NAP','Zomerdrooglegging_m_NOBV','afstand_cluster_m')])
 clusters_locs <- st_join(clusters_locs, aan, st_nearest_feature, left = TRUE)
 setDT(clusters_locs)
+# perceels- en bodemvariabelen op NA als het clusterperceel te ver weg ligt.
+# Binnen 200 m (max. ~150 m, MD/RH/DE) is het buurperceel nog representatief,
+# alleen EEM valt erbuiten.
+max_afstand_cluster_m <- 200
+cols_cluster_perceel <- c('clusters','trofie','omtrek_nat','omtrek_length','GEOMETRIE_Area','afwatopp','drlg','breedtewl',"A_SOM_LOI","A_CLAY_MI",'Zomerpeil_m_NAP','Maaiveld_niveau_m_NAP','Zomerdrooglegging_m_NOBV')
+clusters_locs[afstand_cluster_m > max_afstand_cluster_m, (cols_cluster_perceel) := NA]
+# NB: text (waterschap) is voor EEM fout (AGV), wordt in main_veest.R gecorrigeerd naar WVV
+
+## 1.3b natte omtrek uit BRP 2021 ---------------------------
+# de clusterkaart is gebaseerd op BRP 2019; natte omtrek (m) per sloot uit BRP 2021.
+# omtrek_nat kan door de buffermethode > omtrek_totaal zijn, daarom begrensd.
+brp21_no_file <- paste0(gsub('\\\\', '/', Sys.getenv('USERPROFILE')), '/NMI/Sven Verweij - Data-landgebruik/brp/natte omtrek/2021/brp_2021_natteomtrek_zonder_2m.gpkg')
+# 50 m: KW_3a ligt ~35 m van het perceel (trajectcoördinaten), overige sloten < 1 m
+max_afstand_brp_m <- 50
+locs_uniek <- locs_sel[!duplicated(locs_sel$SlootID), c('SlootID', 'gebied')]
+brp21_no <- rbindlist(lapply(split(locs_uniek, locs_uniek$gebied), function(lg) {
+  filt <- st_as_text(st_union(st_buffer(st_geometry(lg), max_afstand_brp_m)))
+  p <- st_read(brp21_no_file, wkt_filter = filt, quiet = TRUE)
+  if (nrow(p) == 0) return(NULL)
+  p <- st_transform(p, 28992)
+  j <- st_nearest_feature(lg, p)
+  data.table(
+    SlootID = lg$SlootID,
+    afstand_brp21_m = as.numeric(st_distance(lg, p[j, ], by_element = TRUE)),
+    omtrek_nat_brp21 = pmin(p$omtrek_nat[j], p$omtrek_totaal[j]),
+    omtrek_totaal_brp21 = p$omtrek_totaal[j]
+  )
+}))
+brp21_no[afstand_brp21_m > max_afstand_brp_m, c('omtrek_nat_brp21', 'omtrek_totaal_brp21') := NA_real_]
+clusters_locs <- merge(clusters_locs, brp21_no, by = 'SlootID', all.x = TRUE)
+# omtrek_nat (o.a. gebruikt voor koebelasting) vervangen door BRP 2021; oude waarde bewaard
+clusters_locs[, omtrek_nat_brp19 := omtrek_nat]
+clusters_locs[, omtrek_nat := omtrek_nat_brp21]
 # clusters_locs <- clusters_locs[WP %in% c('WP1','WP2','WP3'),]
 duplicate_clust <- clusters_locs[duplicated(clusters_locs, incomparables=FALSE, fromLast=TRUE, by=c("SlootID","jaar"))|duplicated(clusters_locs,  by=c("SlootID","jaar")),]
 ## 1.4 load afvoergebieden------------------------------
@@ -702,7 +738,7 @@ slootID_penetrometerID <- dcast(penmerge, SlootID+name_gps+oever+jaar~dist_id) #
 # 3. Abiotiek ---------------------------------------------------------
 ## 3.1 import ----------------------------------------------------------
 inputdir <- paste0(workspace,"./ODK_abiotiek")
-abio <- fread(paste0(inputdir,'/VeeST_Veldform Abiotiek_v5_results_251104.csv'), dec = ',', na.strings = c(999,9999,-999,-99,'999,0','999,00','999,000','NA','999','999,0000','0.00'))
+abio <- fread(paste0(inputdir,'/VeeST_Veldform Abiotiek_v5_results_251104.csv'), dec = ',', na.strings = c(999,9999,-999,-99,"9999",'999,0','999,00','999,000','NA','999','999,0000','0.00'))
 abio2 <- fread(paste0(inputdir,'/VeeST_Veldform Abiotiek_v5_260901.csv'), sep = ',', dec = '.', na.strings = c(999,9999,-999,-99,'999.0','999.00','999.000','NA','999','999.0000'))
 abio_cols <- fread(paste0(workspace,"./hulp_tabellen/veest_kolomnamen.csv"), dec = ',')
 setnames(abio, abio_cols$nieuwe_kolomnamen, abio_cols$oude_kolomnamen, skip_absent = TRUE)
@@ -862,9 +898,16 @@ for(i in unique(profiel$ID)){
   transect_direction <- get_cardinal_direction(profiel_nr)
   profiel[profiel$ID == i, azimuth := transect_direction]
 }
+# oeverpunten die onder het waterpeil liggen en aansluiten op de waterlijn
+# zijn water (zie corrigeer_oever_onder_waterlijn in functions_veest.R)
+corrigeer_oever_onder_waterlijn(profiel, tol = 0.02)
 # max waterdiepte
 profiel[, wtd := wl - z]
 profiel[wtd < 0, wtd := 0]
+# waterpunten zonder slibpeiling die > 15 cm lager liggen dan de gepeilde
+# waterpunten: GPS-stok vermoedelijk op de vaste bodem, waterdiepte onbekend
+# (zie markeer_stok_op_vaste_bodem in functions_veest.R)
+markeer_stok_op_vaste_bodem(profiel, drempel = 0.15)
 profiel[,max_wtd := max(wtd, na.rm = T), by = 'ID']
 profiel[!is.na(slib) & !slib == 0,slib := slib - wtd]
 profiel[is.na(slib), slib:= 0]
@@ -995,10 +1038,8 @@ check_floating_secties <- profiel[!sectie == shift(sectie,-1) & !sectie == shift
 
 # 5. Vegetatie --------------------------------------------------------
 ## 5.1 import odk ----------------------------------------------------------
-inputdir <- paste0(workspace,"./ODK_vegetatie")
-veg <- file.info(list.files(path= paste0(inputdir), pattern=".csv", full.names =  T))
-veg <- rownames(veg)[which.max(veg$mtime)]
-veg <- fread(veg, sep= ';', dec = '.', na.strings = c(999,9999,-999,-99,'999,0','NA','999'), fill = TRUE)
+inputdir <- paste0(workspace,"ODK_vegetatie")
+veg <- fread(paste0(inputdir, '/odk_veg_20261005.csv'), sep= ';', dec = '.', na.strings = c(999,9999,-999,-99,'999,0','NA','999'), fill = TRUE)
 setnames(veg, abio_cols$nieuwe_kolomnamen, abio_cols$oude_kolomnamen, skip_absent = TRUE)
 veg[, datum := as.Date(Date_start_auto) ]
 veg[, jaar:= year(datum)]
@@ -1073,7 +1114,11 @@ watbod[, feS_DW_SB := `Fe_mmol/kg DW_SB`/`S_mmol/kg DW_SB`]
 watbod[, feP_PW := `Fe_µmol/l_PW`/`P_µmol/l_PW`]
 watbod[, feS_PW := `Fe_µmol/l_PW`/`S_µmol/l_PW`]
 watbod[, jaar:= year(datum)]
-watbod_proj <- watbod[SlootID %in% c('RH_4_R_N','RH_4_M-AF_N'), ]
+# RH_4 is in 2024 aan beide oevers (N en Z) bemeten, maar B-ware heeft alleen
+# monsters van de N-oever. Slib, poriewater en oppervlaktewater horen bij de
+# sloot, dus de N-data gelden ook voor de Z-oever. Alleen 2024: in 2025 is er
+# geen B-ware-data voor RH_4 en in 2026 bestaat de Z-oever niet meer.
+watbod_proj <- watbod[SlootID %in% c('RH_4_R_N','RH_4_M-AF_N') & jaar == 2024, ]
 watbod_proj[, SlootID := gsub("_N$", "_Z", SlootID)]
 watbod <- rbind(watbod, watbod_proj, fill = TRUE)
 # remove double cols
@@ -1105,8 +1150,14 @@ cnames <- as.data.table(readxl::read_xlsx(path = inputdir, sheet = tab, n_max = 
 cnames <- paste0(as.character(cnames[1]),"_" ,as.character(cnames[2]))
 cnames <- gsub("GSL_ID_NA","GSL_ID",cnames)
 watbod_xrf <- setDT(readxl::read_xlsx(path = inputdir, sheet = tab, skip = 3, col_names = cnames))
-# De XRF wordt gemeten op monsters die tot 105 graden zijn gedroogd en de waardes worden uitgedrukt per kg grond die tot 105 graden is gedroogd. Alle andere parameters worden uitgedrukt per kg grond die tot 40 graden is gedroogd.
-# In veengronden gaat een deel van de matrix verloren als je tot 105 graden droogt. Het heeft dus zin om de XRF data uit te drukken per kg grond (40 graden).
+# De slibmonsters zijn door B-ware gedroogd op 60 graden; AgroCares analyseert
+# dit gedroogde materiaal. De XRF wordt gemeten op monsters die tot 105 graden
+# zijn gedroogd en de waardes worden uitgedrukt per kg grond die tot 105 graden
+# is gedroogd. Alle andere parameters worden uitgedrukt per kg slib zoals
+# aangeleverd (gedroogd op 60 graden). In veengronden gaat een deel van de
+# matrix verloren als je tot 105 graden droogt. Het heeft dus zin om de XRF
+# data uit te drukken per kg slib gedroogd op 60 graden. (Bij de oevermonsters
+# droogt AgroCares zelf op 40 graden, zie sectie 7.)
 watbod_vocht <- setDT(readxl::read_xlsx(path = paste0(workspace,"./Bodemanalyses/Moisture 105 C on project 1922 (2024 samples).xlsx"), na = ''))
 # calculate correction factor
 watbod_xrf <- merge(watbod_xrf, watbod_vocht[,c('GSL CODE','Moist 105C (%)')], by.x = 'GSL_ID', by.y = 'GSL CODE',all.x = TRUE, all.y = FALSE, suffixes = c('','_vocht'))

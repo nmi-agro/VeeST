@@ -8,12 +8,13 @@ library(data.table)
 library(sf)
 library(ggplot2)
 library(ggspatial)  # annotation_map_tile (OSM achtergrond)
+library(nngeo)      # st_azimuth (windrichting profielen, functions_veest.R)
 
 source("scripts/functions/functions_veest.R")
 
 workspace_md <- paste0(
   Sys.getenv("NMI-SITE"),
-  "O 2000 - O 2001/2038.N.26 Natuurpotentie Mijnden 2026 - 2030/04. Data en resultaten/"
+  "/O 2000 - O 2001/2038.N.26 Natuurpotentie Mijnden 2026 - 2030/04. Data en resultaten/"
 )
 
 # ============================================================
@@ -184,6 +185,69 @@ peilgeb_afwijkend <- st_transform(peilgeb_afwijkend, 4326)
 peilgeb_praktijk_crop <- suppressWarnings(st_crop(peilgeb_praktijk, bbox_kaart_marge))
 peilgeb_afwijkend_crop <- suppressWarnings(st_crop(peilgeb_afwijkend, bbox_kaart_marge))
 
+#' Peil van een peilgebied als label (m NAP)
+#'
+#' Vast peil (VP), zomer- en winterpeil (ZP/WP) bij seizoensgebonden beheer,
+#' of de bandbreedte van een flexibel peil (onder- tot bovengrens, FPo/FPb;
+#' winter apart als die afwijkt). In de AGV-bestanden betekent 0 "niet van
+#' toepassing", dus die waarden tellen niet mee.
+#'
+#' @param pg sf-object met peilgebieden van AGV (kolommen VP, ZP, WP,
+#'   FPb_zomer, Fpo_zomer, FPb_winter, Fpo_winter).
+#' @return Character vector met per peilgebied het label (NA als er geen peil
+#'   bekend is).
+peil_label <- function(pg) {
+  nl_peil <- function(x) sub("^-", "−", formatC(x, format = "f", digits = 2, decimal.mark = ","))
+  flex_zomer <- paste0(nl_peil(pg$Fpo_zomer), " tot ", nl_peil(pg$FPb_zomer))
+  flex_winter <- paste0(nl_peil(pg$Fpo_winter), " tot ", nl_peil(pg$FPb_winter))
+  data.table::fcase(
+    pg$VP != 0, paste("VP", nl_peil(pg$VP)),
+    pg$ZP != 0 | pg$WP != 0, paste0("ZP ", nl_peil(pg$ZP), "\nWP ", nl_peil(pg$WP)),
+    pg$Fpo_zomer != 0 | pg$FPb_zomer != 0,
+    ifelse(
+      pg$Fpo_winter == pg$Fpo_zomer & pg$FPb_winter == pg$FPb_zomer,
+      paste("flex", flex_zomer),
+      paste0("flex zomer ", flex_zomer, "\nflex winter ", flex_winter)
+    ),
+    default = NA_character_
+  )
+}
+
+#' Labelpunten (binnen het vlak) met het peil van elk peilgebied
+#'
+#' @param pg sf-object met peilgebieden (WGS84), na st_crop().
+#' @param soort Naam voor de legenda ("Praktijkpeilgebied" of "Afwijkend peilgebied").
+#' @return data.table met lon, lat, label en soort; alleen peilgebieden met een bekend peil.
+peil_labelpunten <- function(pg, soort) {
+  pg$label <- peil_label(pg)
+  pg <- pg[!is.na(pg$label), ]
+  # punt binnen het vlak in RD berekenen (in lon/lat is st_point_on_surface onnauwkeurig)
+  pt <- st_transform(st_point_on_surface(st_transform(pg, 28992)), 4326)
+  xy <- st_coordinates(pt)
+  data.table(lon = xy[, "X"], lat = xy[, "Y"], label = pg$label, soort = soort)
+}
+
+peil_pts <- rbind(
+  peil_labelpunten(peilgeb_praktijk_crop, "Praktijkpeilgebied"),
+  peil_labelpunten(peilgeb_afwijkend_crop, "Afwijkend peilgebied")
+)
+
+# Profiel- en peillabels in één laag, zodat ggrepel ze ook van elkaar weg
+# duwt. Peillabels krijgen de randkleur van het peilgebied en geen
+# verbindingslijn (ze staan binnen het vlak).
+labels_kaart <- rbind(
+  wl_pts[, .(
+    lon = lon_plot, lat = lat_plot,
+    label = paste0(name, "\n", sub("^-", "−", formatC(wl, format = "f", digits = 2, decimal.mark = ",")), " m"),
+    tekstkleur = "black", lijnkleur = "grey20", vet = "plain"
+  )],
+  peil_pts[, .(
+    lon, lat, label,
+    tekstkleur = ifelse(soort == "Praktijkpeilgebied", "steelblue4", "firebrick"),
+    lijnkleur = NA_character_, vet = "bold"
+  )]
+)
+
 # Kaart met OSM achtergrond
 # NB: annotation_map_tile() bepaalt het aantal te downloaden tiles op basis
 # van de bounding box van de *hele plot* en het gekozen zoomniveau. Bij een
@@ -210,27 +274,34 @@ print(
       data = wl_pts, aes(x = lon_plot, y = lat_plot, color = wl, shape = factor(jaar)),
       size = 4, stroke = 1.3
     ) +
+    # profielen (naam + waterlijn) en peil per peilgebied (m NAP)
     geom_label_repel(
-      data = wl_pts,
-      aes(x = lon_plot, y = lat_plot, label = paste0(name, "\n", round(wl, 2), " m")),
+      data = labels_kaart,
+      aes(x = lon, y = lat, label = label),
+      color = labels_kaart$tekstkleur, fontface = labels_kaart$vet,
+      segment.color = labels_kaart$lijnkleur,
       size = 2.5, label.padding = unit(0.15, "lines"), alpha = 0.85,
-      min.segment.length = 0, segment.color = "grey20", segment.size = 0.4,
+      min.segment.length = 0, segment.size = 0.4,
       box.padding = 0.6, point.padding = 0.3, force = 15, force_pull = 0.5,
-      max.overlaps = Inf, max.time = 3, max.iter = 100000, seed = 8341
+      max.overlaps = Inf, max.time = 10, max.iter = 200000, seed = 8341
     ) +
     scale_color_viridis_c(name = "Waterlijn (m NAP)", option = "plasma") +
     scale_shape_manual(name = "Jaar", values = c("2024" = 16, "2026" = 17)) +
     coord_sf(crs = 4326) +
     labs(
       title = "Waterlijn hoogte (m NAP) — Mijnden oeverprofielen",
-      subtitle = "z-waarde GPS punt gelabeld als 'waterlijn' (bron: GPS oeverprofielen)",
-      x = NULL, y = NULL
+      subtitle = paste0(
+        "z-waarde GPS punt gelabeld als 'waterlijn' (bron: GPS oeverprofielen)\n",
+        "Peil per peilgebied in m NAP (AGV, 2024): VP = vast peil, ZP/WP = zomer-/winterpeil,\n",
+        "flex = onder- tot bovengrens flexibel peil"
+      ),
+      x = NULL, y = NULL, linetype = "Peilgebied"
     ) +
     theme_minimal()
 )
 ggsave(
   filename = paste0(workspace_md, "Kaarten/kaart_waterlijn_mijnden.png"),
-  width = 8, height = 6, units = "in", dpi = 300
+  width = 10, height = 8, units = "in", dpi = 300
 )
 # ============================================================
 # 3. GPS PENETROMETER LOCATIES

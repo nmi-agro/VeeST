@@ -15,7 +15,7 @@ library(patchwork)
 library(stringr)
 library(ggcorrplot)
 # 2. Settings and functions ----------------------------------------------------------------
-workspace <- paste0(Sys.getenv("NMI-SITE"), 'O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Data/')
+workspace <- paste0(Sys.getenv("NMI-SITE"), '/O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Data/')
 ## Load custom functions-----------------------------------------------------
 source(paste0("scripts/functions/functions_veest.R"))
 sys.load.image(paste0(workspace,"/Processed_data_workspace.RData"), quiet = FALSE)
@@ -67,6 +67,15 @@ abio_proj <- merge(abio_proj, veg_ekr_oev, by.x = c('SlootID','jaar'), by.y = c(
 ## clusters en locatiedata --------------------------------------------------------
 #!!! check slootID jaar combinatie uniek (is nu niet het geval in clusters_locs)
 clusters_locs[, jaar := as.integer(jaar)]
+# clusters_locs is niet uniek per SlootID + jaar bij locaties met twee
+# veldbezoeken in hetzelfde jaar (bv. Mijnden 2024: WP1-meting in juli en een
+# tweede bezoek in oktober, met deels andere monstercodes). Zonder ontdubbeling
+# verdubbelt de merge hieronder de rijen van abio_proj. Bewaar per SlootID +
+# jaar de rij met MeenemenDataAnalyse_totaal == "ja" en, daarbinnen, de rij met
+# ingevulde slib- en oevermonstercodes. De clustergegevens zijn per locatie gelijk.
+clusters_locs <- as.data.table(clusters_locs)[
+  order(SlootID, jaar, MeenemenDataAnalyse_totaal != "ja", is.na(Slibmonster_Bware), is.na(Oevermonster_AgroCares))
+][, .SD[1], by = .(SlootID, jaar)]
 ## WP en MeenemenDataAnalyse_totaal komen inmiddels al correct, per
 ## instanceID_abio, uit abio_hier (zie data_import_ppr.R). clusters_locs is
 ## niet uniek per SlootID+jaar bij sloten met zowel een WP2-prenul- als een
@@ -169,7 +178,9 @@ abio_proj[, koebelasting_drinkende_koeien := fcase(
   afrastering_flag %in% TRUE, 0,
   drinken_flag %in% FALSE, 0,
   is.na(Aantal_koeien_vee_perceel_dag) | is.na(Aantal_Koedagen_per_jaar), NA_real_,
-  default = pmax(Aantal_koeien_vee_perceel_dag, 0) * (pmax(Aantal_Koedagen_per_jaar, 0)/365) *  pmax(omtrek_nat, 0)
+  is.na(omtrek_nat) | omtrek_nat <= 0, NA_real_,
+  # jaargemiddeld aantal koeien per 100 m natte oever (omtrek_nat in m)
+  default = pmax(Aantal_koeien_vee_perceel_dag, 0) * (pmax(Aantal_Koedagen_per_jaar, 0)/365) / omtrek_nat * 100
 )]
 abio_proj[, koeien_drinken_correctie := fifelse(
   koebelasting_drinkende_koeien > 0,
@@ -258,6 +269,16 @@ penmerge[, jaar := as.integer(jaar)]
 unique(penmerge[is.na(Gebiedsnaam),c('SlootID','jaar','Gebiedsnaam','gebied','name_gps','name_pen','oever')])
 
 ## adjust abiotic data for analysis -------------------
+# Slibredox is altijd negatief: positieve waarden zijn invoerfouten. Waarden
+# tussen 0 en 1 zijn ingevoerd met "0," in plaats van "-" (bv. 0.339 = -339 mV,
+# uitgaande van drie cijfers); overige positieve waarden zonder minteken.
+# Correctie vóór de omrekening naar pH 7.
+abio_proj[slib_redox_mgL > 0 & slib_redox_mgL < 1, slib_redox_mgL := -1000 * slib_redox_mgL]
+abio_proj[slib_redox_mgL > 0, slib_redox_mgL := -slib_redox_mgL]
+# Conductiviteit kan niet negatief zijn: minteken is een invoerfout
+for (k in c("slib_conductiviteit_uS_cm", "water_conductiviteit_uS_cm")) {
+  abio_proj[get(k) < 0, (k) := -get(k)]
+}
 abio_proj[, slib_redox_pH7 := slib_redox_mgL + (7 - slib_pH) * 59]
 abio_proj[, water_redox_pH7 := water_redox + (7 - slib_pH) * 59]
 abio_proj[water_redox_pH7 > 800, water_redox_pH7 := water_redox_pH7/10] # correctie foutieve waarden redox
@@ -397,10 +418,10 @@ saveRDS(
 # en wordt niet meer meegewogen in de erosieindex).
 # Alle componenten genormaliseerd naar 0-1 schaal
 # Componenten worden ook als losse kolommen bewaard t.b.v. visualisatie/diagnose
-# Afscheur-oppervlak: % lengte x breedte (cm) is een oppervlak-achtige maat,
-# geen percentage meer; normaliseer op dataset-max en cap op 1 zodat de
-# component weer op de 0-1 schaal valt (hoog = meer erosie)
-abio_proj[, afscheur_opp := afscheur_veg_lengte_perc * afscheur_veg_breedte_cm]
+# Afscheur-oppervlak: analoog aan oppervlak emers (perc x breedte, in m2 per m
+# oever); normaliseer op dataset-max en cap op 1 zodat de component op de 0-1
+# schaal valt (hoog = meer erosie)
+abio_proj[, afscheur_opp := (afscheur_veg_lengte_perc / 100) * (afscheur_veg_breedte_cm / 100)]
 .afscheur_opp_max <- max(abio_proj$afscheur_opp, na.rm = TRUE)
 abio_proj[, erosie_afscheur_norm := fifelse(is.na(afscheur_opp), NA_real_, pmin(afscheur_opp / .afscheur_opp_max, 1))]
 rm(.afscheur_opp_max)

@@ -31,8 +31,9 @@ importGPS2 <- function(inputdir = paste0(workspace,"./GPS"), gpsid = 36){
 importGPSprof <- function(inputdir = paste0(workspace,"./GPS slootprofielen"), gpsid = 36){
   # load all results from aquo kit from input dir
   prof <- list.files(path= paste0(inputdir), pattern=".csv", full.names =  T)
-  names <- gsub(paste0(inputdir,'/'), "", prof)
-  names <- gsub(paste0('.csv'), "", names)
+  # basename() i.p.v. gsub() op het pad: een pad met backslashes (bv. uit
+  # NMI-SITE) werkt als regex niet en liet dan het hele pad in de naam staan
+  names <- tools::file_path_sans_ext(basename(prof))
   dt.names <- data.table(ID = 1:length(names), name = names)
   prof <- lapply( prof, fread, stringsAsFactors = FALSE)
   prof <- rbindlist( prof, fill =T, use.names = T, idcol = "ID")
@@ -197,6 +198,10 @@ get_cardinal_direction <- function(profiel_nr) {
 calc_taludhoek <- function(profiel_nr){
   #copy the trasnect of the oever
   dt1 <- setDT(profiel_nr)
+  # Waterpunten als referentie voor de waterlijn: punten die pas na correctie
+  # water zijn (oever onder het waterpeil, zie corrigeer_oever_onder_waterlijn)
+  # tellen hier niet mee, zodat het eerste/laatste waterpunt de waterlijn blijft.
+  wtr <- if ("oever_naar_water" %in% names(dt1)) dt1[sectie == 'water' & !oever_naar_water] else dt1[sectie == 'water']
 
   # Bepaal de insteek (grens oever-perceel) per oeverzijde, zodat de
   # taludhoekbepaling nooit verder gaat dan de insteek. Als er voor een
@@ -209,7 +214,7 @@ calc_taludhoek <- function(profiel_nr){
   min_dist <- min(dt1[Opmerking == "waterlijn",'dist']) - 3
   first_point <- dt1[sectie == 'oever' & dist > min_dist & dist >= dist_insteek_1] 
   first_point <- first_point[Puntnummer == min(Puntnummer)]
-  last_point <- dt1[sectie == 'water']
+  last_point <- wtr
   last_point <- last_point[Puntnummer == min(Puntnummer)]
   # calc angle
   tldk_bvwtr_perc_1 <-  100*(first_point$z-last_point$z) / (last_point$dist-first_point$dist)
@@ -219,14 +224,14 @@ calc_taludhoek <- function(profiel_nr){
   max_dist <- max(dt1[Opmerking == "waterlijn",'dist']) + 3
   first_point <- dt1[sectie == 'oever' & dist < max_dist & dist <= dist_insteek_2]
   first_point <- first_point[Puntnummer == max(Puntnummer)]  
-  last_point <- dt1[sectie == 'water']
+  last_point <- wtr
   last_point <- last_point[Puntnummer == max(Puntnummer)] 
   # calc angle
   tldk_bvwtr_perc_2 <-  100*(first_point$z-last_point$z) / (first_point$dist-last_point$dist)
   tldk_bvwtr_graden_2 <-  atan((first_point$z-last_point$z) / (first_point$dist-last_point$dist))*(180/pi)
   
   #select first and last point first shoreline
-  first_point <- dt1[sectie == 'water'] 
+  first_point <- wtr
   first_point <- first_point[Puntnummer == min(Puntnummer)] 
   last_point <- dt1[sectie == 'water' & dist - first_point$dist < 1]
   # selecteer een locatie minder dan 1 meter verder dan de waterlijn
@@ -239,7 +244,7 @@ calc_taludhoek <- function(profiel_nr){
   tldk_vastbodem_graden_1 <-  atan(((first_point$z-first_point$slib) -(last_point$z-last_point$slib)) / (last_point$dist-first_point$dist))*(180/pi) 
   
   #select first and last point second shoreline
-  first_point <- dt1[sectie == 'water'] 
+  first_point <- wtr
   first_point <- first_point[Puntnummer == max(Puntnummer)]  
   last_point <- dt1[sectie == 'water' & first_point$dist - dist < 1]
   # selecteer een locatie minder dan 50 cm verder dan de waterlijn
@@ -252,7 +257,7 @@ calc_taludhoek <- function(profiel_nr){
   tldk_vastbodem_graden_2 <-  atan(((first_point$z-first_point$slib) -(last_point$z-last_point$slib)) / (first_point$dist-last_point$dis))*(180/pi) 
   
   #select first and last point watersurface
-  waterlijn <- dt1[sectie == 'water'] 
+  waterlijn <- wtr
   waterlijn <- waterlijn[Puntnummer == min(Puntnummer)] # waterlijn sectie 1
   last_point <- dt1[z > waterlijn$z - 0.35 & sectie == 'water' & sectie_2 == 1]
   last_point <- last_point[Puntnummer == max(Puntnummer)]
@@ -263,7 +268,7 @@ calc_taludhoek <- function(profiel_nr){
   tldk_oevrwtr_perc_1 <-  100*(first_point$z-waterlijn$z) / (waterlijn$dist-first_point$dist) # hoek rond waterlijn, oever op
   
   #select first and last point watersurface
-  waterlijn <- dt1[sectie == 'water'] 
+  waterlijn <- wtr
   waterlijn <- waterlijn[Puntnummer == max(Puntnummer)] # waterlijn sectie 1
   last_point <- dt1[z > waterlijn$z -0.35 & sectie == 'water' & sectie_2 == 2]
   last_point <- last_point[Puntnummer == min(Puntnummer)]
@@ -311,6 +316,63 @@ get_r_squared <- function(dt, x_col, y_col) {
   if (inherits(fit, "try-error")) return(NA_real_)
   s <- summary(fit)$r.squared
   return(as.numeric(s))
+}
+
+# Correcties profielpunten ---------------------------------------------------------
+
+#' Deel oeverpunten onder het waterpeil in als water
+#'
+#' Oeverpunten die meer dan `tol` onder het waterpeil van het profiel liggen en
+#' direct aansluiten op een waterlijnpunt (zonder tussenliggend punt boven
+#' water), liggen in werkelijkheid in het water, bijvoorbeeld onder een
+#' overhangende oever of omdat de waterlijn pas na deze punten is ingemeten.
+#' Deze punten krijgen sectie 'water' en het waterpeil van het profiel. Lage
+#' punten verderop op de oever (bv. een greppel) blijven oever.
+#'
+#' @param profiel data.table met ID, Puntnummer, sectie, z, wl, numwl_min en
+#'   numwl_max; wl is alleen ingevuld tussen de waterlijnen.
+#' @param tol Tolerantie in m (orde van de GPS-nauwkeurigheid).
+#' @return Het aangepaste profiel (by reference), onzichtbaar. Kolom
+#'   `oever_naar_water` geeft aan welke punten zijn aangepast.
+corrigeer_oever_onder_waterlijn <- function(profiel, tol = 0.02) {
+  markeer <- function(onder, pn, wl_min, wl_max) {
+    o <- order(pn)
+    onder <- onder[o]; pn <- pn[o]
+    r <- logical(length(pn))
+    i <- match(wl_min, pn) - 1
+    while (!is.na(i) && i >= 1 && isTRUE(onder[i])) { r[i] <- TRUE; i <- i - 1 }
+    j <- match(wl_max, pn) + 1
+    while (!is.na(j) && j <= length(pn) && isTRUE(onder[j])) { r[j] <- TRUE; j <- j + 1 }
+    r[order(o)]
+  }
+  profiel[, wl_profiel := mean(wl, na.rm = TRUE), by = ID]
+  profiel[, onder_wl := sectie == "oever" & !is.na(wl_profiel) & z < wl_profiel - tol]
+  profiel[, oever_naar_water := markeer(onder_wl, Puntnummer, numwl_min[1], numwl_max[1]), by = ID]
+  profiel[oever_naar_water == TRUE, `:=`(sectie = "water", wl = wl_profiel)]
+  profiel[, c("wl_profiel", "onder_wl") := NULL]
+  invisible(profiel)
+}
+
+#' Markeer waterpunten waar de GPS-stok vermoedelijk op de vaste bodem stond
+#'
+#' Waterpunten zonder slibpeiling (geen getal in Opmerking, geen waterlijn) die
+#' meer dan `drempel` lager liggen dan de mediane hoogte van de gepeilde
+#' waterpunten in hetzelfde profiel. Op zulke punten is de stok door het slib
+#' gezakt; de berekende waterdiepte is dan in werkelijkheid de diepte tot (bijna)
+#' de vaste bodem. Voor deze punten wordt de waterdiepte (wtd) NA.
+#'
+#' @param profiel data.table met ID, sectie, z, wl, Opmerking en wtd.
+#' @param drempel Hoogteverschil in m.
+#' @return Het aangepaste profiel (by reference), onzichtbaar. Kolom
+#'   `stok_op_vaste_bodem` geeft aan welke punten zijn gemarkeerd.
+markeer_stok_op_vaste_bodem <- function(profiel, drempel = 0.15) {
+  profiel[, gepeild := sectie == "water" & !is.na(suppressWarnings(as.numeric(Opmerking)))]
+  profiel[, z_gepeild := if (any(gepeild)) median(z[gepeild]) else NA_real_, by = ID]
+  profiel[, stok_op_vaste_bodem := sectie == "water" & !is.na(wl) & !gepeild &
+            !grepl("waterlijn", Opmerking) & !is.na(z_gepeild) & z < z_gepeild - drempel]
+  profiel[stok_op_vaste_bodem == TRUE, wtd := NA_real_]
+  profiel[, c("gepeild", "z_gepeild") := NULL]
+  invisible(profiel)
 }
 
 # Visualise profielen-------------------------------------------------------------

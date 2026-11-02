@@ -18,7 +18,7 @@ library(ggplot2)
 library(patchwork)
 library(ggrepel)
 
-workspace <- paste0(Sys.getenv("NMI-SITE"), 'O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Data/')
+workspace <- paste0(Sys.getenv("NMI-SITE"), '/O 1900 - O 2000/1922.N.23 VeeST vwsloot vd toekomst/05. Data/')
 rds_dir <- paste0(workspace, "output/rapport/")
 
 
