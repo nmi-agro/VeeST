@@ -140,7 +140,7 @@ loc_mid <- loc_cl |>
 
 p_clusters_nl <- ggplot() +
   ggspatial::annotation_map_tile(
-    type = "cartolight",
+    type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",
     cachedir = "/osm_cache",
     zoomin = 1,
     progress = "none",
@@ -1018,7 +1018,7 @@ maak_cluster_kaart <- function(clusters_subset, titel) {
   loc_mid_sub <- loc_mid |> filter(cluster_abio %in% clusters_subset)
   ggplot() +
     ggspatial::annotation_map_tile(
-      type = "cartolight",
+      type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",
       cachedir = "/osm_cache",
       zoomin = 1,
       progress = "none",
@@ -1275,8 +1275,8 @@ nederlandse_namen <- c(
   "Baggermoment_maand" = "Baggermoment (maand)",
   "Maaifrequentie_oever_per_jaar"= "Maaifrequentie oever per jaar",
   "Methode_toedienen_dierlijke_mest" = "Methode toedienen dierlijke mest",
-  "koebelasting_drinkende_koeien" = "Koebelasting drinkende koeien",
-    "afscheur_opp" = "Afscheurende oever (cm2)",
+  "koebelasting_drinkende_koeien" = "Koebelasting drinkende koeien (koeien/100 m oever)",
+    "afscheur_opp" = "Afscheurende oever (m2/m oever)",
   "kraggevorming_flag" = "Kraggevorming (ja/nee)",
   "oeverzone_2b_grillig" = "Grilligheid oeverlijn zone 2b"
 )
@@ -1502,14 +1502,15 @@ create_xgb_model <- function(target_var, predictors, data,
       n_val      = length(y_val),
       n_test     = length(y_test)
     ),
-    predictions = data.table(
-      SlootID   = model_data[c(train_idx, val_idx, test_idx), SlootID],
+    # Per rij (sloot x jaar) de predictorwaarden + gemeten/voorspeld + set,
+    # t.b.v. residudiagnostiek en betrouwbaarheid rond ALE-kantelpunten
+    predictions = model_data[c(train_idx, val_idx, test_idx)][, `:=`(
       actual    = c(y_train, y_val, y_test),
       predicted = c(pred_train, pred_val, pred_test),
       set       = c(rep("train", length(y_train)),
                     rep("val",   length(y_val)),
                     rep("test",  length(y_test)))
-    )
+    )][]
   ))
 }
 
@@ -1517,6 +1518,7 @@ create_xgb_model <- function(target_var, predictors, data,
 xgb_models <- list()
 model_performance <- list()
 feature_importance_all <- list()
+xgb_predictions <- list()  # voorspellingen per sloot met set (train/val/test), t.b.v. diagnostiek
 
 for(target in target_vars) {
   if(target %in% colnames(abio_proj)) {
@@ -1531,6 +1533,7 @@ for(target in target_vars) {
     # Store results
     xgb_models[[target]] <- model_result$model
     model_performance[[target]] <- model_result$performance
+    xgb_predictions[[target]] <- model_result$predictions
     feature_importance_all[[target]] <- model_result$importance[, .(Feature, Nederlandse_naam, Gain)][order(-Gain)][1:10]
     feature_importance_all[[target]][, target_var := target]
   }
@@ -2589,53 +2592,35 @@ write.csv(
 } # einde if (RUN_ALE_PLOTS)
 
 ## Functie voor XGBoost model diagnostiek en validatie ------------------------
-# Functie voor XGBoost model diagnostiek
-create_xgb_diagnostics <- function(xgb_models, abio_proj, target_vars, target_names_dutch, nederlandse_namen) {
-  
+# Diagnostiek op de validatie- en testset (out-of-sample): de voorspellingen
+# komen uit create_xgb_model() (zelfde splitsing en inclusiefilter als het
+# model), trainingsdata telt niet mee. NB: de validatieset is gebruikt voor
+# early stopping en is dus niet volledig onafhankelijk.
+create_xgb_diagnostics <- function(xgb_predictions, target_vars, target_names_dutch,
+                                   sets = c("val", "test")) {
+
   library(ggplot2)
   library(data.table)
   library(patchwork)
-  
+
   diagnostic_plots <- list()
-  
+
   for(target in target_vars) {
-    if(target %in% colnames(abio_proj) && target %in% names(xgb_models)) {
-      
+    if(target %in% names(xgb_predictions)) {
+
       cat("Creating diagnostics for:", target, "\n")
-      
-      # Verzamel model data
-      model_vars <- c("SlootID", target, cols_corr)
-      model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
-      model_data <- copy(abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars])
-      
-      # Convert factors
-      factor_cols <- names(model_data)[sapply(model_data, is.character)]
-      factor_cols_2 <- names(model_data)[sapply(model_data, is.factor)]
-      factor_cols <- unique(c(factor_cols, factor_cols_2))
-      if(length(factor_cols) > 0) {
-        model_data[, (factor_cols) := lapply(.SD, as.factor), .SDcols = factor_cols]
-        model_data[, (factor_cols) := lapply(.SD, as.numeric), .SDcols = factor_cols]
-      }
-      
-      # Prepare data FIRST
-      predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
-      X_data <- as.matrix(model_data[, ..predictors_clean])
-      y_actual <- model_data[[target]]
-      
-      # CHECK if numeric AFTER preparing data
-      if(!is.numeric(y_actual)) {
-        cat("Skipping", target, "- target is not numeric\n")
-        next
-      }
-      
-      # Predictions
-      y_pred <- predict(xgb_models[[target]], X_data)
-      
+
+      pred_dt <- xgb_predictions[[target]][set %in% sets]
+      y_actual <- pred_dt$actual
+      y_pred   <- pred_dt$predicted
+
       # Calculate residuals
       residuals <- y_actual - y_pred
-      
+
       # Create diagnostics data
       diag_data <- data.table(
+        SlootID = pred_dt$SlootID,
+        set = pred_dt$set,
         actual = y_actual,
         predicted = y_pred,
         residuals = residuals,
@@ -2755,6 +2740,7 @@ create_xgb_diagnostics <- function(xgb_models, abio_proj, target_vars, target_na
         histogram = p3,
         qq_plot = p4,
         density = p5,
+        residuen = diag_data[, target_var := target],
         statistics = data.table(
           Target = target_dutch,
           target_var = target,
@@ -2774,8 +2760,7 @@ create_xgb_diagnostics <- function(xgb_models, abio_proj, target_vars, target_na
 }
 
 # Maak diagnostics voor alle targets
-xgb_diagnostics <- create_xgb_diagnostics(xgb_models, abio_proj, target_vars, 
-                                          target_names_dutch, nederlandse_namen)
+xgb_diagnostics <- create_xgb_diagnostics(xgb_predictions, target_vars, target_names_dutch)
 
 # Display en save de diagnostische plots
 for(target in names(xgb_diagnostics)) {
@@ -2803,6 +2788,8 @@ for(target in names(xgb_diagnostics)) {
 
 # Samenvatting statistieken
 diagnostics_summary <- rbindlist(lapply(xgb_diagnostics, function(x) x$statistics))
+# residuen per sloot (validatie + test) voor alle doelvariabelen, t.b.v. rapporttekst
+xgb_diag_residuals <- rbindlist(lapply(xgb_diagnostics, function(x) x$residuen))
 print("=== Samenvattende Diagnostische Statistieken ===")
 print(diagnostics_summary)
 
@@ -2828,30 +2815,50 @@ if (xgb_diag_best_target %in% names(xgb_diagnostics)) {
 # Selectie: de zes doelvariabelen die het meest betrouwbaar worden voorspeld
 # (hoogste testset-R², zie tbl-performance), met voor elk de top-2
 # voorspellers op basis van gemiddeld genormaliseerd belang (Gain +
-# permutation importance). Bijgewerkt op basis van de huidige testset-R²-
-# ranking (n_soorten_sub 71%, P-AL 68%, Hydrofyten 59%, slib_redox 42%,
-# oeverindex 40%, max_slib 37%); Soortensamenstelling Helofyten (29%) en
-# draagkracht_oever (20%) vallen hiermee buiten de top-6 en zijn verwijderd,
-# Soortensamenstelling Hydrofyten en oeverindex zijn (opnieuw) toegevoegd.
+# permutation importance). Bijgewerkt op basis van de testset-R²-ranking na
+# de profielcorrecties en het ontdubbelen van de Mijnden-rijen (run
+# 20-10-2026): n_soorten_sub 56%, P-AL 55%, bedekking ondergedoken planten
+# 51%, slib_redox 45%, oeverindex 44%, draagkracht_oever 31%. Aantal
+# oeversoorten (35%) is overgeslagen: dat model is sterk overfit en staat
+# ook niet in fig-vip-xgb. Soortensamenstelling Hydrofyten (25%) en max_slib
+# (15%) vallen buiten de top-6.
 kantelpunt_targets <- c(
-  "P-AL mg p2o5/100g_SB", "n_soorten_sub_zone1", "Soortensamenstelling Hydrofyten",
-  "slib_redox_pH7", "max_slib", "oeverindex"
+  "n_soorten_sub_zone1", "P-AL mg p2o5/100g_SB", "waterzone_1_subm_tot_perc",
+  "slib_redox_pH7", "oeverindex", "draagkracht_oever"
 )
-kantelpunt_predictors <- list(
-  "P-AL mg p2o5/100g_SB"            = c("feP_PW", "drglg"),
-  "n_soorten_sub_zone1"             = c("P-AL mg p2o5/100g_SB", "holleoever"),
-  "Soortensamenstelling Hydrofyten" = c("P-AL mg p2o5/100g_SB", "feP_PW"),
-  "slib_redox_pH7"                  = c("slib_pH", "draagkracht_perceel"),
-  # Doorzicht/waterdiepte (zichtdiepte) en Taludhoek onder waterlijn zijn
-  # toegevoegd naast de top-2 (P-AL, afscheurende oever): beide zijn nog
-  # steeds relevante voorspellers voor slibdikte (zie VIP-figuur) en worden
-  # in de tekst hieronder inhoudelijk geduid (steilere oever -> minder slib;
-  # hoger doorzicht/waterdiepte -> meer slib).
-  "max_slib"                        = c("P-AL mg p2o5/100g_SB", "afscheur_opp", "zichtdiepte", "tldk_wtrwtr_perc"),
-  # Top-2 op basis van gecombineerd Gain + permutation-belang (zie VIP-figuur):
-  # Cation Exchange Capacity en P-AL slib.
-  "oeverindex"                      = c("CEC_CO_mmol+/kg_OR_25", "P-AL mg p2o5/100g_SB")
+# Top-2 per doelvariabele automatisch afgeleid uit all_features (gemiddeld
+# genormaliseerd Gain + permutation-belang, dezelfde rangorde als in de
+# VIP-vergelijkingsfiguur fig-vip-xgb). Zo blijven VIP-figuur en
+# kantelpuntenfiguur na elke modelrun met elkaar in overeenstemming; een
+# handmatige lijst raakte na hertraining verouderd (bv. drooglegging bij
+# P-AL slib, dat niet meer in de VIP-top voorkwam).
+kantelpunt_n_top <- 2L
+kantelpunt_predictors <- lapply(setNames(nm = kantelpunt_targets), function(tgt) {
+  kandidaten <- all_features[target_var == tgt][order(-mean_belang), Feature]
+  # Alleen voorspellers waarvoor een ALE-curve is berekend
+  kandidaten <- kandidaten[kandidaten %in% names(all_ale_plots[[tgt]])]
+  head(kandidaten, kantelpunt_n_top)
+})
+
+# Optionele extra voorspellers naast de automatische top-2, bewust gekozen
+# omdat ze in de rapporttekst inhoudelijk worden geduid. Slibdikte:
+# doorzicht/waterdiepte (zichtdiepte) en taludhoek onder waterlijn (steilere
+# oever -> minder slib; hoger doorzicht/waterdiepte -> meer slib). In de
+# rapporttekst expliciet als "aanvullend" benoemen.
+kantelpunt_extra <- list(
+  "max_slib" = c("zichtdiepte", "tldk_wtrwtr_perc")
 )
+# alleen voor doelvariabelen die in kantelpunt_targets zitten
+for (tgt in intersect(names(kantelpunt_extra), kantelpunt_targets)) {
+  extra <-kantelpunt_extra[[tgt]][kantelpunt_extra[[tgt]] %in% names(all_ale_plots[[tgt]])]
+  kantelpunt_predictors[[tgt]] <- union(kantelpunt_predictors[[tgt]], extra)
+}
+
+cat("\nGeselecteerde voorspellers voor de kantelpuntenfiguur:\n")
+for (tgt in names(kantelpunt_predictors)) {
+  cat(" -", target_names_dutch[tgt], ":",
+      paste(nederlandse_namen[kantelpunt_predictors[[tgt]]], collapse = ", "), "\n")
+}
 
 # Haal per target/predictor-paar de ALE-curve (x, ale_effect) op uit de reeds
 # berekende all_ale_plots (layer 2 = de ALE-lijn), en typeer de vorm van het
@@ -2876,55 +2883,37 @@ classify_ale_shape <- function(tgt, feat, jump_threshold = 0.5, width_threshold 
   } else {
     "Geleidelijke verandering"
   }
-  list(vorm = vorm, x_omslag = round((ld$x[i_max] + ld$x[i_max + 1]) / 2, 3), jump_frac = round(jump_frac, 2))
+  list(vorm = vorm, x_omslag = round((ld$x[i_max] + ld$x[i_max + 1]) / 2, 3), jump_frac = round(jump_frac, 2),
+       # richting van het effect bij toenemende predictorwaarde rond het omslagpunt
+       richting = if (dy[i_max] > 0) "+" else "-")
 }
 
-# Betrouwbaarheid rond het kantelpunt: voor de sloten met een predictorwaarde
-# dicht bij het omslagpunt (binnen 8% van de x-range), de spreiding (SD) van
-# het residu (gemeten - voorspeld) van het XGBoost-model, afgezet tegen de
-# globale residu-SD van dat target. Een lokale SD dicht bij (of onder) de
-# globale SD wijst op een kantelpunt dat niet extra onzeker is t.o.v. de rest
-# van het model; een duidelijk hogere lokale SD wijst op een kantelpunt in een
-# ijler bemeten of moeilijker te voorspellen deel van de databereik.
-get_diag_with_id_report <- function(target) {
-  model_vars <- c("SlootID", target, cols_corr)
-  model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
-  model_data <- copy(abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars])
-  sloot_ids <- model_data$SlootID
-  factor_cols_local <- names(model_data)[sapply(model_data, is.character)]
-  factor_cols_local <- setdiff(factor_cols_local, "SlootID")
-  factor_cols_local <- unique(c(factor_cols_local, names(model_data)[sapply(model_data, is.factor)]))
-  if (length(factor_cols_local) > 0) {
-    model_data[, (factor_cols_local) := lapply(.SD, as.factor), .SDcols = factor_cols_local]
-    model_data[, (factor_cols_local) := lapply(.SD, as.numeric), .SDcols = factor_cols_local]
-  }
-  predictors_clean <- colnames(model_data)[!colnames(model_data) %in% c("SlootID", target)]
-  X_data <- as.matrix(model_data[, ..predictors_clean])
-  y_actual <- model_data[[target]]
-  y_pred <- predict(xgb_models[[target]], X_data)
-  data.table(SlootID = sloot_ids, actual = y_actual, predicted = y_pred, residual = y_actual - y_pred)
-}
-
-reliability_near_point <- function(tgt, feat, x_point, window_frac = 0.08) {
-  model_vars <- c("SlootID", tgt, cols_corr)
-  model_vars <- model_vars[model_vars %in% colnames(abio_proj)]
-  md <- abio_proj[complete.cases(abio_proj[, ..model_vars]), ..model_vars]
-  xv  <- as.numeric(md[[feat]])
-  rng <- diff(range(xv, na.rm = TRUE))
-  win <- window_frac * rng
-  near_ids <- md$SlootID[abs(xv - x_point) <= win]
-
-  diag_dt      <- get_diag_with_id_report(tgt)
-  diag_dt_near <- diag_dt[SlootID %in% near_ids]
-  global_sd    <- sd(diag_dt$residual, na.rm = TRUE)
-  local_sd     <- sd(diag_dt_near$residual, na.rm = TRUE)
+# Betrouwbaarheid rond het kantelpunt, op basis van de modeldata (zelfde
+# inclusiefilter en rijen als het model, per sloot x jaar):
+# - n_near: aantal rijen met een predictorwaarde dicht bij het omslagpunt
+#   (binnen 8% van de x-range), over alle modelrijen (= datadichtheid);
+# - ratio_sd: spreiding (SD) van het residu (gemeten - voorspeld) bij de
+#   validatie- en testrijen rond het omslagpunt, t.o.v. de residu-SD over alle
+#   validatie- en testrijen (out-of-sample). NA als er < 5 val/test-rijen rond
+#   het omslagpunt liggen. Een ratio dicht bij (of onder) 1 wijst op een
+#   kantelpunt dat niet extra onzeker is t.o.v. de rest van het model.
+reliability_near_point <- function(tgt, feat, x_point, window_frac = 0.08, min_n_oos = 5) {
+  pr   <- xgb_predictions[[tgt]]
+  xv   <- as.numeric(pr[[feat]])
+  near <- abs(xv - x_point) <= window_frac * diff(range(xv, na.rm = TRUE))
+  oos  <- pr$set %in% c("val", "test")
+  res  <- pr$actual - pr$predicted
+  n_near_oos <- sum(near & oos, na.rm = TRUE)
+  global_sd  <- sd(res[oos], na.rm = TRUE)
+  local_sd   <- if (n_near_oos >= min_n_oos) sd(res[near & oos], na.rm = TRUE) else NA_real_
 
   list(
-    n_near    = nrow(diag_dt_near),
-    n_totaal  = nrow(diag_dt),
-    global_sd = round(global_sd, 3),
-    local_sd  = round(local_sd, 3),
-    ratio_sd  = round(local_sd / global_sd, 2)
+    n_near     = sum(near, na.rm = TRUE),
+    n_totaal   = nrow(pr),
+    n_near_oos = n_near_oos,
+    global_sd  = round(global_sd, 3),
+    local_sd   = round(local_sd, 3),
+    ratio_sd   = round(local_sd / global_sd, 2)
   )
 }
 
@@ -2942,9 +2931,10 @@ for (tgt in kantelpunt_targets) {
     # met de lokale spreiding rond het kantelpunt zelf (ratio_sd) en de
     # hoeveelheid data rond dat punt (n_near). Dit is een vuistregel, geen
     # formele toets, en dient als leeshulp bij de kantelpuntentabel.
-    betrouwbaarheid <- if (r2_tgt >= 0.5 && rel$ratio_sd <= 1.2 && rel$n_near >= 15) {
+    # Geen SD-ratio (te weinig val/test-rijen rond het punt) telt als beperkt.
+    betrouwbaarheid <- if (r2_tgt >= 0.5 && !is.na(rel$ratio_sd) && rel$ratio_sd <= 1.2 && rel$n_near >= 15) {
       "Redelijk betrouwbaar"
-    } else if (r2_tgt < 0.3 || rel$ratio_sd > 1.5 || rel$n_near < 10) {
+    } else if (r2_tgt < 0.3 || is.na(rel$ratio_sd) || rel$ratio_sd > 1.5 || rel$n_near < 10) {
       "Beperkt betrouwbaar"
     } else {
       "Matig betrouwbaar"
@@ -2959,8 +2949,10 @@ for (tgt in kantelpunt_targets) {
       x_omslag    = shape$x_omslag,
       vorm        = shape$vorm,
       jump_frac   = shape$jump_frac,
+      richting    = shape$richting,
       n_sloten_bij_omslag = rel$n_near,
       n_sloten_totaal     = rel$n_totaal,
+      n_valtest_bij_omslag = rel$n_near_oos,
       ratio_sd_lokaal_vs_globaal = rel$ratio_sd,
       betrouwbaarheid = betrouwbaarheid
     )
@@ -3003,15 +2995,16 @@ build_kantelpunt_panel <- function(tgt, feat, x_pt, vorm_label, toon_target_in_t
         nederlandse_namen[feat]
       },
       subtitle = paste0(vorm_label, " bij ", round(x_pt, 2)),
-      x        = nederlandse_namen[feat],
+      # x-astitel weggelaten: de voorspeller staat al (vet) in de paneeltitel
+      x        = NULL,
       y        = "ALE effect"
     ) +
-    theme_minimal(base_size = 14) +
+    theme_minimal(base_size = 16) +
     theme(
-      plot.title    = element_text(size = 13, face = "bold", lineheight = 1.0),
-      plot.subtitle = element_text(size = 12, color = "grey40"),
-      axis.title    = element_text(size = 13),
-      axis.text     = element_text(size = 12),
+      plot.title    = element_text(size = 17, face = "bold", lineheight = 1.0),
+      plot.subtitle = element_text(size = 15, color = "grey30"),
+      axis.title    = element_text(size = 15),
+      axis.text     = element_text(size = 14),
       # Paneelrand in de kleur van de doelvariabele: maakt in de gecombineerde
       # figuur direct zichtbaar welke panelen bij welk model horen, ook al
       # staan de panelen van eenzelfde doelvariabele niet meer per se naast elkaar.
@@ -3029,7 +3022,7 @@ build_kantelpunt_panel <- function(tgt, feat, x_pt, vorm_label, toon_target_in_t
       geom_label(
         data  = tp$local_extrema,
         aes(x = x, y = y, label = round(x, 2)),
-        vjust = -0.6, size = 2.2, color = "red", fill = "white",
+        vjust = -0.6, size = 4.5, color = "red", fill = "white",
         label.padding = unit(0.12, "lines"), inherit.aes = FALSE
       )
   }
@@ -3056,24 +3049,37 @@ kantelpunt_target_groepen <- lapply(kantelpunt_targets, function(tgt) {
   kleur_tgt <- kantelpunt_target_kleur[[tgt]]
   r2_tgt    <- rows_tgt$r2_test[1]
 
-  wrap_plots(panelen_tgt, nrow = 1) +
+  # Vaste 2 kolommen, zodat alle panelen even breed zijn (ook bij Slibdikte
+  # met 4 voorspellers -> 2 x 2). plot_annotation() werkt in patchwork alleen
+  # op het buitenste niveau; daarom wordt elke groep met wrap_elements()
+  # ingepakt, anders valt de titel met de doelvariabele weg.
+  groep <- wrap_plots(panelen_tgt, ncol = 2) +
     plot_annotation(
-      title = paste0(target_names_dutch[tgt], "  (testset-R\u00b2 XGBoost = ", round(r2_tgt * 100), "%)"),
+      title = paste0(
+        "Doelvariabele: ", gsub("\n", " ", target_names_dutch[tgt]),
+        "  (testset-R\u00b2 XGBoost = ", round(r2_tgt * 100), "%)"
+      ),
       theme = theme(
         plot.title = element_text(
-          size = 14, face = "bold", color = kleur_tgt,
-          margin = margin(b = 4)
+          size = 20, face = "bold", color = kleur_tgt,
+          margin = margin(t = 6, b = 6)
         )
       )
     )
+  wrap_elements(full = groep)
 })
+names(kantelpunt_target_groepen) <- kantelpunt_targets
 kantelpunt_target_groepen <- kantelpunt_target_groepen[!vapply(kantelpunt_target_groepen, is.null, logical(1))]
 
-xgb_kantelpunt_plot <- wrap_plots(kantelpunt_target_groepen, ncol = 1)
+# Rijhoogte naar aantal panelrijen per groep (Slibdikte heeft 2 rijen)
+kantelpunt_heights <- vapply(names(kantelpunt_target_groepen), function(tgt) {
+  ceiling(nrow(kantelpunt_tbl[target == tgt]) / 2) + 0.25
+}, numeric(1))
+xgb_kantelpunt_plot <- wrap_plots(kantelpunt_target_groepen, ncol = 1, heights = kantelpunt_heights)
 print(xgb_kantelpunt_plot)
 ggsave(
   paste0(workspace, "output/AlleGebieden/Tussenrapportage/XGBoost_kantelpunten_uitgelicht.png"),
-  plot = xgb_kantelpunt_plot, width = 34, height = 42, units = "cm", dpi = 200
+  plot = xgb_kantelpunt_plot, width = 32, height = 75, units = "cm", dpi = 200
 )
 
 
@@ -3426,9 +3432,14 @@ ggsave(
 
 ## Beheervariabelen per waterschap --------------------------------------------
 
+# Maaifrequentie_perceel_per_jaar is in de data volledig leeg; de maaifrequentie
+# van de bemestingsvrije zone (ook voorspeller in het GAM hieronder) is wel
+# ingevuld en meestal gelijk aan die van het perceel.
 beheer_vars <- c(
   "Maaifrequentie_oever_per_jaar",
-  "Maaifrequentie_perceel_per_jaar",
+  "Maaifrequentie_bemestingsvrije_zone_per_jaar",
+  "Maaimaanden_oever",
+  "Maaimaanden_sloot",
   "Baggerfrequentie_per_jaar",
   "Baggermoment_maand",
   "koebelasting_drinkende_koeien",
@@ -3438,10 +3449,12 @@ beheer_vars <- c(
 
 beheer_nl <- c(
   "Maaifrequentie_oever_per_jaar"          = "Maaifrequentie oever (p/jr)",
-  "Maaifrequentie_perceel_per_jaar"        = "Maaifrequentie perceel (p/jr)",
+  "Maaifrequentie_bemestingsvrije_zone_per_jaar" = "Maaifrequentie bemestingsvrije zone (p/jr)",
+  "Maaimaanden_oever"                    = "Maaimaand oever (eerste maand)",
+  "Maaimaanden_sloot"                      = "Maaimaand sloot (eerste maand)",
   "Baggerfrequentie_per_jaar"              = "Baggerfrequentie (p/jr)",
   "Baggermoment_maand"                     = "Baggermoment (maand gem.)",
-  "koebelasting_drinkende_koeien"          = "Koebelasting drinkend",
+  "koebelasting_drinkende_koeien"          = "Koebelasting (koeien/100 m)",
   "Methode_toedienen_dierlijke_mest"       = "Methode mesttoediening (0-5)",
   "Breedte_bemestingsvrije_zone_huidig_m"  = "Bemestingsvrije zone (m)"
 )
@@ -3451,6 +3464,15 @@ beheer_avail <- beheer_vars[beheer_vars %in% names(abio_proj)]
 beheer_dt <- abio_proj[waterschap %in% ws_groep$waterschap,
   c("waterschap", beheer_avail), with = FALSE]
 beheer_dt <- merge(beheer_dt, ws_groep, by = "waterschap")
+
+# Maaimaanden staan als tekst in de beheerenquête (bv. "6,8,9" of "12,1,2"):
+# eerste genoemde maand, net als in wp2_analyse.R. "n.v.t./onbekend" en 0
+# worden NA.
+maai_kol <- intersect(c("Maaimaanden_oever", "Maaimaanden_sloot"), beheer_avail)
+beheer_dt[, (maai_kol) := lapply(.SD, function(x) {
+  m <- suppressWarnings(as.numeric(sub("^\\D*(\\d+).*$", "\\1", as.character(x))))
+  replace(m, m == 0, NA)
+}), .SDcols = maai_kol]
 
 long_beheer <- melt(
   beheer_dt,
@@ -3499,7 +3521,7 @@ print(p_beheer)
 ggsave(
   "output/AlleGebieden/Tussenrapportage/Waterschap_beheer_vergelijking.png",
   plot = p_beheer,
-  width = 28, height = 22, units = "cm", dpi = 300
+  width = 28, height = 27, units = "cm", dpi = 300
 )
 
 
@@ -4017,9 +4039,9 @@ beheer_gam_preds <- c(
 )
 beheer_gam_preds_nl <- c(
   "Methode_toedienen_dierlijke_mest" = "Methode mesttoediening (0-5)",
-  "Maaifrequentie_bemestingsvrije_zone_per_jaar"  = "Maaifrequentie perceel (p/jr)",
+  "Maaifrequentie_bemestingsvrije_zone_per_jaar"  = "Maaifrequentie bemestingsvrije zone (p/jr)",
   "Maaifrequentie_oever_per_jaar"    = "Maaifrequentie oever (p/jr)",
-  "koebelasting_drinkende_koeien"    = "Koebelasting drinkend",
+  "koebelasting_drinkende_koeien"    = "Koebelasting (koeien/100 m)",
   "Baggermoment_maand"               = "Baggermoment (maand gem.)",
   "Baggerfrequentie_per_jaar"        = "Baggerfrequentie (p/jr)"
 )
@@ -4030,8 +4052,9 @@ nederlandse_namen[names(beheer_gam_preds_nl)] <- beheer_gam_preds_nl
 
 beheer_gam_preds_avail <- beheer_gam_preds[beheer_gam_preds %in% colnames(abio_proj)]
 
-beheer_gam_results <- list()
-beheer_gam_plots   <- list()
+beheer_gam_results    <- list()
+beheer_gam_plots      <- list()
+beheer_gam_terms_list <- list()
 
 for (tgt in beheer_gam_targets) {
   if (!tgt %in% colnames(abio_proj)) next
@@ -4097,6 +4120,16 @@ for (tgt in beheer_gam_targets) {
     n           = nrow(gam_data),
     predictoren = paste(beheer_gam_preds_avail, collapse = ", ")
   )
+
+  # Richting van elk beheereffect (teken van de correlatie tussen voorspeller en
+  # zijn partiële effect), t.b.v. de interpretatiecontrole in het rapport
+  pt <- predict(gam_fit, type = "terms")
+  s_table[, richting := vapply(seq_len(.N), function(i) {
+    if (predictor[i] == "lon,lat (ruimtelijk)" || !term[i] %in% colnames(pt)) return(NA_character_)
+    r <- suppressWarnings(cor(gam_data[[predictor_safe[i]]], pt[, term[i]]))
+    if (is.na(r)) NA_character_ else if (r > 0) "+" else "-"
+  }, character(1))]
+  beheer_gam_terms_list[[tgt]] <- copy(s_table)[, target_nl := beheer_gam_target_nl[tgt]]
 
   cat("  Significantie per smooth-term:\n")
   print(s_table[, .(predictor_nl, edf = round(`edf`, 2), p_waarde = round(`p-value`, 4))])
@@ -4177,6 +4210,8 @@ for (tgt in beheer_gam_targets) {
 }
 
 beheer_gam_summary <- rbindlist(beheer_gam_results)
+# edf en p-waarde per smooth-term (incl. ruimtelijke term) van het volledige model
+beheer_gam_terms   <- rbindlist(beheer_gam_terms_list)
 if (nrow(beheer_gam_summary) > 0) {
   cat("\n=== GAM beheervariabelen: overzicht ===\n")
   print(beheer_gam_summary[, .(target_nl, predictoren, n,
@@ -4336,10 +4371,10 @@ rf_nederlandse_namen <- c(
   "Baggermoment_maand"             = "Baggermoment (maand)",
   "Maaifrequentie_oever_per_jaar"  = "Maaifrequentie oever per jaar",
   "Methode_toedienen_dierlijke_mest" = "Methode toedienen dierlijke mest",
-  "koebelasting_drinkende_koeien"  = "Koebelasting drinkende koeien",
+  "koebelasting_drinkende_koeien"  = "Koebelasting drinkende koeien (koeien/100 m oever)",
   "koeien_drinken_correctie"       = "Koeien drinken correctie",
   "vernat_loc"                     = "Vernatting locatie",
-  "afscheur_opp"       = "Oppervlak afscheurende oever (cm2)",
+  "afscheur_opp"       = "Oppervlak afscheurende oever (m2/m oever)",
   "kraggevorming_flag"             = "Kraggevorming (ja/nee)",
   "oeverzone_2b_grillig"           = "Grilligheid oeverlijn zone 2b"
 )
@@ -4956,11 +4991,13 @@ saveRDS(beheer_gam_plots,   paste0(rds_dir, "beheer_gam_plots.rds"))
 # "Effect van beheervariabelen op erosie- en vernattingsrisico" in het rapport.
 saveRDS(beheer_gam_nospatial_summary, paste0(rds_dir, "beheer_gam_nospatial_summary.rds"))
 saveRDS(beheer_gam_nospatial_stable,  paste0(rds_dir, "beheer_gam_nospatial_stable.rds"))
+saveRDS(beheer_gam_terms,             paste0(rds_dir, "beheer_gam_terms.rds"))
 
 # XGBoost validatie/diagnostiek (residuen, Q-Q, uitschieter-bias per target):
 # samenvattende tabel voor alle doelvariabelen + het volledige 4-panel voor
 # het uitgelichte model (P-AL slib), zie sectie "Validatie XGBoost-model" in het rapport.
 saveRDS(diagnostics_summary, paste0(rds_dir, "xgb_diagnostics_summary.rds"))
+saveRDS(xgb_diag_residuals,  paste0(rds_dir, "xgb_diag_residuals.rds"))
 saveRDS(xgb_diag_best_plot,  paste0(rds_dir, "xgb_diag_best_plot.rds"))
 saveRDS(xgb_diag_best_target, paste0(rds_dir, "xgb_diag_best_target.rds"))
 

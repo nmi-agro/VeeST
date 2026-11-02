@@ -62,6 +62,7 @@ n_unique_sloten      <- readRDS(paste0(rds_dir, "n_unique_sloten.rds"))
 xgb_diagnostics_summary <- readRDS(paste0(rds_dir, "xgb_diagnostics_summary.rds"))
 xgb_diag_best_plot      <- readRDS(paste0(rds_dir, "xgb_diag_best_plot.rds"))
 xgb_diag_best_target    <- readRDS(paste0(rds_dir, "xgb_diag_best_target.rds"))
+xgb_diag_residuals      <- if (file.exists(paste0(rds_dir, "xgb_diag_residuals.rds"))) readRDS(paste0(rds_dir, "xgb_diag_residuals.rds")) else NULL
 xgb_kantelpunt_tbl       <- readRDS(paste0(rds_dir, "xgb_kantelpunt_tbl.rds"))
 xgb_kantelpunt_plot      <- readRDS(paste0(rds_dir, "xgb_kantelpunt_plot.rds"))
 gam_summary              <- if (file.exists(paste0(rds_dir, "gam_summary.rds"))) readRDS(paste0(rds_dir, "gam_summary.rds")) else NULL
@@ -72,6 +73,7 @@ beheer_gam_summary       <- if (file.exists(paste0(rds_dir, "beheer_gam_summary.
 beheer_gam_plots         <- if (file.exists(paste0(rds_dir, "beheer_gam_plots.rds")))   readRDS(paste0(rds_dir, "beheer_gam_plots.rds"))   else NULL
 beheer_gam_nospatial_summary <- if (file.exists(paste0(rds_dir, "beheer_gam_nospatial_summary.rds"))) readRDS(paste0(rds_dir, "beheer_gam_nospatial_summary.rds")) else NULL
 beheer_gam_nospatial_stable  <- if (file.exists(paste0(rds_dir, "beheer_gam_nospatial_stable.rds")))  readRDS(paste0(rds_dir, "beheer_gam_nospatial_stable.rds"))  else NULL
+beheer_gam_terms             <- if (file.exists(paste0(rds_dir, "beheer_gam_terms.rds")))             readRDS(paste0(rds_dir, "beheer_gam_terms.rds"))             else NULL
 
 # Clusteranalyse abiotische variabelen (Analyses_dev_db.R, sectie 2): bevat
 # o.a. de parametertabel voor de bijlage, de manual_exclude-redenen, de
@@ -119,15 +121,15 @@ rf_vs_xgb[, rmse_unit := rf_rmse_units[target]]
 
 Dit rapport beschrijft de resultaten van de modelleringsanalyse uitgevoerd binnen het VeeST-project (Veenweiden Sloot van de Toekomst). Het doel van de modellering is het kwantificeren van de relaties tussen abiotische en beheersvariabelen enerzijds en ecologische wensbeeldparameters anderzijds (met als eindperspectief het kunnen sturen op beheermaatregelen om die wensbeelden te realiseren).
 
-De analyses zijn uitgevoerd op een gecombineerde dataset van veldmetingen (WP1 en WP2), gefilterd op monsters (meettraject en meetmoment) met complete abiotische én vegetatieopnamen. 
+De analyses zijn uitgevoerd op een gecombineerde dataset van veldmetingen (eenmalige inventarisaties van WP1 en per sloot één traject tijdens de nulmeting van WP2), gefilterd op monsters (meettraject en meetmoment) met complete abiotische én vegetatieopnamen. 
 
 # Methoden
 
 ## Data en voorspellende variabelen
 
-De dataset bevat locatiemetingen van meerdere waterschappen. Voor de XGBoost- en Random Forest-modellen (hieronder) is de data eerst gefilterd op `MeenemenDataAnalyse_totaal == 'ja'`: een vlag die aangeeft welke meting per sloot representatief is voor de reguliere situatie. Deze filter is nodig omdat WP2-sloten in sommige gevallen in meerdere jaren en/of onder meerdere experimentele behandelingen zijn bemeten; zonder filtering zou zo'n sloot meerdere keren in de dataset voorkomen en zwaarder meewegen dan sloten met één meting, en zouden proefbehandelingen (die niet representatief zijn voor reguliere bedrijfsvoering) meegenomen worden als reguliere waarnemingen. Na deze filtering en de aanvullende `complete.cases()`-filtering per doelvariabele (verwijdering van rijen met ontbrekende waarden in doelvariabele of voorspellende variabelen) blijven gemiddeld ~190 sloten per doelvariabele over; een klein aantal sloten (10) komt ook na filtering nog met twee meetjaren voor, omdat er voor die sloten meerdere als "ja" gemarkeerde metingen bestaan. Na deze kwaliteitsfiltering op volledigheid en unieke trajecten per sloot (slechts één behandeling per sloot is meegenomen, waarbij de proefbehandelingen zijn weggelaten) zijn 33 voorspellende variabelen geselecteerd, verdeeld over:
+Voor de XGBoost- en Random Forest-modellen (hieronder) is de data eerst gefilterd op `MeenemenDataAnalyse_totaal == 'ja'`: een vlag die aangeeft welke meting per sloot representatief is voor de reguliere situatie. Deze filter is nodig omdat WP2-sloten in sommige gevallen in meerdere jaren en/of onder meerdere experimentele behandelingen zijn bemeten; zonder filtering zou zo'n sloot meerdere keren in de dataset voorkomen en zwaarder meewegen dan sloten met één meting, en zouden proefbehandelingen (die niet representatief zijn voor reguliere bedrijfsvoering) meegenomen worden als reguliere waarnemingen. Na deze filtering en de aanvullende `complete.cases()`-filtering per doelvariabele (verwijdering van rijen met ontbrekende waarden in doelvariabele of voorspellende variabelen) blijven gemiddeld ~190 sloten per doelvariabele over; een klein aantal sloten (10) komt ook na filtering nog met twee meetjaren voor, omdat er voor die sloten meerdere als "ja" gemarkeerde metingen bestaan. Na deze kwaliteitsfiltering op volledigheid en unieke trajecten per sloot (slechts één behandeling per sloot is meegenomen, waarbij de proefbehandelingen zijn weggelaten) zijn 33 voorspellende variabelen geselecteerd, verdeeld over:
 
-- **Hydrologische variabelen**: drooglegging, maximale waterdiepte, doorzicht, waterbreedte
+- **Slootvariabelen**: drooglegging, maximale waterdiepte, doorzicht, waterbreedte
 - **Oeverstructuur**: breedte oevervegetatiezone 2a en 2b, taludhoek, onderholling, oeverbreedte
 - **Bodemchemie (0–25 cm)**: kleigehalte, organisch stofgehalte, CEC, draagkracht
 - **Waterchemie en slibkwaliteit**: water-pH, chloride, ammonium, P-AL, redox, FeP-verhouding
@@ -145,6 +147,14 @@ targets_tbl <- data.table(
 )
 kable(targets_tbl)
 ```
+
+### Monsterbehandeling en analyse van slib, oever en water
+
+- **Slib**: van de bovenste 25 cm van de sliblaag is een monster genomen. B-ware heeft de slibmonsters gedroogd op 60 °C en daarin de totaalgehalten van onder meer ijzer, fosfor en zwavel bepaald. AgroCares heeft hetzelfde gedroogde materiaal geanalyseerd op P-AL, CaCl~2~-extraheerbare elementen en XRF-totaalgehalten. De XRF-meting gebeurt op materiaal dat tot 105 °C is gedroogd; omdat bij veen een deel van de matrix verloren gaat bij die temperatuur, zijn de XRF-waarden op basis van het gemeten vochtgehalte omgerekend naar slib gedroogd op 60 °C.
+- **Oever**: de oevermonsters zijn door AgroCares gedroogd op 40 °C en geanalyseerd, in twee lagen (0–25 cm en 25–50 cm). De XRF-waarden zijn op dezelfde manier omgerekend naar grond gedroogd op 40 °C.
+- **Poriewater en oppervlaktewater**: deze zijn door B-ware geanalyseerd zonder te drogen. Het poriewater is gewonnen uit hetzelfde slibmonster als waarin P-AL en totaal-P zijn bepaald.
+
+Bij het drogen oxideert gereduceerd ijzer (ijzer(II)), en bindt fosfaat dat onder gereduceerde omstandigheden was vrijgekomen opnieuw aan ijzer. De gehalten in het gedroogde slib, zoals P-AL en totaal-P, zijn daardoor een maat voor de voorraad en hangen weinig af van de redoxtoestand op de dag van monstername. Het poriewater is wel een momentopname: de concentraties daarin hangen af van de redoxtoestand op en vóór de meetdag. Toch hangt P in het poriewater sterk samen met P-AL in het slib (Spearman ρ = 0,64; zie "Relatie tussen fosfor- en ijzervariabelen"): de voorraad bepaalt in belangrijke mate hoeveel fosfaat in oplossing is, en daaromheen varieert het poriewater met de omstandigheden rond de meetdag.
 
 ### Toegepaste datatransformaties of standaardisaties
 
@@ -173,7 +183,7 @@ Berekend als molverhouding.
 
 #### Kengetallen op basis van profielen
 
-- Drooglegging oever en perceel: zowel het hoogste punt op de oever als het maaiveld minus jaarrondstreefpeil (NHI)
+- Drooglegging oever en perceel: het hoogste punt op de oever respectievelijk het hoogste punt van het profiel (maaiveld) minus het gemeten waterpeil op de meetdag. De drooglegging is daarmee een momentopname tijdens het veldbezoek in het groeiseizoen en geeft geen informatie over het verschil tussen zomer- en winterpeil.
 - Zomerdrooglegging: maaiveld minus zomerpeil (NOBV)
 - Taludhoek boven water rond de waterlijn: tan⁻¹(hoogteverschil oever en waterlijn / horizontale afstand), waarbij van alle oeverpunten die minder dan 35 cm boven de waterlijn liggen het punt wordt genomen dat het verst van de waterlijn af ligt, met de insteek als maximale grens.
 - Taludhoek onder water rond de waterlijn: tan⁻¹(hoogteverschil bovenkant slib op 35 cm verticale afstand onder de waterlijn en waterlijn / horizontale afstand).
@@ -234,7 +244,7 @@ draagkracht_tab <- rbindlist(lapply(names(check_vars), function(v) {
 kable(draagkracht_tab)
 ```
 
-Voor beide draagkrachtmaten is de spreiding binnen een locatie over de tijd van vergelijkbare orde van grootte als de spreiding tussen gebieden. Bij draagkracht perceel is de within-locatie spreiding zelfs licht groter dan de tussen-gebied spreiding; bij draagkracht oever is de tussen-gebied spreiding iets groter dan de within-locatie spreiding, maar het verschil is klein. Dit betekent dat een deel van de verschillen die in de gebieds-boxplots zichtbaar zijn, niet uitsluitend structurele verschillen tussen gebieden weerspiegelt, maar mede door jaar-op-jaar-variatie op dezelfde locatie kan worden verklaard (bijvoorbeeld door seizoensinvloeden, meetvariatie of lokale veranderingen).
+Voor beide draagkrachtmaten (perceel op 50–80 cm en oever op 0–40 cm onder maaiveld) is de spreiding binnen een locatie over de tijd van vergelijkbare orde van grootte als de spreiding tussen gebieden. Bij draagkracht perceel is de within-locatie spreiding zelfs licht groter dan de tussen-gebied spreiding; bij draagkracht oever is de tussen-gebied spreiding iets groter dan de within-locatie spreiding, maar het verschil is klein. Dit betekent dat een deel van de verschillen die in de gebieds-boxplots zichtbaar zijn, niet uitsluitend structurele verschillen tussen gebieden weerspiegelt, maar mede door jaar-op-jaar-variatie op dezelfde locatie kan worden verklaard (bijvoorbeeld door seizoensinvloeden, meetvariatie of lokale veranderingen).
 
 #### Koebelasting drinkende koeien
 
@@ -245,20 +255,21 @@ Deze afgeleide variabele geeft een proxy voor de belasting van de oever door koe
 - Ontbreken het aantal koeien per perceel per dag of het aantal koedagen per jaar, dan is de koebelasting onbekend (NA).
 - In overige gevallen wordt de koebelasting berekend als:
 
-$$\text{Koebelasting} = \text{Aantal koeien/perceel/dag} \times \frac{\text{Aantal koedagen/jaar}}{365} \times \text{Natte omtrek oever}$$
+$$\text{Koebelasting} = \frac{\text{Aantal koeien/perceel/dag} \times \frac{\text{Aantal koedagen/jaar}}{365}}{\text{Natte omtrek perceel (m)}} \times 100$$
 
-waarbij de natte omtrek van de oever een maat is voor hoeveel slootoever daadwerkelijk bereikbaar is voor drinkende koeien. Vrij-tekstwaarden voor drinkgedrag en drinkbakaanwezigheid (bijv. "ja"/"nee"/"onbekend"-varianten) zijn eerst genormaliseerd naar TRUE/FALSE/NA.
+waarbij de natte omtrek de lengte van de perceelsrand is die aan water grenst, en daarmee een maat voor hoeveel slootoever bereikbaar is voor drinkende koeien. De natte omtrek is per sloot overgenomen van het dichtstbijzijnde BRP-perceel (BRP 2021, binnen 50 m) en begrensd op de totale perceelsomtrek. De koebelasting is zo uitgedrukt als het jaargemiddelde aantal koeien per 100 m oever: hoe meer oever, hoe meer de koeien zich verdelen. Bij de VeeST-locaties ligt de natte omtrek tussen circa 270 en 3.950 m (mediaan circa 840 m). Is de natte omtrek onbekend of 0, dan is de koebelasting onbekend (NA). Vrij-tekstwaarden voor drinkgedrag en drinkbakaanwezigheid (bijv. "ja"/"nee"/"onbekend"-varianten) zijn eerst genormaliseerd naar TRUE/FALSE/NA.
 
 #### Erosieindex en vernattingsrisico-index
 
 Beide indices zijn opgebouwd als het (ongewogen) gemiddelde van een aantal genormaliseerde (0-1) deelcomponenten; ontbreekt een deelcomponent, dan wordt de index berekend als gemiddelde van de overige beschikbare componenten (en alleen op NA gezet als voor die sloot geen enkele component beschikbaar is).
 
-De **erosieindex** is een maat voor de mate van erosie van de oever (hoge waarde = veel erosie), opgebouwd uit vier componenten:
+De **erosieindex** is een maat voor de mate van erosie van de oever (hoge waarde = veel erosie), opgebouwd uit vijf componenten:
 
-- Afscheurend oeveroppervlak (lengte % × breedte in cm), genormaliseerd op het dataset-maximum: hoe groter het afscheurende oppervlak, hoe hoger de erosie-component.
+- Afscheurend oeveroppervlak (aandeel afscheurende lengte × breedte, in m² per m oever, analoog aan het oppervlak emerse vegetatie), genormaliseerd op het dataset-maximum: hoe groter het afscheurende oppervlak, hoe hoger de erosie-component.
 - Onderholling (cm), genormaliseerd op een maximum van 150 cm: meer onderholling betekent meer erosie.
-- Verhouding waterdiepte/slibdikte, genormaliseerd op het 95e-percentiel van deze verhouding en vervolgens geïnverteerd: een lage verhouding (veel slib ten opzichte van waterdiepte) duidt op meer erosie/sedimentatie.
+- Verhouding waterdiepte/slibdikte, genormaliseerd op het 95e-percentiel van deze verhouding en vervolgens geïnverteerd: een lage verhouding (veel slib ten opzichte van waterdiepte) duidt op meer erosie/sedimentatie. Na het inverteren geldt dus: hoe meer slib ten opzichte van de waterdiepte, hoe hoger de erosie-component.
 - Draagkracht perceel op 50-80 cm diepte, genormaliseerd op het dataset-maximum en geïnverteerd: een lagere draagkracht (instabielere ondergrond) wijst op meer erosie.
+- Oppervlak emerse vegetatie in oeverzone 2a (% bedekking × breedte, in m² per m oever), genormaliseerd op het 95e-percentiel en geïnverteerd: meer emerse vegetatie beschermt de oever en verlaagt de erosie-component.
 
 Kraggevorming (kragge-oever, gedefinieerd als > 25% kraggenbedekking in oeverzone 2b) en draagkracht oever zelf tellen niet mee in de indexformule; kraggevorming wordt in de bijbehorende componentenplots alleen als kleurcodering getoond (kragge-oevers remmen erosie), en draagkracht oever wordt apart als diagnostisch paneel weergegeven.
 
@@ -414,6 +425,8 @@ Random Forest is geïmplementeerd in R, met dezelfde train/validatie/test-opspli
 - Belangrijkheid van voorspellende variabelen: permutation importance (gemiddelde toename in MSE wanneer de waarden van een voorspellende variabele willekeurig worden geschud, herberekend per boom en gemiddeld over het bos)
 - OOB-fout (R² en RMSE op de out-of-bag samples) beschikbaar als interne validatiemaatstaf, naast de aparte validatie- en testset
 
+XGBoost en Random Forest hebben doorgaans meer data nodig om stabiele, generaliseerbare splitsingen te leren (een voorspellend model), met name wanneer veel voorspellende variabelen onderling gecorreleerd zijn.
+
 ## GAM met ruimtelijke smoothing
 
 Als aanvullend interpretatiemodel is per doelvariabele een Generalized Additive Model (GAM) gefit, uitgerust met:
@@ -422,7 +435,7 @@ Als aanvullend interpretatiemodel is per doelvariabele een Generalized Additive 
 - Een tweedimensionale ruimtelijke smooth (op basis van lengte- en breedtegraad) om gebiedseffecten op te vangen
 - Penalisatie via `select = TRUE` (REML): normaal gesproken laat het model wel wat kromming in elke smooth staan, ook als een voorspellende variabele er eigenlijk niet toe doet. Met `select = TRUE` mag een smooth ook helemaal plat (naar nul) worden getrokken, alsof de voorspellende variabele uit het model is gehaald. Zo functioneert dit als een automatische variabeleselectie: onbelangrijke voorspellende variabelen verdwijnen vanzelf, terwijl belangrijke voorspellende variabelen hun vorm behouden.
 
-Het GAM wordt naast XGBoost en Random Forest gebruikt omdat het, in tegenstelling tot deze twee ensemblemethoden, expliciet interpreteerbare, gladde (smooth) relaties tussen voorspellende variabele en doelvariabele oplevert: voor elke voorspellende variabele is direct af te lezen of en hoe het verband niet-lineair is, inclusief betrouwbaarheidsband, in plaats van alleen een globale importantiescore. Daarnaast is een GAM met penalisatie (REML/`select = TRUE`) beter geschikt voor de relatief kleine datasetomvang van VeeST (circa 200 unieke sloten): het aantal te schatten parameters is laag en expliciet beperkt via de smoothing-penalty, waardoor het model minder snel overfit dan een boom-ensemble met veel voorspellende variabelen en betrekkelijk weinig waarnemingen. XGBoost en Random Forest hebben doorgaans meer data nodig om stabiele, generaliseerbare splitsingen te leren (een voorspellend model), met name wanneer veel voorspellende variabelen onderling gecorreleerd zijn.
+Het GAM wordt naast XGBoost en Random Forest gebruikt omdat het, in tegenstelling tot deze twee ensemblemethoden, expliciet interpreteerbare, gladde (smooth) relaties tussen voorspellende variabele en doelvariabele oplevert: voor elke voorspellende variabele is direct af te lezen of en hoe het verband niet-lineair is, inclusief betrouwbaarheidsband, in plaats van alleen een globale importantiescore. Daarnaast is een GAM met penalisatie (REML/`select = TRUE`) beter geschikt voor de relatief kleine datasetomvang van VeeST (circa 200 unieke sloten): het aantal te schatten parameters is laag en expliciet beperkt via de smoothing-penalty, waardoor het model minder snel overfit dan een boom-ensemble met veel voorspellende variabelen en betrekkelijk weinig waarnemingen.
 
 Een belangrijke beperking is dat het hier gefitte GAM, met alleen univariate smooths per voorspellende variabele plus de aparte ruimtelijke smooth, geen interacties tussen voorspellende variabelen modelleert zoals dat wel in de boom-ensembles gebeurt. Combinatie-effecten tussen bijvoorbeeld beheer en omgevingsvariabelen (die XGBoost en Random Forest wél impliciet meenemen doordat boomsplitsingen op meerdere variabelen tegelijk kunnen inspelen) blijven in het GAM buiten beschouwing. Het GAM dient in dit rapport dus als aanvullend, interpretatiegericht model naast XGBoost en Random Forest, niet als vervanging: de ensemblemodellen blijven leidend voor het vangen van complexe, niet-additieve relaties, terwijl het GAM vooral inzicht geeft in de vorm van de belangrijkste univariate verbanden en ruimtelijke restpatronen.
 
@@ -457,7 +470,7 @@ if (file.exists(cluster_conf_rds)) {
 }
 ```
 
-De overeenkomst tussen ruimtelijk en variabele-gebaseerde clusterindeling geeft aan in hoeverre de GIS-clustertypen ook in de gemeten data onderscheidbaar zijn. Een lage overeenkomst wijst op systematische afwijkingen tussen GIS-laag en veldmeting (zoals de OS- en droogleggingsverschillen die hieronder worden besproken), of op grote variatie binnen clusters.
+De overeenkomst tussen ruimtelijk en variabele-gebaseerde clusterindeling geeft aan in hoeverre de GIS-clustertypen ook in de gemeten data te onderscheiden zijn. Een lage overeenkomst wijst op systematische afwijkingen tussen GIS-laag en veldmeting (zoals de OS- en droogleggingsverschillen die hieronder worden besproken), of op grote variatie binnen clusters.
 
 De overall overeenkomst bedraagt slechts 18.7% (veel lager dan bij een willekeurige toewijzing zou worden verwacht). Dit lage percentage is te verklaren door twee samenhangende effecten die elkaar versterken:
 
@@ -466,7 +479,7 @@ De overall overeenkomst bedraagt slechts 18.7% (veel lager dan bij een willekeur
 
 Doordat beide effecten in dezelfde richting wijzen (hoge OS én kleine drooglegging leiden beiden naar cluster 1 of 2) komen vrijwel alle locaties bij die twee clusters terecht. Dit is zichtbaar in de verwarringsmatrix als een concentratie van getallen in de eerste twee kolommen.
 
-Dit betekent niet dat de clusterindeling uit de verkenningsfase onjuist is, maar dat de GIS-laag en de veldmeting verschillende schaalniveaus beschrijven en zijn gebaseerd op verschillende bronnen, waarbij de relatieve waarde van variabelen vergelijkbaar is maar de absolute waarde niet. De GIS-laag representeert een gemiddeld perceel binnen een gemiddeld peilvak in het Nederlandse veenweidegebied, terwijl de VeeST-metingen oevers en sloten op standplaatsniveau in beeld heeft gebracht. De clusterindeling blijft zinvol als ruimtelijk kader, maar de absolute drempelwaarden voor OS, klei en drooglegging zijn niet direct vergelijkbaar tussen GIS en veld. 
+Dit betekent niet dat de clusterindeling uit de verkenningsfase onjuist is, maar dat de GIS-laag en de veldmeting verschillende schaalniveaus beschrijven en zijn gebaseerd op verschillende bronnen, waarbij de relatieve waarde van variabelen vergelijkbaar is maar de absolute waarde niet. De GIS-laag representeert een gemiddeld perceel binnen een gemiddeld peilvak in het Nederlandse veenweidegebied, terwijl de VeeST-metingen oevers en sloten op standplaatsniveau in beeld heeft gebracht. De clusterindeling blijft zinvol als ruimtelijk kader, maar de absolute drempelwaarden voor OS, klei en drooglegging zijn niet direct vergelijkbaar tussen de gebruikte databestanden in de GIS-clustering en veld. Een typering van een sloot op basis van alleen kaartdata wijkt daardoor wezenlijk af van een typering op basis van metingen in het veld. De drooglegging is daarvan een goed voorbeeld: in de kaartdata is die gebaseerd op het vastgestelde peil, terwijl het gemeten peil in veel gebieden daarvan afwijkt, bijvoorbeeld door recente peilverhogingen of onderbemalingen die niet in de kaarten staan (zie "Oppervlaktewaterpeilen VeeST meting tov praktijkpeilen in GIS laag (NOBV)"). Voor het typeren van een sloot is een veldbezoek dus onmisbaar.
 
 ### Schaalbereik GIS-laag vs. veldmeting
 
@@ -509,7 +522,7 @@ ggplot(rows_plot, aes(x = bron, y = mediaan, color = bron)) +
 
 Voor de meeste variabelen (waterbreedte, klei, OS, maaiveld, zomerpeil) verschilt het schaalbereik van de GIS-laag en de veldmeting. Opvallende systematische verschillen:
 
-**Organisch stofgehalte (OS)** is in de VeeST-veldmetingen structureel hoger dan in de GIS-laag: mediaan VeeST 36% vs. GIS 21% (een verschil van +15 procentpunt). Dit is te verwachten: de GIS-laag (obv NMI bodemSchat5) is een bredere representatie van alle bodemtypen, ook bodems met een laag OS gehalte. Het ruimtelijk model waarmee deze kaart is gemaakt is getraind op een dataset die niet specifiek is geselecteerd op veenweidelocaties, waardoor hoge OS-waarden worden onderschat in het model.
+**Organisch stofgehalte (OS)** is in de VeeST-veldmetingen structureel hoger dan in de GIS-laag: mediaan VeeST 36% vs. GIS 21% (een verschil van +15 procentpunt). Dit is te verwachten: de GIS-laag (obv NMI bodemSchat5) is een bredere representatie van alle bodemtypen, ook bodems met een laag OS gehalte. Het ruimtelijk model waarmee deze kaart is gemaakt is getraind op een dataset die niet specifiek is geselecteerd op veenweidelocaties, waardoor hoge OS-waarden worden onderschat in het model. Daarnaast vlakt BodemSchat als ruimtelijk model extreme waarden af: hoge OS-waarden op een specifieke locatie worden uitgemiddeld met de omgeving.
 
 **Kleigehalte** is in VeeST lager dan in de GIS-laag: mediaan VeeST 15% vs. GIS 23%, een verschil van 8 procentpunt. Dit hangt samen met de hogere OS in VeeST: locaties met veel organisch materiaal hebben doorgaans minder klei. De selectie op veenweidelocaties leidt dus tegelijkertijd tot hogere OS én lagere klei ten opzichte van de brede GIS-populatie.
 
@@ -521,7 +534,7 @@ Voor de meeste variabelen (waterbreedte, klei, OS, maaiveld, zomerpeil) verschil
 
 Het verschil tussen de GIS-clusteranalyse en de Zomerdrooglegging NOBV (~0.02 m) is klein en te verklaren doordat beide methoden vergelijkbare peilen gebruiken; het verschil dat resteert is vooral het gevolg van het gebruik van een jaarrondpeil (GIS-cluster) versus een zomerpeil (NOBV). Een zomerpeil is doorgaans hoger dan het jaargemiddelde, waardoor de zomerdrooglegging iets kleiner uitvalt dan de GIS-clusterdrooglegging.
 
-Het verschil tussen de NOBV zomerdrooglegging (~0.47 m) en de VeeST veldmeting (~0.33 m) bedraagt ~0.14 m. Dit is consistent met het verschil in maaiveld (GIS − VeeST: +0.34 m) minus het verschil in peil (GIS − VeeST: +0.20 m): 0.34 − 0.20 = 0.14 m, wat bevestigt dat de meting intern consistent is.
+Het verschil tussen de NOBV zomerdrooglegging (~0.47 m) en de VeeST veldmeting (~0.33 m) bedraagt ~0.14 m. Dit verschil is volledig te herleiden tot de twee onderdelen van de drooglegging (maaiveld minus peil). Het maaiveld ligt in de GIS-laag gemiddeld 0.34 m hoger dan in de veldmeting, en het peil 0.20 m hoger. Het verschil in drooglegging is dan 0.34 − 0.20 = 0.14 m: precies het gevonden verschil. De veldmeting is daarmee intern consistent.
 
 De spreiding (P10–P90) in de VeeST-veldmeting van drooglegging (0.32 m) is opvallend veel kleiner dan de spreiding in maaiveld (~1.86 m) en zomerpeil (~1.77 m) afzonderlijk. Dit is wiskundig te verwachten: maaiveld en waterpeil covariëren sterk (r = 0.98 in VeeST). Binnen individuele peilgebieden volgt het peil het maaiveld grotendeels, waardoor hun verschil (de drooglegging) weinig varieert. De variatie die wel bestaat in maaiveld en peil is grotendeels gedeelde regionale variatie die wegvalt bij aftrekking. De NOBV-zomerdrooglegging heeft een grotere spreiding (0.68 m) dan de VeeST-meting (0.32 m), omdat de NOBV-dataset een groter geografisch bereik dekt en de correlatie tussen maaiveld en peil iets lager is in deze NOBV-dataset (r = 0.95) dan de dataset van VeeST (r = 0.98). Dit kleine correlatieverschil leidt tot een substantieel grotere spreiding in het verschil; In de VeeST-dataset bewegen waterpeil en maaiveld perfect met elkaar mee, terwijl in de NOBV-dataset het waterpeil het maaiveld iets minder goed volgt, waardoor er meer spreiding in het verschil (drooglegging) ontstaat. In de NOBV-dataset kan het maaiveld binnen één peilvak behoorlijk variëren, terwijl het op papier vastgestelde peil gelijk is in ruimte en tijd en niet gelijk hoeft te zijn aan het werkelijke gemiddelde peil.
 
@@ -606,7 +619,7 @@ Het mediaan verschil over alle locaties is slechts −0.035 m (over het algemeen
 Positief verschil (gemeten hoger dan NOBV, peilopzet): Hegwewarren, Poppenhuizen, Olde Maten staan bovenaan (waterpeilen zijn hier in werkelijkheid hoger dan het NOBV-zomerpeil aangeeft), mede omdat peilen hier recent zijn verhoogd en dit nog niet op de kaart staat.
 Negatief verschil (gemeten lager dan NOBV): Eempolder, polder Westzaan, Zuiderveen, Blesdijke en het Wormer- en Jisperveld vallen op. In Westzaan en het Wormer- en Jisperveld komt dit omdat er veel onderbemalingen zijn die niet in de kaart van het NOBV staan. In de andere gebieden is het niet duidelijk waar het verschil door wordt veroorzaakt; wat wel opvallend is, is dat het peil in Blesdijke volgens de deelnemer verhoogd is (waar kan ik info vinden over de GLB pilot?) terwijl het peil op deze locaties ongeveer gelijk is aan het praktijkpeil, terwijl het peil op andere locaties in hetzelfde gebied veel lager liggen dan het praktijkpeil. 
 
-Waterpeilen zijn in werkelijkheid vaak lager dan het peilbesluit. Dit kan komen omdat peilen recent zijn verlaagd en dit niet op de kaart staat of omdat peilen in praktijk lager worden gehouden/ er meer onderbemalingen zijn. Lage peilen zijn onwenselijk voor veenafbraak en broeikasgasemissies en deze worden dus onderschat als oppervlaktewaterpeilen in de basisdata van het NOBV hoger zijn dan in werkelijkheid.
+Waterpeilen zijn in werkelijkheid vaak lager dan het peilbesluit. Dit kan komen omdat peilen recent zijn verlaagd en dit niet op de kaart staat of omdat peilen in praktijk lager worden gehouden/ er meer onderbemalingen zijn. Peilen worden in de praktijk ook lager gehouden omdat er anders water op maaiveld komt, bijvoorbeeld bij lagere percelen binnen een peilgebied of door bodemdaling. Lage peilen zijn onwenselijk voor veenafbraak en broeikasgasemissies en deze worden dus onderschat als oppervlaktewaterpeilen in de basisdata van het NOBV hoger zijn dan in werkelijkheid.
 
 
 ## Clusteranalyse abiotische variabelen
@@ -649,7 +662,7 @@ if (!is.null(clusteranalyse_veest) && !is.null(clusteranalyse_veest$plot_box)) {
 
 Wat opvalt is dat de variabelen die het meest onderscheidend zijn (hoogste eta²) vooral chemische eigenschappen en vegetatie in de sloot (niet op de oever) betreffen, terwijl de oeverstructuur- en vegetatie op de oever relatief weinig bijdragen aan het onderscheid tussen clusters. 
 
-Trofie veen is lager in cluster 3, 4, 6 en 8 (laagste trofiegehalte in veen) dan in de overige clusters. Cluster 3, 4 en 6 hebben ook de hoogste aantallen soorten waterplanten (zie @fig-clusteranalyse-boxplot), P-AL in slib is het laagst en Fe-P is het hoogst in deze clusters. Totaal-P in de oever is wel lager in cluster 3 en 4, maar juist niet in cluster 6. De relatie tussen de hoeveelheid P in de oever en de hoeveelheid P in het slib is ook zeer zwak (@fig-pfe-matrix) en dus niet eenduidig. 
+Trofie veen is lager in cluster 3, 4, 6 en 8 (laagste trofiegehalte in veen) dan in de overige clusters. Cluster 3, 4 en 6 hebben ook de hoogste aantallen soorten waterplanten (zie @fig-clusteranalyse-boxplot), P-AL in slib is het laagst en Fe-P is het hoogst in deze clusters. Totaal-P in de oever is wel lager in cluster 3 en 4, maar juist niet in cluster 6. De relatie tussen de hoeveelheid P in de oever en de hoeveelheid P in het slib is zeer zwak (@fig-pfe-matrix) en dus niet eenduidig. 
 
 ```{r}
 #| label: fig-clusteranalyse-kaart-158
@@ -678,8 +691,8 @@ if (!is.null(clusteranalyse_veest) && !is.null(clusteranalyse_veest$plot_kaart_c
 - **Cluster 1** is het grootste cluster (58 sloten) en neemt qua bijna alle variabelen een tussenpositie in tussen 2 en 4, met relatief het hoogste fosforgehalte in het slib (P_CC).
 - **Cluster 2** heeft relatief hoog trofiegehalte in het veen én het soortenarmst (mediaan 1 soort). Ook de hoogste Ga/MgO (vaak gepaard met kleiafzettingen) en het laagst in chlorideconcentratie.
 - **Cluster 3** (Eempolder en Idzegea) valt op door de relatief laagste P-totaal in de oever en Barium in het slib.
-- **Cluster 4** springt er sterk uit door een zeer hoog opgelost ijzergehalte in de oever gecombineerd met een lage pH (3.76; een indicatie van zure, ijzerrijke omstandigheden, verzuurde/geoxideerde veenbodem), terwijl dit tegelijk een van de clusters is met de meest soortenrijke sloten is en relatief voedselarm slib heeft (lage P-AL in slib).
-- **Cluster 5** zijn enkele locaties in Assendelft met een zeer hoge P-AL in het slib, veel P-totaal in de oever, zeer veel chloride in het poriewater (mediane concentratie 34 mg/l), lagere opgelost ijzergehalte (calciumchloride) en een veel hogere pH (calciumchloride) in de toplaag van de oever.
+- **Cluster 4** springt er sterk uit door een zeer hoog opgelost ijzergehalte in de oever gecombineerd met een lage pH (3.76; een indicatie van zure, ijzerrijke omstandigheden, verzuurde/geoxideerde veenbodem), terwijl dit tegelijk een van de clusters is met de meest soortenrijke sloten met relatief voedselarm slib (lage P-AL in slib).
+- **Cluster 5** zijn enkele locaties in Assendelft met een zeer hoge P-AL in het slib, een hoog gehalte P-totaal in de oever, zeer hoge concentratie chloride in het poriewater (mediane concentratie 34 mg/l), lagere opgelost ijzergehalte (calciumchloride) en een veel hogere pH (calciumchloride) in de toplaag van de oever.
 - **Cluster 5 en 8** vallen op met relatief hoge magnesium en chlorideconcentraties in poriewater (chloride is respectievelijk 34 en 16 mg/l, terwijl dit in de overige clusters < 3 mg/l is), al is chloride zelf geen top-16 eta²-variabele in de boxplot (na logtransformatie verliest hij onderscheidend vermogen). Totaal magnesium in de oever is niet sterk verhoogd in deze clusters; het verschil tussen poriewater en vaste matrix indiceert hier dus een andere bron (kwel) van magnesium (en chloride) in het poriewater dan de waterbodem of oever.
 - **Cluster 6** (vooral locaties in Staphosterveen en Olde Maten) valt op door de veel lagere P-AL en een reeks kalium-, magnesium- en galliumgerelateerde variabelen die stuk voor stuk het laagst zijn van alle clusters: K2O-totaalgehalte in de vaste matrix van het slib (K2O_xrf_g/kg_SB), Ga-totaalgehalte in de vaste matrix van het slib (Ga_xrf_mg/kg_SB), MgO-totaalgehalte in de vaste matrix van de oever (MgO_xrf_g/kg_OR_25), opgelost magnesium in het poriewater (Mg_umol/l_PW) en uitwisselbaar (CaCl2-extraheerbaar) magnesium in het slib (Mg_CC_mg/kg_SB). De eerste drie (K2O-, Ga- en MgO-totaalgehalte) zijn alle drie XRF-totalen in de vaste matrix en hangen sterk samen met weinig aluminium en titanium: samen wijzen ze op weinig kleimineralen in de vaste matrix. Het opgeloste en het uitwisselbare magnesium (poriewater resp. CaCl2-slib) meten een ander, chemisch proces (beschikbaarheid/mobiliteit van Mg) en geven een aanvullend, niet-redundant onderscheid. Cluster 6 heeft daarnaast hoge ijzergehaltes, waarschijnlijk worden deze locaties beïnvloed door voedselarme en ijzerrijke kwel, terwijl cluster 5 (Assendelft) juist voedselrijk (mariene) kwelwater ontvangt.
 - **Cluster 7** (vooral zuidwestelijk veenweidegebied, maar niet de Krimpenerwaard) heeft net als cluster 1 en 2 relatief hoge P-AL in het slib, maar relatief lage P-totaal in de oever en een lage Fe/P-verhouding.
@@ -721,13 +734,13 @@ perf_tbl <- merge(perf_tbl, xgb_cv_perf, by = "target", all.x = TRUE)
 
 perf_tbl <- perf_tbl[, .(
   target_nl,
-  `R² XGBoost (%)`    = round(r2_xgb * 100, 1),
-  `RMSE XGBoost`      = paste0(round(rmse_xgb, 3), " ", rmse_unit),
-  `R² RF (%)`         = round(r2_rf * 100, 1),
-  `RMSE RF`           = paste0(round(rmse_rf, 3), " ", rmse_unit),
+  `R² XGBoost (%)`    = round(r2_xgb * 100),
+  `RMSE XGBoost`      = signif(rmse_xgb, 3),
+  `R² RF (%)`         = round(r2_rf * 100),
+  `RMSE RF`           = signif(rmse_rf, 3),
   `Beste model`       = fifelse(r2_rf >= r2_xgb, "RF", "XGBoost"),
-  `CV R² XGBoost (%)` = round(r2_xgb_cv * 100, 1),
-  `CV R² RF (%)`      = round(r2_rf_cv * 100, 1)
+  `CV R² XGBoost (%)` = round(r2_xgb_cv * 100),
+  `CV R² RF (%)`      = round(r2_rf_cv * 100)
 )][order(-`R² RF (%)`)]
 setnames(perf_tbl, "target_nl", "Doelvariabele")
 kable(perf_tbl)
@@ -780,7 +793,7 @@ cat(sprintf(
 ))
 ```
 
-Een deel van de testset-R² waarden ligt laag of zelfs onder nul (het model presteert dan slechter dan het gemiddelde voorspellen); dit wijst op overfitting bij doelvariabelen met een beperkt aantal waarnemingen na filtering (zie Methoden, "Data en voorspellende variabelen"). Met circa `r n_unique_sloten` unieke sloten en tot 33 voorspellende variabelen is de trainingsset klein ten opzichte van het aantal te schatten parameters, met name voor Random Forest: dat model reguleert zichzelf niet expliciet (in tegenstelling tot XGBoost's learning rate, boomdiepte-limiet en early stopping) en leunt volledig op de middeling over bootstrap-samples (bagging) om overfitting te beperken. Bij deze relatief kleine trainingsset lijkt dat onvoldoende: voor de helft van de doelvariabelen scoort Random Forest een testset-R² dichtbij of onder nul.
+Een deel van de testset-R² waarden ligt laag of zelfs onder nul (het model presteert dan slechter dan het gemiddelde voorspellen); dit wijst op overfitting bij doelvariabelen met een beperkt aantal waarnemingen na filtering (zie Methoden, "Data en voorspellende variabelen"). Met circa `r n_unique_sloten` unieke sloten en tot 33 voorspellende variabelen is de trainingsset klein ten opzichte van het aantal te schatten parameters, met name voor Random Forest: dat model reguleert zichzelf niet expliciet (in tegenstelling tot XGBoost's learning rate, boomdiepte-limiet en early stopping) en leunt volledig op de middeling over bootstrap-samples (bagging) om overfitting te beperken. Bij deze relatief kleine trainingsset lijkt dat onvoldoende: voor `r sum(rf_vs_xgb$r2_rf < 0.2, na.rm = TRUE)` van de `r sum(!is.na(rf_vs_xgb$r2_rf))` doelvariabelen scoort Random Forest een testset-R² onder 20%.
 
 ```{r}
 #| label: tbl-xgb-vs-rf-gap
@@ -795,10 +808,10 @@ xgb_rf_gap <- rf_vs_xgb[!is.na(target_nl), .(
 gap_drempel <- 0.15
 kable(xgb_rf_gap[gap > gap_drempel, .(
   `Doelvariabele`   = target_nl,
-  `R² XGBoost (%)`  = round(r2_xgb * 100, 1),
-  `R² RF (%)`       = round(r2_rf  * 100, 1),
-  `Verschil (%-pt)` = round(gap    * 100, 1)
-)], digits = 1)
+  `R² XGBoost (%)`  = round(r2_xgb * 100),
+  `R² RF (%)`       = round(r2_rf  * 100),
+  `Verschil (%-pt)` = round(gap    * 100)
+)], digits = 0)
 ```
 
 Naast de absolute testset-R² is ook het verschil tussen XGBoost en Random Forest per doelvariabele relevant. Random Forest reguleert zichzelf minder expliciet dan XGBoost (zie hierboven) en is daardoor niet per definitie minder vatbaar voor overfitting; maar de twee modellen overfitten wel op andere manieren en zijn niet even gevoelig voor dezelfde toevallige patronen in de trainingsset. Wanneer XGBoost bij een doelvariabele een beduidend hogere testset-R² haalt dan Random Forest (hier: verschil > `r gap_drempel * 100`%-punt), is dat behalve een sterkere fit ook mogelijk een teken dat XGBoost trainingsspecifieke patronen heeft opgepikt die niet door Random Forest worden bevestigd, in plaats van een daadwerkelijk sterker generaliserend model. Voor deze doelvariabelen (@tbl-xgb-vs-rf-gap) is de testset-R² van XGBoost dus met extra terughoudendheid te interpreteren, en is het raadzaam vooral te kijken naar de ruimtelijke CV-resultaten (zie "Ruimtelijke cross-validatie" hieronder) om te beoordelen of de XGBoost-score standhoudt op ongeziene gebieden.
@@ -850,16 +863,17 @@ cat(sprintf(
 
 ## Voorspellers die het meest bijdragen aan de modelprestaties
 
-Omdat XGBoost bij de meerderheid van de doelvariabelen beter presteert dan Random Forest (zie hierboven), worden de belangrijkste voorspellende variabelen uit dit model getoond, met twee complementaire maten als gegroepeerde balken naast elkaar: de ingebouwde Gain-maatstaf (informatiewinst per splitsing op die variabele, opgeteld over alle bomen) en permutation importance op de validatieset (afname in voorspelkracht wanneer de waarden van een voorspellende variabele willekeurig worden geschud). Beide maten zijn per doelvariabele genormaliseerd naar het hoogst scorende kenmerk (1 = hoogste belang binnen die maat); 0% betekent dat een kenmerk niet in de top-10 van die methode voorkomt. Permutation importance is minder gevoelig voor bias richting variabelen met veel unieke waarden of niveaus dan Gain. Het `+`/`-`-label geeft de richting van het Pearson-verband tussen voorspeller en doelvariabele weer.
+Omdat XGBoost bij de meerderheid van de doelvariabelen beter presteert dan Random Forest (zie hierboven), worden de belangrijkste voorspellende variabelen uit dit model getoond, met twee complementaire maten als gegroepeerde balken naast elkaar: de ingebouwde Gain-maatstaf (informatiewinst per splitsing op die variabele, opgeteld over alle bomen) en permutation importance op de validatieset (afname in voorspelkracht wanneer de waarden van een voorspellende variabele willekeurig worden geschud). Beide maten zijn per doelvariabele genormaliseerd naar het hoogst scorende kenmerk (1 = hoogste belang binnen die maat); 0% betekent dat een kenmerk niet in de top-10 van die methode voorkomt. Permutation importance is minder gevoelig voor bias richting variabelen met veel unieke waarden of niveaus dan Gain. Gain bevoordeelt variabelen met veel verschillende waarden (zoals continue metingen): die bieden meer mogelijke splitsingspunten, waardoor het model ze vaker kiest, ook als ze weinig echte informatie over de doelvariabele bevatten. Permutation importance meet het verlies aan voorspelkracht op data die het model niet heeft gezien, en heeft daar minder last van. Het `+`/`-`-label geeft de richting van het Pearson-verband tussen voorspeller en doelvariabele weer. Aantal oeversoorten is niet in de figuur opgenomen: dat model is sterk overfit (R² op de trainingsset `r round(100 * performance_summary[performance_summary$target == "n_soorten_oev_zone2", "r2_train"][[1]])`%, op de testset `r round(100 * performance_summary[performance_summary$target == "n_soorten_oev_zone2", "r2_test"][[1]])`%), waardoor het belang van de voorspellers niet goed te interpreteren is.
 
 ```{r}
 #| label: fig-vip-xgb
 #| fig-cap: "VIP-vergelijking XGBoost: Gain vs. permutation importance per doelvariabele, genormaliseerd binnen doelvariabelen (+ = positief, - = negatief verband met de doelvariabele)"
 #| fig-height: 20
 #| fig-width: 12
-# Aantal oeversoorten (R² = 3%, nauwelijks voorspelbaar, zie tbl-performance)
-# uitgesloten van deze figuur voor de leesbaarheid: de VIP-scores voor een
-# model dat vrijwel geen verklarende kracht heeft, zijn niet goed te
+# Aantal oeversoorten uitgesloten van deze figuur voor de leesbaarheid: het
+# model is niet robuust voorspellend (XGBoost R² test ~24% bij n_test = 29,
+# maar sterk overfit (R² train ~98%), RF OOB-R² ~4% en ruimtelijke CV rond of
+# onder 0; run 15-10-2026). VIP-scores van zo'n model zijn niet goed te
 # interpreteren en leiden af van de overige negen doelvariabelen.
 ggplot(plot_vip_compare[!grepl("^Aantal oeversoorten", plot_title)], aes(x = feat_label, y = belang_norm, fill = methode)) +
   geom_col(position = "dodge") +
@@ -891,27 +905,405 @@ ggplot(plot_vip_compare[!grepl("^Aantal oeversoorten", plot_title)], aes(x = fea
   )
 ```
 
-**Draagkracht oever** wordt overwegend bepaald door fysieke kenmerken: onderholling is veruit de belangrijkste voorspeller en is negatief gerelateerd (meer onderholling ondermijnt de oever letterlijk, wat een fysisch aannemelijk verband is). Daarnaast is de diepte van de laagst gemeten draagkracht positief gerelateerd (een diepere ligging van het zwakste punt gaat samen met een hogere draagkracht aan het oppervlak), en zijn organisch stofgehalte en maximale slibdikte beide (zwakker) negatief gerelateerd.
+```{r}
+#| results: asis
+#| echo: false
+# Controle: passen de XGBoost-importances nog bij de interpretatie in de tekst
+# hieronder? Zo niet, dan verschijnt een waarschuwing in het gerenderde rapport.
+# eis "top"  = in de top-10 van Gain of permutation (beste rang <= max_rang)
+# eis "niet" = in geen van beide top-10's
+# richting   = verwacht teken van het Pearson-verband ("+"/"-"); NA = niet gecontroleerd
+# Tekst geschreven op basis van de run van 20-10-2026 (na de profielcorrecties
+# en het ontdubbelen van de Mijnden-rijen) en op 30-10-2026 bijgewerkt naar de
+# importances van de run van 22-10-2026.
+v <- function(target, feature, eis = "top", richting = NA_character_, max_rang = 10L)
+  data.table(target, feature, eis, richting, max_rang = as.integer(max_rang))
+wp <- c("n_soorten_sub_zone1", "waterzone_1_subm_tot_perc", "Soortensamenstelling Hydrofyten")
+pal <- "P-AL mg p2o5/100g_SB"
+nh4 <- "NH4_µmol/l_PW"
+cec <- "CEC_CO_mmol+/kg_OR_25"
+verwacht_xgb <- rbindlist(list(
+  # Draagkracht oever
+  v("draagkracht_oever", "holleoever", richting = "-", max_rang = 2),
+  v("draagkracht_oever", "dieptebin_min", max_rang = 2),
+  v("draagkracht_oever", "drglg", richting = "-"),
+  v("draagkracht_oever", "watbte", richting = "+"),
+  v("draagkracht_oever", c("OS_perc_OR_25", "max_slib"), richting = "-"),
+  # Slibdikte: waterdiepte (Gain) en breedte zone 2b (permutation) bovenaan
+  v("max_slib", "max_wtd", richting = "-", max_rang = 1),
+  v("max_slib", "oeverzone_2b_breedte_cm", richting = "+", max_rang = 1),
+  v("max_slib", pal, richting = "+", max_rang = 2),
+  v("max_slib", "tldk_wtrwtr_perc", richting = "-", max_rang = 3),
+  v("max_slib", "holleoever", richting = "+", max_rang = 2),
+  v("max_slib", c("drglg", "draagkracht_oever", "draagkracht_perceel", "slib_redox_pH7"), richting = "-"),
+  v("max_slib", "OS_perc_OR_25", richting = "+"),
+  v("max_slib", "veentype_num"),
+  v("max_slib", c("watbte", "koebelasting_drinkende_koeien"), eis = "niet"),
+  # Waterplanten: P-AL bij alle drie de belangrijkste voorspeller, negatief
+  v(wp, pal, richting = "-", max_rang = 1),
+  # Fe/P vooral bij hydrofyten (positief); bij aantal soorten alleen permutation rang 10
+  v(wp[3], "feP_PW", richting = "+", max_rang = 3),
+  v(wp[1], "feP_PW"),
+  v(wp[2], "feP_PW", eis = "niet"),
+  # CEC van de oever negatief bij alle drie
+  v(wp, cec, richting = "-"),
+  # veentype (permutation) bij aantal soorten en bedekking
+  v(wp[1:2], "veentype_num", max_rang = 4),
+  # chloride negatief bij aantal soorten en hydrofyten
+  v(wp[c(1, 3)], "Cl_µmol/l_PW", richting = "-"),
+  # onderholling bij aantal soorten (rang 3) en zwakker bij bedekking; dikker
+  # slib alleen bij bedekking
+  v(wp[1], "holleoever", richting = "-", max_rang = 3),
+  v(wp[2], "holleoever", richting = "-"),
+  v(wp[3], "holleoever", eis = "niet"),
+  v(wp[2], "max_slib", richting = "-", max_rang = 2),
+  v(wp[1], "max_slib", eis = "niet"),
+  # Ammonium alleen bij hydrofyten (negatief); wel bij P-AL slib en draagkracht oever (positief)
+  v(wp[1:2], nh4, eis = "niet"),
+  v(wp[3], nh4, richting = "-"),
+  v(c(pal, "draagkracht_oever"), nh4, richting = "+"),
+  # Afscheurende oever -> meer soorten en bedekking; talud oever alleen met
+  # laag belang, talud onder waterlijn niet meer bij de waterplanten
+  v(wp[1:2], "afscheur_opp", richting = "+", max_rang = 3),
+  v(wp[1], "tldk_oevrwtr_perc", richting = "+"),
+  v(wp[3], "tldk_oevrwtr_perc"),
+  v(wp[2], "tldk_oevrwtr_perc", eis = "niet"),
+  v(wp, "tldk_wtrwtr_perc", eis = "niet"),
+  # baggermoment bij aantal soorten (negatief), baggerfrequentie niet
+  v(wp[1], "Baggermoment_maand", richting = "-"),
+  v(wp[1], "Baggerfrequentie_per_jaar", eis = "niet"),
+  # Doorzicht/waterdiepte: bij alle drie positief, het sterkst bij hydrofyten
+  v(wp[3], "zichtdiepte", richting = "+", max_rang = 2),
+  v(wp[1:2], "zichtdiepte", richting = "+"),
+  # P-AL slib
+  v(pal, "feP_PW", richting = "-", max_rang = 1),
+  v(pal, "P2O5_xrf_g/kg_OR_25", richting = "+", max_rang = 2),
+  v(pal, "watbte", richting = "+", max_rang = 3),
+  v(pal, "Baggermoment_maand", richting = "+", max_rang = 5),
+  v(pal, c("max_slib", "water_pH", "holleoever", "Cl_µmol/l_PW"), richting = "+"),
+  v(pal, c("Baggerfrequentie_per_jaar", "koebelasting_drinkende_koeien", "Z_CLAY_SA_OR_25", "slib_redox_pH7", "max_wtd"), eis = "niet"),
+  # Oeverindex
+  v("oeverindex", cec, richting = "+", max_rang = 1),
+  v("oeverindex", "watbte", richting = "+", max_rang = 2),
+  v("oeverindex", "drglg", richting = "-", max_rang = 3),
+  v("oeverindex", "water_pH", richting = "+"),
+  v("oeverindex", c("Z_CLAY_SA_OR_25", "feP_PW", "koebelasting_drinkende_koeien"), richting = "-"),
+  v("oeverindex", c("OS_perc_OR_25", pal)),
+  v("oeverindex", c("Cl_µmol/l_PW", "P2O5_xrf_g/kg_OR_25", "zichtdiepte"), eis = "niet"),
+  # Waterdiepte als verbindende variabele; helofyten vooral drooglegging en
+  # draagkracht perceel
+  v("slib_redox_pH7", "max_wtd"),
+  v("Soortensamenstelling Helofyten", "drglg", richting = "-", max_rang = 2),
+  v("Soortensamenstelling Helofyten", "draagkracht_perceel", richting = "+", max_rang = 2),
+  v("Soortensamenstelling Helofyten", "max_wtd", richting = "+"),
+  v(wp[2], "max_wtd", eis = "niet")
+))
 
-**Slibdikte** hangt vooral samen met de waterdiepte: een grotere maximale waterdiepte is negatief gerelateerd aan slibdikte (ondieper water gaat samen met meer slib), en P-AL slib is sterk positief gerelateerd (meer slib gaat samen met een hogere fosfaatstatus, al is uit deze analyse niet af te leiden wat hier oorzaak en gevolg is). Verder zijn redox in het slib en de taludhoek onder waterlijn negatief gerelateerd aan slibdikte: hoe reducerender het slib en hoe steiler de oever onder water, hoe minder slib. Veentype en waterbreedte zijn beide positief gerelateerd. Onderholling en draagkracht oever komen ook voor, maar met een duidelijk lager relatief belang; koebelasting komt bij slibdikte niet als relevante voorspeller naar voren (anders dan in eerdere modelversies).
+# Getallen voor de tekst hieronder (testset-R² en ALE-omslagpunten)
+r2x  <- function(t) round(100 * as.data.table(performance_summary)[target == t, r2_test])
+r2rf <- function(t) round(100 * as.data.table(rf_perf_summary)[target == t, r2_test])
+kp_x <- function(t, p) {
+  x <- as.data.table(xgb_kantelpunt_tbl)[target == t & predictor == p, x_omslag]
+  if (length(x) == 0) NA_real_ else x[1]
+}
+nl_d <- function(x, d = 1) if (is.na(x)) "?" else formatC(round(x, d), format = "f", digits = d, decimal.mark = ",")
 
-**Waterplanten (aantal soorten, bedekking ondergedoken planten, soortensamenstelling hydrofyten)** hangen sterk samen met de fosfaatstatus van slib en poriewater: P-AL slib en Fe/P zijn bij alle drie doelvariabelen belangrijke voorspellers, en steeds met een negatief verband met de waterplanten-uitkomst (hoger P-AL of FeP → minder waterplantensoorten, minder bedekking, en een soortensamenstelling die verschuift). Dit is consistent met het bekende ecologische mechanisme waarbij hogere fosfaatbeschikbaarheid in slib/poriewater algengroei en troebeling bevordert, ten koste van ondergedoken waterplanten. 
+# Slibdikte en breedte zone 2b: Spearman over alle sloten en binnen gebieden
+# (beide gecentreerd op het gebiedsgemiddelde), zelfde selectie als XGBoost
+slib_2b <- local({
+  d <- as.data.table(abio_proj)[MeenemenDataAnalyse_totaal == "ja" & !is.na(max_slib) & !is.na(oeverzone_2b_breedte_cm),
+                                .(slib = max_slib, b2b = oeverzone_2b_breedte_cm, gebied)]
+  d[, `:=`(slib_c = slib - mean(slib), b2b_c = b2b - mean(b2b)), by = gebied]
+  ct <- suppressWarnings(cor.test(d$slib_c, d$b2b_c, method = "spearman", exact = FALSE))
+  list(
+    rho = cor(d$slib, d$b2b, method = "spearman"),
+    rho_binnen = unname(ct$estimate), p_binnen = ct$p.value
+  )
+})
 
-Meer onderholling en dikker slib gaan samen met minder waterplanten, mogelijk via een verminderde lichtdoorlating of instabielere waterbodem. Opvallend is dat ammonium in het poriewater in dit model nauwelijks nog als belangrijke voorspeller voor hydrofyten en bedekking ondergedoken planten naar voren komt (in tegenstelling tot eerdere modelversies, waarin ammonium bij deze doelvariabelen hoog scoorde); ammonium speelt in de huidige VIP-figuur alleen nog een rol bij P-AL slib en oeverindex. Dit kan wijzen op een sterkere samenhang tussen ammonium en de nu prominentere P-AL/FeP-variabelen (waardoor het model bij voorkeur op die laatste splitst), of op een reële verandering in het relatieve belang van ammonium tussen modelversies (beide zijn met de huidige analyse niet van elkaar te onderscheiden).
+imp <- as.data.table(all_xgb_importance)
+imp[, rang := frank(-Importance, ties.method = "first"), by = .(target_var, imp_type)]
+huidig_xgb <- imp[, .(
+  rang_nu     = min(rang),
+  richting_nu = na.omit(correlation_direction)[1],
+  naam        = Nederlandse_naam[1]
+), by = .(target = target_var, feature = Feature)]
+doel_nl <- unique(imp[, .(target = target_var, doel = gsub("\\s*\n\\s*", " ", target_dutch))])
 
-Daarnaast spelen fysische kenmerken een rol die contrasteren met onze hypothesen: een grotere oppervlakte afscheurende oever hangt in het model samen met *meer* waterplantenbedekking. Een steiler talud op de oever hangt samen met meer waterplantensoorten en bedekking. Bij de soortensamenstelling hydrofyten is dit echter niet te zien en de taludhoek komt telkens maar bij een van de twee maten van belangrijkheid (gain of permutation) naar voren waardoor deze relatie niet betwouwbaar is. Mogelijk is dit een artefact van de beperkte steekproefgrootte en de sterke correlaties tussen taludhoek, slibdikte en onderholling, waardoor het model bij voorkeur op één van deze variabelen splitst. Daarnaast is P-AL slib in Fryslân en WDOD structureel lager dan in de overige waterschappen, terwijl de taludhoek daar juist veel steiler is. Dit zou kunnen wijzen op een schijnbare relatie tussen taludhoek en soortensamenstelling waterplanten: minder fosfaatbeschikbaarheid (gunstig voor waterplanten) gaat in deze waterschappen samen met een steilere, minder ontwikkelde oeverzone (ongunstig voor oeverplanten). Het is dus de vraag of hier sprake is van een daadwerkelijke trade-off tussen beide groeivormen van vegetatie, of dat P-AL en taludhoek in Fryslân/WDOD beide vooral een uitdrukking zijn van onderliggende, gebiedskenmerken (veentype, beheervorm of ontstaanswijze van de sloten) die toevallig in deze richting samenvallen. Met de huidige data (één meting per sloot, geen tijdreeksen) kunnen we niet vaststellen of taludhoek en waterplanten elkaar daadwerkelijk beïnvloeden, of dat beide variabelen toevallig samenhangen doordat ze allebei samenhangen met het gebied (bijv. veentype of beheer). Het patroon is dus geen bewijs voor een echte trade-off, maar een waarschuwing dat gebiedskenmerken hierbij een rol kunnen spelen die niet over het hoofd gezien mag worden.
+m <- merge(verwacht_xgb, huidig_xgb, by = c("target", "feature"), all.x = TRUE)
+m <- merge(m, doel_nl, by = "target", all.x = TRUE)
+m[, ok := fifelse(
+  eis == "niet", is.na(rang_nu),
+  !is.na(rang_nu) & rang_nu <= max_rang &
+    (is.na(richting) | is.na(richting_nu) | richting_nu == richting)
+)]
+afw_xgb <- m[ok == FALSE][order(doel)]
 
-Dat P-AL slib bij alle drie waterplant-doelvariabelen als belangrijke, negatief gerelateerde voorspeller naar voren komt, is een consistent patroon: fosfaatbeschikbaarheid in het slib hangt sterk samen met de waterplantenvegetatie, wat ecologisch verklaarbaar is (meer P-AL betekent een grotere nutriëntenrijkdom, wat de soortensamenstelling en bedekking van onderwaterplanten sterk beïnvloedt, doorgaans in negatieve zin voor zowel soortenrijkdom als bedekking). P-AL slib wordt op haar beurt sterk beïnvloed door de ijzer/fosfaat-verhouding (FeP) in het slib: hoe hoger de Fe/P-ratio, hoe lager het P-AL, met een omslagpunt bij een Fe/P-verhouding van ongeveer 1,3 mol/mol (hetzelfde kantelpunt, FeP ≈ 1,3 mol/mol, dat hierboven bij de ALE-kantelpunten als "redelijk betrouwbaar" is bestempeld). Ook fysieke kenmerken van de sloot hebben een relatie met P-AL: bij bredere watergangen (boven circa 5 m) is P-AL hoger, en bij een steilere taludhoek is P-AL juist lager (vermoedelijk omdat steilere taluds voorkomen bij steviger veen en/of stabielere oevers, waar minder materiaal (en dus minder gebonden fosfaat) naar het water erodeert). Daarnaast is P-AL hoger bij een dikkere sliblaag, een grotere drooglegging, een hogere pH, een bredere oeverzone van insteek tot waterlijn, meer ammonium en een hoger organisch-stofgehalte; Stuk voor stuk kenmerken die passen bij een beeld van meer afbraak van organisch materiaal in de percelen en het slib en chemisch gereduceerde omstandigheden waarin fosfaat makkelijker vrijkomt en ophoopt.
+if (nrow(afw_xgb) > 0) {
+  cat("::: {.callout-warning}\n## Controleer de interpretatie van de XGBoost-resultaten\n\n")
+  cat("De huidige importances wijken af van wat de tekst hieronder beschrijft. Pas de tekst aan en daarna de verwachtingen (`verwacht_xgb`) in de controle-chunk.\n\n")
+  for (i in seq_len(nrow(afw_xgb))) with(afw_xgb[i], cat(sprintf(
+    "- %s – %s: verwacht %s, nu %s\n",
+    fifelse(is.na(doel), target, doel),
+    fifelse(is.na(naam), fifelse(is.na(nederlandse_namen[feature]), feature, nederlandse_namen[feature]), naam),
+    fifelse(eis == "niet", "niet in top-10",
+            paste0(fifelse(max_rang < 10, paste0("rang ≤ ", max_rang), "in top-10"),
+                   fifelse(is.na(richting), "", paste0(" (", richting, ")")))),
+    fifelse(is.na(rang_nu), "niet in top-10",
+            paste0("rang ", rang_nu, fifelse(is.na(richting_nu), "", paste0(" (", richting_nu, ")"))))
+  )))
+  cat("\n:::\n")
+}
+```
 
-**Oeverindex** wordt in dit model vooral bepaald door de Cation Exchange Capacity (CEC, positief) en, vrijwel even belangrijk, P-AL slib (positief) en FeP (negatief): dezelfde slib-/bodemchemische variabelen die ook bij de waterplant-doelvariabelen op de voorgrond staan, spelen hier dus wél een rol (anders dan in eerdere modelversies). Chloride in het poriewater en drooglegging zijn beide negatief gerelateerd, koebelasting door drinkende koeien eveneens; totaal P in de toplaag van de oever is zwakker en negatief gerelateerd, en komt pas op de achtste plaats. Een kanttekening hierbij: totaal-N in de oever is niet als voorspeller in dit model meegenomen, terwijl N net als P een belangrijke voedingsstof is voor oevervegetatie (het aandeel verklaarde variantie dat nu aan P, CEC of chloride wordt toegeschreven, kan dus deels een gecorreleerd N-effect verhullen).
+**Draagkracht oever** wordt overwegend bepaald door fysieke kenmerken. Onderholling (negatief) en de diepte van de laagst gemeten draagkracht zijn de belangrijkste voorspellers. Meer onderholling maakt de oever slapper, wat een fysisch aannemelijk verband is; een diepere ligging van het zwakste punt gaat samen met een hogere draagkracht aan het oppervlak. Daarna volgen drooglegging (negatief) en waterbreedte (positief). Dat een grotere drooglegging samengaat met een lagere draagkracht van de oever, is tegen de verwachting in en mogelijk een gebiedseffect. Organisch stofgehalte en maximale slibdikte zijn zwakker en negatief gerelateerd.
 
-**Waterdiepte** speelt een verbindende rol tussen meerdere doelvariabelen: een grotere maximale waterdiepte hangt samen met minder slibdikte, een hogere redox en een lager P-AL (dieper water met minder ophoping van organisch materiaal en beschikbaar fosfaat in de bodem), en, in lijn daarmee, met meer soorten helofyten en een gunstiger soortensamenstelling waterplanten (hydrofyten). Ook de breedte van de oevervegetatiezone is groter bij grotere waterdiepte, wat kan wijzen op een bredere overgangszone bij minder steile, diepere profielen (*PM verwijzen naar correlatieplot/ tabel*).
+**Slibdikte** is na de correctie van de dwarsprofielen matig voorspelbaar (testset-R² XGBoost `r r2x("max_slib")`%, Random Forest `r r2rf("max_slib")`%); de rangorde van de voorspellers is daardoor onzeker. Bij Gain is de maximale waterdiepte de belangrijkste voorspeller (negatief: ondieper water gaat samen met meer slib), bij permutation importance de breedte van oeverzone 2b (positief). Dat laatste verband is zwak en vooral een verschil tussen gebieden: over alle sloten is de rangcorrelatie tussen de breedte van zone 2b en de slibdikte `r nl_d(slib_2b$rho, 2)`, binnen gebieden `r nl_d(slib_2b$rho_binnen, 2)` (p = `r nl_d(slib_2b$p_binnen, 2)`). Alleen sloten met een zeer smalle zone 2b (hoogstens 20 cm) hebben duidelijk minder slib. Het model gebruikt de breedte van zone 2b dus vooral als aanwijzing voor het gebied; een bredere oeverzone leidt niet tot meer slib. Daarna volgen P-AL slib (positief), de taludhoek onder de waterlijn (negatief: een flauwere oever onder water gaat samen met meer slib) en onderholling (positief). Een mogelijke verklaring voor het verband met de taludhoek is stroming: stroming kan steile kanten veroorzaken door afkalving en voert tegelijk slib af. Dat meer slib samengaat met een hogere fosfaatstatus, is uit deze analyse niet als oorzaak of gevolg te duiden. Het is mogelijk dat een grote slibdikte bepalend is voor de mobilisatie van fosfaat als gevolg van redoxprocessen. Anderzijds is het mogelijk dat een hoge fosfaatbeschikbaarheid het gevolg is van intensief agrarisch beheer en relatief diepe ontwatering in het verleden. Met een lager belang is organische stof in de oever positief gerelateerd, en drooglegging, de draagkracht van oever en perceel en de redox van het slib negatief. Veentype komt alleen bij permutation importance in de top-10 voor; waterbreedte en koebelasting niet.
 
-De verhouding **doorzicht/waterdiepte** (een maat voor de helderheid van de waterkolom) laat zien dat een hogere ratio (relatief helderder water) samen gaat met meer submerse bedekking en een betere soortensamenstelling hydrofyten, maar met een lágere oeverindex. Aangezien helderheid van het water voor (ondergedoken) waterplanten direct beinvloed wijst mogelijk op een trade off tussen heldere, plantrijke waterkolommen en goed ontwikkelde, soortenrijke oevervegetatie (al is dit gebaseerd op één enkele voorspeller binnen twee afzonderlijke modellen met een matige R² en hangt dit mogelijk samen met gebiedskenmerken die niet in het model zitten, zie toelichting bij waterplanten).
+**Waterplanten (aantal soorten, bedekking ondergedoken planten, soortensamenstelling hydrofyten)** hangen sterk samen met de fosfaatstatus van het slib: P-AL slib is bij alle drie doelvariabelen de belangrijkste voorspeller, steeds met een negatief verband. Een hoger P-AL gaat samen met minder waterplantensoorten, minder bedekking en een minder gunstige soortensamenstelling. Dit is consistent met het bekende ecologische mechanisme waarbij hogere fosfaatbeschikbaarheid in slib en poriewater algengroei en troebeling bevordert, ten koste van ondergedoken waterplanten. De Fe/P-verhouding komt vooral bij de soortensamenstelling hydrofyten naar voren, met een positief verband: een hogere Fe/P-verhouding (relatief meer ijzer om fosfaat te binden) gaat samen met een gunstiger soortensamenstelling. Dat past bij hetzelfde mechanisme, want een hogere Fe/P-verhouding gaat samen met een lager P-AL (zie hieronder). Bij het aantal soorten staat Fe/P alleen bij permutation importance op de tiende plaats, bij de bedekking niet in de top-10. Bij alle drie doelvariabelen is ook de CEC van de oever negatief gerelateerd. De CEC hangt samen met het klei- en organischestofgehalte en verschilt sterk per gebied; mogelijk weerspiegelt dit verband vooral verschillen tussen gebieden. Ook veentype, dat bij permutation importance op de vierde plaats staat voor het aantal soorten en de bedekking, wijst op een rol van gebiedskenmerken. Chloride in het poriewater is bij het aantal soorten en de soortensamenstelling negatief gerelateerd.
+
+Een dikkere sliblaag gaat samen met minder bedekking ondergedoken planten (bij Gain de op één na belangrijkste voorspeller), mogelijk via een verminderde lichtdoorlating, een instabielere waterbodem en/of een chemische samenstelling die beperkend is (P, S, NH~4~^+^). Bij het aantal soorten komt slibdikte niet in de top-10 voor. Meer onderholling gaat samen met minder waterplantensoorten (derde plaats) en, met een lager belang, minder bedekking. Ammonium in het poriewater speelt alleen bij de soortensamenstelling hydrofyten een rol (negatief); bij het aantal soorten en de bedekking komt het niet in de top-10 voor. Verder komt ammonium voor bij P-AL slib en de draagkracht van de oever (beide positief). Bij het aantal waterplantensoorten komt ook het baggermoment voor (negatief: later baggeren gaat samen met minder soorten); de baggerfrequentie staat niet in de top-10.
+
+Daarnaast spelen fysische kenmerken een rol die contrasteren met onze hypothesen: een grotere oppervlakte afscheurende oever hangt in het model samen met *meer* waterplantensoorten en *meer* bedekking. Een steiler talud op de oever hangt met een laag belang samen met meer waterplantensoorten (negende plaats) en komt bij de soortensamenstelling hydrofyten alleen bij permutation importance voor (negende plaats); de taludhoek onder de waterlijn komt bij de waterplanten niet in de top-10 voor. Mogelijk is dit een artefact van de beperkte steekproefgrootte en de sterke correlaties tussen taludhoek, slibdikte en onderholling, waardoor het model bij voorkeur op één van deze variabelen splitst. Daarnaast is P-AL slib in Fryslân en WDOD structureel lager dan in de overige waterschappen, terwijl de taludhoek daar juist veel steiler is. Dit zou kunnen wijzen op een schijnbare relatie tussen taludhoek en waterplanten: minder fosfaatbeschikbaarheid (gunstig voor waterplanten) gaat in deze waterschappen samen met een steilere, minder ontwikkelde oeverzone (ongunstig voor oeverplanten). Het is dus de vraag of hier sprake is van een daadwerkelijke trade-off tussen beide groeivormen van vegetatie, of dat P-AL en taludhoek in Fryslân en WDOD beide vooral een uitdrukking zijn van onderliggende gebiedskenmerken (veentype, beheervorm of ontstaanswijze van de sloten) die toevallig in deze richting samenvallen. Met de huidige data (één meting per sloot, geen tijdreeksen) kunnen we niet vaststellen of taludhoek en waterplanten elkaar daadwerkelijk beïnvloeden, of dat beide variabelen toevallig samenhangen doordat ze allebei samenhangen met het gebied (bijv. veentype of beheer). Het patroon is dus geen bewijs voor een echte trade-off, maar een waarschuwing dat gebiedskenmerken hierbij een rol kunnen spelen die niet over het hoofd gezien mag worden.
+
+Dat P-AL slib bij alle drie waterplant-doelvariabelen als belangrijkste, negatief gerelateerde voorspeller naar voren komt, is een consistent patroon: fosfaatbeschikbaarheid in het slib hangt sterk samen met de waterplantenvegetatie, wat ecologisch verklaarbaar is (meer P-AL betekent een grotere nutriëntenrijkdom, wat de soortensamenstelling en bedekking van onderwaterplanten sterk beïnvloedt, doorgaans in negatieve zin voor zowel soortenrijkdom als bedekking). **P-AL slib** wordt op zijn beurt het sterkst bepaald door de ijzer/fosfaat-verhouding (Fe/P) in het slib: hoe hoger de Fe/P-verhouding, hoe lager het P-AL, met een omslagpunt bij een Fe/P-verhouding van ongeveer `r nl_d(kp_x(pal, "feP_PW"), 2)` mol/mol (zie de ALE-kantelpunten hieronder). Daarna volgt totaal-P in de toplaag van de oever (positief, met een omslagpunt bij ongeveer `r nl_d(kp_x(pal, "P2O5_xrf_g/kg_OR_25"), 1)` g/kg): sloten met een fosfaatrijke oever hebben ook fosfaatrijk slib. Ook de breedte van de watergang hangt samen met P-AL: bij bredere watergangen is P-AL hoger. Een later baggermoment gaat samen met een hoger P-AL. Mogelijk wordt het baggermoment in sloten met veel fosfaatrijk slib anders gekozen; oorzaak en gevolg zijn hier niet te scheiden, en beheer verschilt sterk per gebied (zie "Beheer versus ruimte" hieronder). Met een lager belang is P-AL hoger bij meer ammonium en chloride in het poriewater, een hogere pH van het water, een dikkere sliblaag en meer onderholling. Ammonium en een dikkere sliblaag passen bij een beeld van meer afbraak van organisch materiaal in het slib, waarbij fosfaat makkelijker vrijkomt en ophoopt. Baggerfrequentie, koebelasting, het kleigehalte van de oever en de redox van het slib komen bij P-AL niet in de top-10 voor.
+
+**Oeverindex** wordt in dit model vooral bepaald door de Cation Exchange Capacity (CEC, positief) en de waterbreedte (positief), gevolgd door drooglegging (negatief), de pH van het water (positief), het kleigehalte van de oever (negatief) en Fe/P (negatief). Meer koebelasting door drinkende koeien gaat samen met een lagere oeverindex. Organisch stofgehalte van de oever en P-AL slib komen alleen bij permutation importance in de top-10 voor, zonder duidelijk lineair verband. Chloride in het poriewater en totaal-P in de toplaag van de oever komen bij de oeverindex niet in de top-10 voor. Een kanttekening hierbij: totaal-N in de oever is niet als voorspeller in dit model meegenomen, terwijl N net als P een belangrijke voedingsstof is voor oevervegetatie (het aandeel verklaarde variantie dat nu aan CEC of organische stof wordt toegeschreven, kan dus deels een gecorreleerd N-effect verhullen).
+
+**Waterdiepte** speelt een verbindende rol tussen meerdere doelvariabelen: een grotere maximale waterdiepte hangt samen met minder slib (belangrijkste voorspeller van slibdikte), een hogere redox van het slib en een gunstiger soortensamenstelling helofyten. Bij de helofyten zijn drooglegging (negatief) en de draagkracht van het perceel (positief) wel belangrijker dan de waterdiepte. Bij P-AL slib en de bedekking ondergedoken planten komt waterdiepte niet in de top-10 voor. Ook de breedte van de oevervegetatiezone is groter bij grotere waterdiepte, wat kan wijzen op een bredere overgangszone bij minder steile, diepere profielen (*PM verwijzen naar correlatieplot/ tabel*).
+
+De verhouding **doorzicht/waterdiepte** (een maat voor de helderheid van de waterkolom) is bij de soortensamenstelling hydrofyten de op één na belangrijkste voorspeller: een hogere ratio (relatief helderder water) gaat samen met een betere soortensamenstelling, wat past bij het directe belang van licht voor ondergedoken waterplanten. Ook bij het aantal waterplantensoorten (zevende plaats) en de bedekking ondergedoken planten (vijfde plaats) is het verband positief, met een lager belang. Bij de oeverindex komt doorzicht/waterdiepte niet in de top-10 voor; een trade-off tussen heldere, plantrijke waterkolommen en soortenrijke oevervegetatie wordt daarmee niet ondersteund.
+
+## ALE-kantelpunten van de meest betrouwbare modellen
+
+```{r}
+#| include: false
+# Hulpobjecten voor de lopende tekst in deze sectie, berekend uit
+# xgb_kantelpunt_tbl.rds (Analyses_dev_db.R). f1() en opsomming() worden ook
+# in de validatiesectie hieronder gebruikt.
+f1 <- function(x, d = 1) {
+  if (length(x) == 0 || is.na(x[1])) return("?")
+  x <- round(x, d); x[x == 0] <- 0  # geen "-0,00"
+  sub("^-", "−", formatC(x, format = "f", digits = d, decimal.mark = ",", big.mark = "."))
+}
+opsomming <- function(x) if (length(x) <= 1) x else paste(paste(head(x, -1), collapse = ", "), "en", tail(x, 1))
+kp <- as.data.table(xgb_kantelpunt_tbl)
+if (!"richting" %in% names(kp)) kp[, richting := NA_character_]
+if (!"n_valtest_bij_omslag" %in% names(kp)) kp[, n_valtest_bij_omslag := NA_integer_]
+# aanvullende voorspellers (naast de automatische top-2), zie kantelpunt_extra in Analyses_dev_db.R
+kp_extra <- list(max_slib = c("zichtdiepte", "tldk_wtrwtr_perc"))
+kp[, extra := mapply(function(t, p) p %in% kp_extra[[t]], target, predictor)]
+# Aanvullende betrouwbaarheidsregels bovenop de vuistregel uit Analyses_dev_db.R:
+# - tegengesteld: de richting van het ALE-effect rond het omslagpunt is
+#   tegengesteld aan het totale (Pearson-)verband uit de VIP-figuur -> het
+#   kantelpunt beschrijft een lokale knik in een niet-monotone curve en is
+#   onbetrouwbaar als omslagpunt;
+# - weinig val/test: < 10 validatie- en testsloten rond het omslagpunt -> de
+#   SD-ratio is te onzeker, hooguit beperkt betrouwbaar.
+imp_richting <- as.data.table(all_xgb_importance)[!is.na(correlation_direction),
+  .(richting_vip = correlation_direction[1]), by = .(target = target_var, predictor = Feature)]
+kp <- merge(kp, imp_richting, by = c("target", "predictor"), all.x = TRUE, sort = FALSE)
+kp[, tegengesteld := !is.na(richting) & !is.na(richting_vip) & richting != richting_vip]
+kp[, weinig_valtest := !is.na(n_valtest_bij_omslag) & n_valtest_bij_omslag < 10]
+kp[weinig_valtest == TRUE, betrouwbaarheid := "Beperkt betrouwbaar"]
+kp[tegengesteld == TRUE, betrouwbaarheid := "Onbetrouwbaar"]
+kp_doelen <- unique(kp[, .(target, target_nl, r2_test)])[order(-r2_test)]
+pct <- function(x) paste0(round(100 * x), "%")
+kp_doelen_zin <- opsomming(paste0("**", kp_doelen$target_nl, "** (", pct(kp_doelen$r2_test), ")"))
+fx <- function(x) f1(x, if (abs(x) >= 10) 0 else 2)
+```
+
+De Accumulated Local Effects (ALE)-curves laten voor elke voorspeller een kantelpunt (omslagpunt) zien: een predictorwaarde waarboven of waaronder het effect op de doelvariabele sterk verandert. Om dit niet voor alle voorspellers van alle tien doelvariabelen te tonen, zijn hieronder de `r nrow(kp_doelen)` doelvariabelen met de hoogste testset-R² uit @tbl-performance uitgelicht (`r kp_doelen_zin`), met per doelvariabele de top-2 voorspellers op basis van gecombineerd Gain- en permutation-belang (zie @fig-vip-xgb)`r if (any(kp$extra)) "; voor Slibdikte zijn twee aanvullende voorspellers toegevoegd (zie onder)" else ""`. Aantal oeversoorten is niet uitgelicht, omdat dat model sterk overfit is (zie "Voorspellers die het meest bijdragen aan de modelprestaties").
+
+```{r}
+#| results: asis
+#| echo: false
+# Controle: zijn de uitgelichte doelvariabelen (vast ingesteld in
+# kantelpunt_targets in Analyses_dev_db.R) nog de beste modellen op de testset?
+# Aantal oeversoorten telt niet mee: dat model is sterk overfit en staat ook
+# niet in fig-vip-xgb.
+top_nu <- as.data.table(performance_summary)[target != "n_soorten_oev_zone2"][order(-r2_test)][seq_len(nrow(kp_doelen)), target]
+if (!setequal(top_nu, kp_doelen$target)) {
+  cat("::: {.callout-warning}\n## Selectie kantelpunten niet meer de best presterende modellen\n\n",
+      "Uitgelicht maar niet (meer) in de top-", nrow(kp_doelen), ": ", paste(setdiff(kp_doelen$target, top_nu), collapse = ", "),
+      ". In de top-", nrow(kp_doelen), " maar niet uitgelicht: ", paste(setdiff(top_nu, kp_doelen$target), collapse = ", "),
+      ". Pas `kantelpunt_targets` in Analyses_dev_db.R aan.\n\n:::\n", sep = "")
+}
+if (all(is.na(kp$n_valtest_bij_omslag))) {
+  cat("::: {.callout-warning}\n## Kantelpunttabel nog niet bijgewerkt\n\n",
+      "De SD-ratio in deze tabel is nog berekend op alle sloten (in-sample). Draai `Analyses_dev_db.R` opnieuw.\n\n:::\n", sep = "")
+}
+```
+
+```{r}
+#| label: fig-xgb-kantelpunten
+#| fig-cap: "ALE-kantelpunten van de belangrijkste voorspellers voor de zes meest betrouwbare XGBoost-modellen, per doelvariabele in een eigen (gekleurde) rij. De roze stippellijn markeert het omslagpunt; de subtitle geeft aan of dit een plotselinge sprong of een geleidelijke verandering betreft."
+#| fig-height: 30
+#| fig-width: 13
+print(xgb_kantelpunt_plot)
+```
+
+```{r}
+#| label: tbl-xgb-kantelpunten
+#| tbl-cap: "Betrouwbaarheid van de kantelpunten in fig-xgb-kantelpunten. 'Richting' = + als het effect op de doelvariabele rond het omslagpunt toeneemt bij een hogere predictorwaarde, − als het afneemt. 'Sloten bij omslag' = aantal modelrijen (sloot × jaar) met een predictorwaarde binnen 8% van de x-range rond het omslagpunt; 'waarvan val/test' = het deel daarvan in de validatie- en testset. 'SD-ratio' = spreiding van het residu bij die validatie- en testrijen t.o.v. de residu-spreiding over alle validatie- en testrijen (>1 betekent dat de voorspelling rond dit punt onzekerder is dan gemiddeld voor dit model; leeg bij minder dan 5 rijen). Een kantelpunt is 'onbetrouwbaar' als de richting tegengesteld is aan het totale verband in fig-vip-xgb, en hooguit 'beperkt betrouwbaar' bij minder dan 10 validatie- en testrijen rond het omslagpunt."
+kantel_tbl_out <- kp[, .(
+  Doelvariabele        = target_nl,
+  Voorspeller          = pred_nl,
+  `R² model (test)`    = paste0(round(r2_test * 100, 0), "%"),
+  `Omslagpunt`         = x_omslag,
+  Type                 = vorm,
+  Richting             = sub("^-$", "−", richting),
+  `Sloten bij omslag`  = paste0(n_sloten_bij_omslag, " / ", n_sloten_totaal),
+  `waarvan val/test`   = n_valtest_bij_omslag,
+  `SD-ratio (lokaal/globaal)` = ratio_sd_lokaal_vs_globaal,
+  Betrouwbaarheid      = betrouwbaarheid
+)]
+kable(kantel_tbl_out)
+```
+
+Twee zaken bepalen hoe betrouwbaar zo'n kantelpunt is. Ten eerste: hoeveel sloten hebben een waarde dichtbij het kantelpunt (kolom "Sloten bij omslag")? Als dat er maar een paar zijn, is het omslagpunt op weinig informatie gebaseerd en dus minder zeker. Ten tweede: hoe groot is de "lokale spreiding" (SD-ratio) bij de sloten die rond het kantelpunt liggen? Dit is de spreiding in de voorspelfout van het model bij sloten rond het kantelpunt, vergeleken met de spreiding in de voorspelfout van het model over alle sloten samen; beide zijn berekend op de sloten in de validatie- en testset, die het model niet heeft gebruikt om te trainen (zie "Validatie XGBoost-model"). Een SD-ratio rond 1 betekent dat het model bij deze sloten niet onzekerder voorspelt dan gemiddeld; een SD-ratio duidelijk boven 1 betekent dat het model juist bij déze sloten minder goed voorspelt, wat erop wijst dat het gevonden kantelpunt zelf ook minder precies is vastgesteld. Kantelpunten die op veel sloten zijn gebaseerd én een normale (niet-verhoogde) lokale spreiding hebben, zijn dus het meest betrouwbaar. Daarnaast is gecontroleerd of de richting van het effect rond het omslagpunt overeenkomt met het totale verband tussen voorspeller en doelvariabele (de +/− in @fig-vip-xgb). Is die tegengesteld, dan beschrijft het kantelpunt een lokale knik in een niet-monotone ALE-curve en niet een drempelwaarde waarboven het verwachte effect optreedt; zo'n kantelpunt wordt als onbetrouwbaar aangemerkt. Liggen er minder dan 10 validatie- en testsloten rond het omslagpunt, dan is de SD-ratio te onzeker en is het kantelpunt hooguit beperkt betrouwbaar.
+
+```{r}
+#| results: asis
+#| echo: false
+# Per doelvariabele een alinea met de kantelpunten, volledig berekend uit
+# xgb_kantelpunt_tbl; daarna een samenvatting.
+spreiding_zin <- function(r) {
+  if (is.na(r)) return("te weinig validatie- en testsloten rond dit punt om de lokale spreiding te bepalen")
+  if (r < 0.9) return(paste0("een spreiding lager dan gemiddeld (SD-ratio ", f1(r, 2), ")"))
+  if (r <= 1.1) return(paste0("een spreiding dicht bij gemiddeld (SD-ratio ", f1(r, 2), ")"))
+  paste0("een spreiding ", round(100 * (r - 1)), "% hoger dan gemiddeld (SD-ratio ", f1(r, 2), ")")
+}
+kp_zin <- function(i) with(kp[i], paste0(
+  "het kantelpunt bij ", pred_nl, " ≈ ", fx(x_omslag), " is een ", tolower(vorm),
+  if (!is.na(richting)) paste0(" (boven het omslagpunt is het effect ", if (richting == "+") "hoger" else "lager", ")") else "",
+  ", gebaseerd op ", n_sloten_bij_omslag, " van de ", n_sloten_totaal, " sloten, met ",
+  spreiding_zin(ratio_sd_lokaal_vs_globaal), ": ", tolower(betrouwbaarheid),
+  if (tegengesteld) paste0(", omdat het effect rond dit omslagpunt tegengesteld is aan het totale verband tussen ",
+                           pred_nl, " en ", target_nl, " (", if (richting_vip == "+") "positief" else "negatief",
+                           ", zie @fig-vip-xgb); de ALE-curve is hier niet monotoon en dit omslagpunt is geen robuuste drempelwaarde")
+  else if (weinig_valtest) paste0(", omdat er maar ", n_valtest_bij_omslag, " validatie- en testsloten rond dit punt liggen")
+  else "", "."))
+for (j in seq_len(nrow(kp_doelen))) {
+  tgt <- kp_doelen$target[j]
+  rijen <- kp[target == tgt & !extra, which = TRUE]
+  extra_rijen <- kp[target == tgt & extra, which = TRUE]
+  zinnen <- vapply(rijen, kp_zin, "")
+  if (length(zinnen) > 1) zinnen[-1] <- sub("^het", "Het", zinnen[-1])
+  cat(sprintf("**%s** (testset-R² XGBoost = %s): %s", kp_doelen$target_nl[j], pct(kp_doelen$r2_test[j]),
+              paste(zinnen, collapse = " ")))
+  if (length(extra_rijen)) {
+    ez <- vapply(extra_rijen, kp_zin, "")
+    if (length(ez) > 1) ez[-1] <- sub("^het", "Het", ez[-1])
+    cat(" Aanvullend zijn", length(ez), "voorspellers opgenomen die aansluiten bij de interpretatie in \"Voorspellers die het meest bijdragen\":",
+        paste(ez, collapse = " "))
+  }
+  cat("\n\n")
+}
+# Samenvatting
+n_min <- min(kp$n_sloten_bij_omslag)
+tel <- kp[, .N, by = betrouwbaarheid][order(match(betrouwbaarheid, c("Redelijk betrouwbaar", "Matig betrouwbaar", "Beperkt betrouwbaar", "Onbetrouwbaar")))]
+fep <- kp[predictor == "feP_PW"]
+zwak <- kp[!tegengesteld & (n_sloten_bij_omslag < 30 | weinig_valtest | is.na(ratio_sd_lokaal_vs_globaal) | ratio_sd_lokaal_vs_globaal > 1.2)]
+tegen <- kp[tegengesteld == TRUE]
+cat(sprintf("Samenvattend: alle hier getoonde kantelpunten zijn op minstens %d sloten gebaseerd (%s). ",
+            n_min, opsomming(paste(tel$N, tolower(tel$betrouwbaarheid)))))
+if (nrow(fep)) cat(sprintf("FeP komt bij %d van de %d modellen (%s) als voorspeller met een kantelpunt naar voren, telkens gebaseerd op minstens %d sloten. ",
+                           nrow(fep), nrow(kp_doelen), opsomming(fep$target_nl), min(fep$n_sloten_bij_omslag)))
+if (nrow(tegen)) cat(sprintf("%s als onbetrouwbaar aangemerkt, omdat het effect rond het omslagpunt tegengesteld is aan het totale verband: %s. ",
+                             if (nrow(tegen) == 1) "Eén kantelpunt is" else paste(nrow(tegen), "kantelpunten zijn"),
+                             opsomming(paste0(tegen$pred_nl, " → ", tegen$target_nl))))
+if (nrow(zwak)) cat(sprintf("Van de overige zijn de minst goed onderbouwde kantelpunten %s; de exacte ligging van deze omslagpunten is gevoeliger voor de specifieke steekproef en verdient een minder stellige formulering.",
+                            opsomming(with(zwak, paste0(pred_nl, " → ", target_nl, " (", n_sloten_bij_omslag, " sloten, SD-ratio ",
+                                                        ifelse(is.na(ratio_sd_lokaal_vs_globaal), "onbekend", vapply(ratio_sd_lokaal_vs_globaal, f1, "", d = 2)), ")")))))
+cat("\n\n")
+```
 
 ## Validatie XGBoost-model: residuen en uitschieters
 
+```{r}
+#| include: false
+# Hulpfuncties voor de lopende tekst in deze sectie. Alle getallen én de
+# beschrijvende formuleringen (scheefheid, welk terciel het slechtst, enz.)
+# worden berekend uit xgb_diag_residuals.rds (residuen per sloot op de
+# validatie- en testset, gemaakt door Analyses_dev_db.R). f1() en opsomming()
+# komen uit de hulpchunk van de ALE-sectie hierboven.
+res_diag <- if (is.null(xgb_diag_residuals)) data.table() else as.data.table(xgb_diag_residuals)
+pal <- "P-AL mg p2o5/100g_SB"
+d_tgt <- function(tgt) if (nrow(res_diag)) res_diag[target_var == tgt] else data.table()
+dec <- function(tgt) { d <- d_tgt(tgt); if (!nrow(d)) return(1); r <- diff(range(d$actual)); if (r >= 50) 0 else if (r >= 5) 1 else 2 }
+eenheid <- function(tgt) {
+  u <- rf_vs_xgb[target == tgt, rmse_unit][1]
+  if (length(u) == 0 || is.na(u) || u %in% c("-", "NA", "")) "" else paste0(" ", u)
+}
+naam_doel <- function(tgt) xgb_diagnostics_summary[target_var == tgt, Target][1]
+sk <- function(tgt) xgb_diagnostics_summary[target_var == tgt, Skewness][1]
+kurt <- function(tgt) { r <- d_tgt(tgt)$residuals; if (length(r) < 4) return(NA_real_); z <- (r - mean(r)) / sd(r); mean(z^4) - 3 }
+skew_tekst <- function(s) {
+  if (length(s) == 0 || is.na(s)) return("onbekend")
+  if (abs(s) < 0.5) "bij benadering symmetrisch"
+  else if (s > 0) "scheef naar rechts: de grootste fouten zijn onderschattingen (gemeten hoger dan voorspeld)"
+  else "scheef naar links: de grootste fouten zijn overschattingen (gemeten lager dan voorspeld)"
+}
+terc_tbl <- function(tgt) {
+  d <- copy(d_tgt(tgt)); if (nrow(d) < 6) return(data.table())
+  minimum <- d$actual == min(d$actual)
+  if (mean(minimum) > 1/3 && sum(!minimum) >= 4) {
+    # Veel sloten met de laagste waarde (bv. 0% bedekking): die vormen één
+    # groep, de overige sloten worden op rangorde in twee helften verdeeld
+    d[, terc := fifelse(actual == min(actual), 1, NA_real_)]
+    d[is.na(terc), terc := 1 + ceiling(2 * frank(actual, ties.method = "first") / .N)]
+    namen <- c("de groep met de laagste gemeten waarde", "de onderste helft van de overige sloten", "de bovenste helft van de overige sloten")
+  } else {
+    # tercielen op rangorde (drie even grote groepen)
+    d[, terc := ceiling(3 * frank(actual, ties.method = "first") / .N)]
+    namen <- c("het laagste terciel", "het middelste terciel", "het hoogste terciel")
+  }
+  t <- d[, .(n = .N, lo = min(actual), hi = max(actual), gem = mean(residuals), sd = sd(residuals), rmse = sqrt(mean(residuals^2))), keyby = terc]
+  t[, naam := namen[seq_len(.N)]]
+  t
+}
+terc_zin <- function(tgt) {
+  t <- terc_tbl(tgt); if (!nrow(t)) return("(nog niet beschikbaar)")
+  d <- dec(tgt); u <- eenheid(tgt)
+  bereik <- ifelse(t$lo == t$hi, vapply(t$lo, f1, "", d = d),
+                   paste(vapply(t$lo, f1, "", d = d), "tot", vapply(t$hi, f1, "", d = d)))
+  opsomming(sprintf("in %s (gemeten %s, n = %d) %s%s (SD %s)", t$naam, bereik, t$n,
+                    vapply(t$gem, f1, "", d = d), u, vapply(t$sd, f1, "", d = d)))
+}
+patroon_zin <- function(tgt) {
+  t <- terc_tbl(tgt); if (nrow(t) < 2) return("")
+  laag <- t[1]; hoog <- t[.N]
+  richting <- if (laag$gem < 0 && hoog$gem > 0) {
+    "Het model overschat dus gemiddeld de lage en onderschat de hoge waarden (regressie naar het gemiddelde)"
+  } else if (laag$gem > 0 && hoog$gem < 0) {
+    "Het model onderschat dus gemiddeld de lage en overschat de hoge waarden"
+  } else "Er is geen duidelijke omslag in de richting van de fout tussen lage en hoge waarden"
+  r <- hoog$sd / laag$sd
+  spreiding <- if (r >= 1.2) paste0("groter bij de hoogste dan bij de laagste waarden (", f1(r, 1), " keer zo groot)")
+               else if (r <= 1 / 1.2) paste0("kleiner bij de hoogste dan bij de laagste waarden (", f1(r, 1), " keer zo groot)")
+               else "bij de laagste en hoogste waarden vergelijkbaar"
+  paste0(richting, "; de spreiding van de fout (SD) is ", spreiding, ". De voorspelling is het nauwkeurigst in ", t[which.min(rmse), naam],
+         " (RMSE ", f1(min(t$rmse), dec(tgt)), ") en het minst nauwkeurig in ", t[which.max(rmse), naam],
+         " (RMSE ", f1(max(t$rmse), dec(tgt)), ").")
+}
+ext <- function(tgt, wat) {
+  d <- d_tgt(tgt); if (!nrow(d)) return(d)
+  switch(wat, hoogste = d[which.max(actual)], laagste = d[which.min(actual)],
+         onder = d[which.max(residuals)], over = d[which.min(residuals)])
+}
+ext_zin <- function(tgt, wat) {
+  e <- ext(tgt, wat); if (!nrow(e)) return("(nog niet beschikbaar)")
+  d <- dec(tgt); u <- eenheid(tgt)
+  sprintf("gemeten %s%s, voorspeld %s (residu %s%s)", f1(e$actual, d), u, f1(e$predicted, d),
+          if (round(e$residuals, d) > 0) "+" else "", paste0(f1(e$residuals, d), u))
+}
+n_diag <- function(tgt) nrow(d_tgt(tgt))
+```
+
 Naast R² en RMSE (@tbl-performance) geeft de verdeling van residuen (gemeten − voorspeld) van het XGBoost-model een beeld of het model voor een deel van de sloten beter of slechter presteert. Hiervoor is het van belang te bekijken of de spreiding rond de 1:1-lijn homogeen is, of de residuen bij benadering normaal verdeeld zijn, en vooral of de hoogste en laagste gemeten waarden (de uitschieters) systematisch over- of onderschat worden. Om dit niet voor alle tien doelvariabelen als aparte figuurset te tonen, wordt hieronder één doelvariabele (**P-AL slib**) uitgelicht met de volledige diagnostiek, en worden voor de overige doelvariabelen alleen de samenvattende getallen gerapporteerd.
+
+De diagnostiek is uitgevoerd op de sloten in de validatie- en testset (n = `r n_diag(pal)` bij P-AL slib), dus op voorspellingen voor sloten die niet zijn gebruikt om het model te trainen. De validatieset is wel gebruikt om het aantal boosting-rondes te bepalen (early stopping) en is daardoor niet volledig onafhankelijk. Door het kleine aantal sloten zijn de getallen hieronder (tercielen, uitschieters) gevoelig voor individuele sloten.
 
 ```{r}
 #| label: fig-xgb-diag-best
@@ -923,28 +1315,25 @@ print(xgb_diag_best_plot)
 
 De linksboven getoonde spreiding rond de 1:1-lijn en het residuenpaneel (rechtsboven) laten zien of de voorspelfout toeneemt bij hogere gemeten waarden (heteroscedasticiteit) en of er een systematische trend in de residuen zit; de histogram en Q-Q plot (onderste rij) laten zien of de residuen bij benadering normaal verdeeld zijn. Afwijkingen van de diagonaal in de Q-Q plot bij de uiteinden wijzen op zwaardere staarten dan een normaalverdeling, d.w.z. grotere voorspelfouten bij de meest extreme gemeten waarden dan een normale foutverdeling zou doen verwachten; dit is met name relevant voor de betrouwbaarheid van eventuele onzekerheidsmarges rond de voorspelling, niet voor de puntvoorspelling zelf.
 
-De vier panelen van @fig-xgb-diag-best laten voor P-AL slib grotendeels hetzelfde beeld zien, maar vanuit een net iets ander perspectief. Het scatterplot (linksboven) toont dat de meeste sloten dicht bij de 1:1-lijn liggen, met twee groepen die daarvan afwijken: de vijf sloten met de hoogste gemeten P-AL (126–151 mg P2O5/100g) worden stelselmatig onderschat, met als sterkste geval een sloot met een gemeten waarde van 126,5 die op 77,9 wordt voorspeld (residu +48,6) en een sloot met gemeten 142,8 die op 103,2 wordt voorspeld (residu +39,7). Aan de onderkant van de schaal wordt het merendeel van de laagste sloten (gemeten 3–5 mg P2O5/100g) juist wél nauwkeurig voorspeld, maar twee sloten met een gemeten waarde van 6–7 mg P2O5/100g worden fors overschat (voorspeld rond 27, residu circa −20).
+Voor P-AL slib geven de vier panelen van @fig-xgb-diag-best elk een ander perspectief op dezelfde voorspelfouten. In het scatterplot (linksboven) is af te lezen hoe dicht de sloten bij de 1:1-lijn liggen. De sloot met de hoogste gemeten P-AL heeft `r ext_zin(pal, "hoogste")`, de sloot met de laagste gemeten P-AL `r ext_zin(pal, "laagste")`. De grootste onderschatting is een sloot met `r ext_zin(pal, "onder")`, de grootste overschatting een sloot met `r ext_zin(pal, "over")`.
 
-Het residuen-vs-voorspeld paneel (rechtsboven) bevestigt dit beeld eerder dan dat het iets nieuws toevoegt: de spreiding van de residuen is over het hele bereik van voorspelde waarden redelijk stabiel (geen sterk verbredende trechter zoals bij enkele andere doelvariabelen hieronder), met dezelfde individuele sloten als uitschieters buiten de ±2 SD-band. Opgesplitst in laag/midden/hoog terciel van de gemeten waarde is de gemiddelde fout in het laagste terciel −8,1 (SD 12,3), in het middelste terciel −0,4 (SD 7,8) en in het hoogste terciel +7,1 (SD 14,2): het model is dus het betrouwbaarst voor P-AL-waarden in het middengebied (circa 50–90 mg P2O5/100g) en minder betrouwbaar aan beide uiteinden van de schaal, met een omslag van overschatting (laag) naar onderschatting (hoog) (niet een eenzijdig groeiende marge zoals bij bijvoorbeeld Redox slib, zie hieronder).
+Het residuen-vs-voorspeld paneel (rechtsboven) laat zien of de fout systematisch verandert met de voorspelde waarde; sloten buiten de ±2 SD-band zijn de uitschieters uit het scatterplot. Opgesplitst in tercielen van de gemeten waarde is de gemiddelde fout `r terc_zin(pal)`. `r patroon_zin(pal)`
 
-Het histogram (linksonder) vat deze twee tegengestelde afwijkingen samen in de skewness (≈0,03): omdat de onderschatting aan de bovenkant en de overschatting aan de onderkant elkaar in omvang ongeveer opheffen, oogt de verdeling van de residuen bij benadering symmetrisch. De Q-Q plot (rechtsonder) laat echter zien dat dit niet betekent dat de residuen normaal verdeeld zijn: beide uiteinden van de puntenwolk buigen weg van de diagonaal, wat op zwaardere staarten wijst dan een normaalverdeling. Dat zijn precies dezelfde sloten die in het scatterplot al opvielen (de hoogste P-AL-sloten (onderschat) aan de ene kant en de twee lage-maar-overschatte sloten aan de andere kant). Met andere woorden: een skewness rond 0 zegt alleen dat over- en onderschattingen elkaar in aantal en omvang ongeveer opheffen; het zegt niets over hoe vaak grote fouten voorkomen. Bij P-AL slib komen die grote fouten wel degelijk voor, en dan juist aan beide uiteinden van de schaal (de laagste én de hoogste gemeten waarden).
-
-Kortom: de vier panelen bevestigen elkaar grotendeels (dezelfde sloten veroorzaken de afwijkingen in scatter, residuen-paneel én Q-Q plot), maar geven elk een ander aspect van de betrouwbaarheid weer: het scatterplot wijst de concrete sloten aan, het residuenpaneel laat zien dat de spreiding niet monotoon toeneemt met de voorspelde waarde, en de combinatie van histogram en Q-Q plot laat zien dat de residuen weliswaar niet scheef zijn, maar wel zwaarder-staartig dan normaal; de voorspelling is het meest betrouwbaar in het middengebied en het minst betrouwbaar bij de laagste en (vooral) hoogste gemeten P-AL-waarden.
+Het histogram (linksonder) vat de verdeling van de residuen samen in de skewness (`r f1(sk(pal), 2)`): de verdeling is `r skew_tekst(sk(pal))`. De Q-Q plot (rechtsonder) laat zien of de staarten zwaarder zijn dan bij een normaalverdeling; de residuen hebben `r if (is.na(kurt(pal))) "onbekende" else if (kurt(pal) > 0.5) "zwaardere staarten dan" else "geen duidelijk zwaardere staarten dan"` een normaalverdeling (excess kurtosis `r f1(kurt(pal), 2)`). Punten die aan de uiteinden van de Q-Q plot van de diagonaal afbuigen, zijn de sloten met de grootste voorspelfouten uit het scatterplot. Een skewness rond 0 zegt alleen dat over- en onderschattingen elkaar in omvang ongeveer opheffen, niet hoe vaak grote fouten voorkomen.
 
 ```{r}
 #| label: tbl-xgb-diag-summary
-#| tbl-cap: "Residudiagnostiek XGBoost per doelvariabele: R², RMSE, scheefheid (skewness) van de residuen en gemiddelde bias (gemeten − voorspeld) bij de 3 hoogste resp. 3 laagste gemeten waarden. Positieve bias bij 'hoogste 3' betekent dat het model deze uitschieters onderschat; negatieve bias bij 'laagste 3' betekent overschatting van de laagste waarden."
+#| tbl-cap: "Residudiagnostiek XGBoost per doelvariabele, op de validatie- en testset: R², RMSE, scheefheid (skewness) van de residuen en gemiddelde bias (gemeten − voorspeld) bij de 3 hoogste resp. 3 laagste gemeten waarden. Positieve bias bij 'hoogste 3' betekent dat het model deze uitschieters onderschat; negatieve bias bij 'laagste 3' betekent overschatting van de laagste waarden."
 diag_tbl <- copy(xgb_diagnostics_summary)
 setnames(diag_tbl, "target_var", "target")
-diag_tbl <- merge(diag_tbl, rf_vs_xgb[, .(target, rmse_unit)], by = "target", all.x = TRUE)
 
 diag_tbl <- diag_tbl[, .(
   Doelvariabele = Target,
   `R² (%)` = round(R2 * 100, 1),
-  `RMSE`   = paste0(round(RMSE, 3), " ", rmse_unit),
+  `RMSE`   = round(RMSE, 3),
   `Skewness residuen` = round(Skewness, 2),
-  `Bias hoogste 3 (gemeten − voorspeld)` = paste0(round(`Bias hoogste 3 (gemeten - voorspeld)`, 2), " ", rmse_unit),
-  `Bias laagste 3 (gemeten − voorspeld)` = paste0(round(`Bias laagste 3 (gemeten - voorspeld)`, 2), " ", rmse_unit),
+  `Bias hoogste 3 (gemeten − voorspeld)` = round(`Bias hoogste 3 (gemeten - voorspeld)`, 2),
+  `Bias laagste 3 (gemeten − voorspeld)` = round(`Bias laagste 3 (gemeten - voorspeld)`, 2),
   N = N
 )][order(-`R² (%)`)]
 
@@ -953,11 +1342,56 @@ kable(diag_tbl)
 
 Een positieve bias bij de hoogste 3 gemeten waarden en een negatieve bias bij de laagste 3 wijzen op het klassieke "regression to the mean"-gedrag van boom-ensembles: extreme waarden worden richting het gemiddelde getrokken omdat een model als XGBoost voorspellingen middelt over meerdere bomen/bladeren en zelden buiten het bereik van de trainingsdata extrapoleert. Bij een aanzienlijke skewness (buiten circa −0,5 tot 0,5) zijn de residuen merkbaar scheef verdeeld, wat betekent dat over- en onderschattingen niet symmetrisch optreden; dit tast met name de bruikbaarheid van de RMSE als samenvattende foutmaat aan (RMSE is gevoelig voor de zwaarste kant van een scheve verdeling) en is een aanwijzing dat een deel van de sloten systematisch anders wordt voorspeld dan de rest, eerder dan willekeurige ruis.
 
-Net als bij P-AL slib is de RMSE bij **Aantal oeversoorten** (skewness 0,03) een betrouwbare samenvatting van de typische fout. Bij drie doelvariabelen is de skewness echter fors positief: **Redox slib** (2,12), **Bedekking ondergedoken planten** (2,62) en **Draagkracht oever** (1,80), en daar is, in tegenstelling tot P-AL slib, ook duidelijk sprake van heteroscedasticiteit: de spreiding van de fout neemt toe naarmate de gemeten waarde hoger is, en de richting van de gemiddelde fout draait om. Hoge waarden komen ook weinig voor dus het model heeft ook weinig voorbeelden om op te trainen, waardoor het model hoge waarden onderschat.
+```{r}
+#| results: asis
+#| echo: false
+# Per doelvariabele een beschrijvende alinea, volledig berekend uit de residuen
+# (validatie + test). Symmetrisch = |skewness| < 0,5.
+if (nrow(res_diag) == 0 || !"set" %in% names(res_diag)) {
+  cat("::: {.callout-warning}\n## Residuen per sloot ontbreken\n\n",
+      "`xgb_diag_residuals.rds` ontbreekt of is nog niet op de validatie- en testset gebaseerd. Draai `Analyses_dev_db.R` opnieuw.\n\n:::\n", sep = "")
+} else {
+  ds <- as.data.table(xgb_diagnostics_summary)[target_var != pal][order(-abs(Skewness))]
+  sym <- ds[abs(Skewness) < 0.5]
+  scheef <- ds[abs(Skewness) >= 0.5]
+  if (nrow(sym) > 0) cat(sprintf(
+    "Bij %s zijn de residuen bij benadering symmetrisch (|skewness| < 0,5) en is de RMSE een redelijke samenvatting van de typische fout.\n\n",
+    opsomming(paste0("**", sym$Target, "** (", vapply(sym$Skewness, f1, "", d = 2), ")"))))
+  if (nrow(scheef) > 0) {
+    cat(sprintf("Bij %s de residuen duidelijk scheef (|skewness| ≥ 0,5):\n\n",
+                if (nrow(scheef) == 1) "één doelvariabele zijn" else paste(nrow(scheef), "doelvariabelen zijn")))
+    for (tgt in scheef$target_var) cat(sprintf(
+      "- **%s** (skewness %s, %s). De gemiddelde fout is %s. %s De sloot met de hoogste gemeten waarde heeft %s; de sloot met de laagste gemeten waarde %s.\n",
+      naam_doel(tgt), f1(sk(tgt), 2), skew_tekst(sk(tgt)), terc_zin(tgt), patroon_zin(tgt),
+      ext_zin(tgt, "hoogste"), ext_zin(tgt, "laagste")))
+    cat("\n")
+  }
+}
+```
 
-Voor **Redox slib** is de gemiddelde fout in het laagste terciel (gemeten rond −340 tot −390 mV) −32 mV (SD 31), in het middelste terciel −17 mV (SD 33), en in het hoogste terciel (gemeten 97–336 mV) +41 mV (SD 70) (de spreiding is in het hoogste terciel dus meer dan het dubbele van die in het laagste terciel). Concreet wordt de sloot met de hoogste gemeten redoxwaarde (336 mV) voorspeld op −2,9 mV (residu +339 mV), en worden ook de op één en twee na hoogste sloten (212 en 211 mV) met 177 resp. 199 mV onderschat. De laagste gemeten redoxwaarden (rond −340 tot −393 mV) worden juist vrij consistent overschat, met residuen van −56 tot −89 mV. Voor **Bedekking ondergedoken planten** geldt hetzelfde patroon in versterkte vorm: sloten zonder planten (gemeten 0%) worden vrijwel altijd overschat (voorspeld 5–11%, residu −5 tot −11 procentpunt), terwijl de sloten met de hoogste bedekking (75–100%) fors worden onderschat (bijv. gemeten 90% voorspeld op 11%, residu +79 procentpunt; gemeten 100% voorspeld op 22%, residu +78 procentpunt). Voor **Draagkracht oever** worden de laagste gemeten waarden (0,06–0,10 MPa) overschat met 0,16–0,20 MPa, en de hoogste gemeten waarden (0,69–0,84 MPa) onderschat met 0,42–0,58 MPa (bij deze doelvariabele voorspelt het model dus vooral een waarde dicht bij het gemiddelde (rond 0,26–0,27 MPa) ongeacht of de werkelijke draagkracht laag of hoog is).
+Waar het model de lage waarden overschat en de hoge waarden onderschat (regressie naar het gemiddelde), is een symmetrische ±RMSE-marge misleidend: voor sloten met een lage tot gemiddelde gemeten waarde is de daadwerkelijke fout dan kleiner én overwegend eenzijdig (overschatting), terwijl voor sloten met een hoge gemeten waarde de fout groter én overwegend eenzijdig in de andere richting is (onderschatting). Hoge waarden komen bovendien weinig voor, waardoor het model er weinig voorbeelden van heeft om op te trainen. Voorspellingen voor sloten met een uitzonderlijk hoge (of lage) waarde moeten daarom met terughoudendheid worden geïnterpreteerd: het model "durft" zelden een even extreme waarde te voorspellen als er daadwerkelijk gemeten wordt.
 
-Voor deze drie doelvariabelen betekent dit dat een symmetrische ±RMSE-marge misleidend is: voor sloten met een lage tot gemiddelde gemeten waarde is de daadwerkelijke fout kleiner én overwegend eenzijdig (overschatting), terwijl voor sloten met een hoge gemeten waarde de fout groter én overwegend eenzijdig in de andere richting is (onderschatting). Praktisch betekent dit dat voorspellingen voor sloten met een gemiddelde of licht bovengemiddelde waarde op deze drie doelvariabelen het meest betrouwbaar zijn, en dat voorspellingen voor sloten met een uitzonderlijk hoge (of, in mindere mate, uitzonderlijk lage) gemeten waarde met terughoudendheid moeten worden geïnterpreteerd: het model "durft" zelden een even extreme waarde te voorspellen als er daadwerkelijk gemeten wordt.
+```{r}
+#| results: asis
+#| echo: false
+# Controle: de alinea hierboven veronderstelt regressie naar het gemiddelde
+# (laagste terciel gemiddeld overschat, hoogste terciel gemiddeld onderschat).
+# Wijkt een doelvariabele daarvan af, dan verschijnt een waarschuwing.
+if (nrow(res_diag) > 0) {
+  afw_diag <- rbindlist(lapply(unique(res_diag$target_var), function(tgt) {
+    t <- terc_tbl(tgt); if (nrow(t) < 2) return(NULL)
+    if (t[1, gem] < 0 && t[.N, gem] > 0) return(NULL)
+    data.table(doel = naam_doel(tgt), laag = t[1, gem], hoog = t[.N, gem], d = dec(tgt))
+  }))
+  if (nrow(afw_diag) > 0) {
+    cat("::: {.callout-warning}\n## Controleer de interpretatie van de residuen\n\n",
+        "Bij de volgende doelvariabelen is er geen regressie naar het gemiddelde (laagste terciel overschat, hoogste onderschat), terwijl de alinea hierboven daarvan uitgaat:\n\n", sep = "")
+    for (i in seq_len(nrow(afw_diag))) with(afw_diag[i], cat(sprintf(
+      "- %s: gemiddelde fout laagste groep %s, hoogste groep %s\n", doel, f1(laag, d), f1(hoog, d))))
+    cat("\n:::\n")
+  }
+}
+```
 
 ## Ruimtelijke cross-validatie
 
@@ -1005,11 +1439,32 @@ digits = 1)
 
 De `r xgb_cv_tgt[order(-r2_xgb_cv), target][1]` generaliseert het minst slecht naar nieuwe gebieden in de ruimtelijke CV, consistent voor zowel RF als XGBoost.
 
-Doelvariabelen die sterk afhankelijk zijn van lokale bodem- of waterchemie generaliseren het minst goed: voor bedekking ondergedoken planten is de gemiddelde ruimtelijke CV-R² (XGBoost) −380 en voor soortensamenstelling hydrofyten −30, tegenover een gewone testset-R² van respectievelijk 0,05 en (zwak); een negatieve CV-R² betekent dat het model, getraind op de overige acht waterschappen, het slechter doet dan wanneer het gemiddelde van het weggelaten waterschap zelf als voorspelling was gebruikt; hoe negatiever, hoe groter die achterstand. Ook P-AL slib laat dit patroon zien (gemiddelde CV-R² = −12 versus testset-R² = 0,58); de verklaring hiervoor is per waterschap zeer ongelijk verdeeld en wordt hieronder bij @fig-cv-r2 en @fig-cv-rmse verder uitgewerkt. Ter vergelijking geven de bijbehorende RMSE%-waarden in de CV (de voorspelfout als percentage van de gemiddelde waarde van een doelvariabele in het weggelaten waterschap, dus een schaal-onafhankelijke foutmaat, waarbij een 0 staat voor een perfect model) hetzelfde beeld: 714% voor soortensamenstelling hydrofyten en 99% voor P-AL slib, tegenover 30–34% voor oeverindex en aantal oeversoorten.
+```{r}
+#| include: false
+# Getallen voor de lopende tekst over de ruimtelijke CV (XGBoost), rechtstreeks
+# uit cv_results en performance_summary; ook gebruikt in de tekst bij
+# fig-cv-r2, fig-cv-rmse en de vergelijking tussen waterschappen hieronder.
+cv_xgb <- as.data.table(cv_results)[!is.na(r2) & n_test >= min_n_test_cv]
+cv_tgt <- cv_xgb[, .(r2_cv = mean(r2), rmse_cv = mean(rmse_pct[is.finite(rmse_pct)])), by = target]
+cv_tgt <- merge(cv_tgt, as.data.table(performance_summary)[, .(target, r2_test)], by = "target")
+cv_pct <- function(x) f1(100 * x, 0)
+cvr  <- function(t) cv_pct(cv_tgt[target == t, r2_cv])
+cvm  <- function(t) paste0(f1(cv_tgt[target == t, rmse_cv], 0), "%")
+cvt  <- function(t) paste0(cv_pct(cv_tgt[target == t, r2_test]), "%")
+pal_t <- "P-AL mg p2o5/100g_SB"; subm_t <- "waterzone_1_subm_tot_perc"; hyd_t <- "Soortensamenstelling Hydrofyten"
+nsub_t <- "n_soorten_sub_zone1"; oev_t <- "n_soorten_oev_zone2"
+fys_t <- c("draagkracht_oever", "Soortensamenstelling Helofyten", "oeverindex", "max_slib", "slib_redox_pH7")
+fys <- cv_tgt[target %in% fys_t]
+ws_n <- cv_xgb[, .(n_min = min(n_test), n_max = max(n_test)), by = waterschap]
+ws_klein <- ws_n[n_max < 10][order(n_max)]
+n_bereik <- function(w) with(ws_n[waterschap == w], if (n_min == n_max) as.character(n_min) else paste0(n_min, "–", n_max))
+```
 
-Doelvariabelen die minder van lokale chemie en meer van fysieke/morfologische kenmerken afhangen (oeverindex, aantal oeversoorten, draagkracht oever, aantal waterplantensoorten) generaliseren milder, met CV-R²-waarden tussen −0,4 en −3,4 en RMSE%-waarden van 30-73% (nog altijd negatief resp. substantieel, maar duidelijk minder extreem dan bij de chemie-afhankelijke doelvariabelen).
+Doelvariabelen die sterk afhangen van de waterplanten en de chemie van het slib generaliseren het slechtst. De gemiddelde ruimtelijke CV-R² (XGBoost) is `r cvr(hyd_t)`% voor soortensamenstelling hydrofyten, `r cvr(pal_t)`% voor P-AL slib, `r cvr(subm_t)`% voor bedekking ondergedoken planten en `r cvr(nsub_t)`% voor aantal waterplantensoorten, tegenover een gewone testset-R² van respectievelijk `r cvt(hyd_t)`, `r cvt(pal_t)`, `r cvt(subm_t)` en `r cvt(nsub_t)`. Een negatieve CV-R² betekent dat het model, getraind op de overige waterschappen, het slechter doet dan wanneer het gemiddelde van het weggelaten waterschap zelf als voorspelling was gebruikt; hoe negatiever, hoe groter die achterstand. De RMSE% in de CV (de voorspelfout als percentage van de gemiddelde waarde in het weggelaten waterschap, een schaalonafhankelijke foutmaat waarbij 0 staat voor een perfect model) geeft voor de waterplanten hetzelfde beeld: `r cvm(hyd_t)` voor soortensamenstelling hydrofyten, `r cvm(subm_t)` voor bedekking ondergedoken planten en `r cvm(nsub_t)` voor aantal waterplantensoorten. Bij P-AL slib is de RMSE% met `r cvm(pal_t)` lager; de slechte CV-R² komt daar vooral door een paar waterschappen (zie hieronder bij @fig-cv-r2 en @fig-cv-rmse).
 
-De drempel van minimaal 4 testlocaties per waterschap-fold (in plaats van 10) is bewust laag gehouden om ook AGV, Fryslân, HDL, WDOD en WVV in de vergelijking mee te nemen; voor deze waterschappen is een enkele fold met weinig testlocaties (soms 3-6) wel gevoeliger voor toeval, dus de R² per waterschap-doelvariabele-combinatie is daar minder precies dan bij bijvoorbeeld Rijnland of HDSR (zie het aantal testlocaties, weergegeven in @fig-cv-r2 en @fig-cv-rmse, per staaf).
+Doelvariabelen die meer van fysieke en morfologische kenmerken afhangen (draagkracht oever, soortensamenstelling helofyten, oeverindex en slibdikte), en ook de redox van het slib, generaliseren milder, met CV-R²-waarden tussen `r cv_pct(min(fys$r2_cv))`% en `r cv_pct(max(fys$r2_cv))`% en RMSE%-waarden van `r f1(min(fys$rmse_cv), 0)`–`r f1(max(fys$rmse_cv), 0)`%: nog altijd negatief respectievelijk substantieel, maar duidelijk minder extreem dan bij de waterplanten. Aantal oeversoorten heeft een lage RMSE% (`r cvm(oev_t)`), maar een sterk negatieve CV-R² (`r cvr(oev_t)`%), wat past bij het sterk overfitte model voor deze doelvariabele.
+
+De drempel van minimaal 4 testlocaties per waterschap-fold (in plaats van 10) is bewust laag gehouden om alle waterschappen in de vergelijking mee te nemen`r if (nrow(ws_klein) > 0) paste0("; voor ", opsomming(ws_klein$waterschap), " bevat een fold maar ", opsomming(vapply(ws_klein$waterschap, n_bereik, "")), " testlocaties. Zo'n fold is gevoeliger voor toeval, dus de R² per combinatie van waterschap en doelvariabele is daar minder precies dan bij bijvoorbeeld ", opsomming(head(ws_n[order(-n_max), waterschap], 2)), " (", opsomming(vapply(head(ws_n[order(-n_max), waterschap], 2), n_bereik, "")), " testlocaties)") else ""`; het aantal testlocaties staat per staaf in @fig-cv-r2 en @fig-cv-rmse.
 
 ```{r}
 #| label: fig-cv-r2
@@ -1100,19 +1555,55 @@ ggplot(cv_rmse_dt, aes(x = waterschap, y = rmse_pct, fill = waterschap)) +
   )
 ```
 
-Voor **P-AL slib** is in @fig-cv-r2 goed te zien dat de CV-R² niet uniform slecht is, maar sterk uiteenloopt tussen waterschappen: AGV (0,35) en HHSK (0,15) generaliseren redelijk, HDSR (0,01) en Rijnland (−0,22) matig tot zwak, maar Fryslân (−4,7), HDL (−4,9), WVV (−4,3) en vooral WDOD (−94,9) extreem slecht. Dezelfde drie laatste waterschappen springen er in @fig-cv-rmse ook uit met de hoogste RMSE% (WDOD 400%, WVV 135%, Fryslân 93%, tegen 34–51% voor de overige waterschappen). De verklaring hiervoor ligt in @fig-box-ws-target: het gemeten P-AL-slib is in WDOD (gemiddeld 11 mg P2O5/100g), WVV (18) en Fryslân (24) structureel veel lager dan in de overige waterschappen (46–79). Het model, getraind op de acht overige waterschappen met overwegend hogere P-AL-waarden, heeft dus nooit een gebied met zulke lage waarden gezien en extrapoleert daardoor systematisch te hoog wanneer zo'n waterschap als testset dient (dit is precies het soort extrapolatieprobleem waar boom-ensembles gevoelig voor zijn, zie ook de eerdere bespreking van "regression to the mean" bij de residudiagnostiek). Dit is dan ook geen kenmerk van P-AL slib als doelvariabele op zich, maar van hoe scheef het bereik van die variabele over de negen waterschappen verdeeld is: bij AGV en HHSK, waar het gemeten niveau dichter bij het trainingsgemiddelde ligt, is de CV-R² wél redelijk.
+```{r}
+#| include: false
+# Getallen per waterschap voor de tekst hieronder (ruimtelijke CV en spreiding
+# van de doelvariabelen per waterschap).
+r2w <- function(t) cv_xgb[target == t][order(-r2)]
+ws_txt <- function(d, kol = "r2", d_dig = 2, eenheid = "") opsomming(paste0(d$waterschap, " (", vapply(d[[kol]], f1, "", d = d_dig), eenheid, ")"))
+pal_cv <- r2w(pal_t)
+pal_goed <- pal_cv[r2 > -0.5]
+pal_slecht <- pal_cv[r2 < -3][order(r2)]
+pal_rmse <- cv_xgb[target == pal_t][order(-rmse_pct)]
+pal_rmse_hoog <- head(pal_rmse, 3)
+pal_rmse_rest <- pal_rmse[-(1:3)]
+pal_ws <- abio_proj[!is.na(`P-AL mg p2o5/100g_SB`) & !is.na(waterschap),
+                    .(pal = mean(`P-AL mg p2o5/100g_SB`)), by = waterschap][order(pal)]
+pal_laag <- head(pal_ws, 3)
+pal_overig <- pal_ws[-(1:3)]
+subm_ws <- abio_proj[!is.na(waterzone_1_subm_tot_perc) & !is.na(waterschap), .(
+  nul = mean(waterzone_1_subm_tot_perc == 0),
+  gem_aanw = mean(waterzone_1_subm_tot_perc[waterzone_1_subm_tot_perc > 0])
+), by = waterschap][order(-nul)]
+subm_kaal <- subm_ws[nul >= 0.5]
+subm_rijk <- subm_ws[nul < 0.3]
+subm_slecht <- head(cv_xgb[target == subm_t][order(r2)], 2)
+hyd_slecht <- head(cv_xgb[target == hyd_t][order(r2)], 2)
+subm_na <- setdiff(subm_kaal[nul == 1, waterschap], cv_xgb[target == subm_t, waterschap])
+```
 
-Dit patroon (lage/negatieve ruimtelijke CV-R² naast een goede gewone testset-R²) wijst dus niet zozeer op overfitting in algemene zin, maar concreet op extrapolatie naar predictor- of doelvariabelewaarden die buiten het bereik van de trainingsdata liggen. Het "geheugen" van hoe sloten in bijvoorbeeld Rijnland eruitzien, werkt niet voor een waterschap met een wezenlijk ander P-AL-niveau zoals WDOD.
+Voor **P-AL slib** is in @fig-cv-r2 goed te zien dat de CV-R² niet uniform slecht is, maar sterk uiteenloopt tussen waterschappen. `r ws_txt(pal_goed)` generaliseren redelijk tot matig (CV-R² tussen −0,5 en 0), maar `r ws_txt(pal_slecht)` extreem slecht. In @fig-cv-rmse springen `r ws_txt(pal_rmse_hoog, "rmse_pct", 0, "%")` eruit met de hoogste RMSE%, tegen `r f1(min(pal_rmse_rest$rmse_pct), 0)`–`r f1(max(pal_rmse_rest$rmse_pct), 0)`% voor de overige waterschappen. De verklaring ligt in @fig-box-ws-target: het gemeten P-AL in het slib is in `r opsomming(paste0(pal_laag$waterschap, " (gemiddeld ", vapply(pal_laag$pal, f1, "", d = 0), " mg P2O5/100g)"))` structureel lager dan in de overige waterschappen (`r f1(min(pal_overig$pal), 0)`–`r f1(max(pal_overig$pal), 0)`)`r if (setequal(pal_laag$waterschap, pal_rmse_hoog$waterschap)) "; dat zijn precies de waterschappen met de hoogste RMSE%" else ""`. Het model, getraind op de overige waterschappen met overwegend hogere P-AL-waarden, heeft zulke lage waarden nauwelijks gezien en extrapoleert daardoor systematisch te hoog wanneer zo'n waterschap als testset dient (dit is precies het soort extrapolatieprobleem waar boom-ensembles gevoelig voor zijn, zie ook de eerdere bespreking van "regression to the mean" bij de residudiagnostiek). Dit is dan ook geen kenmerk van P-AL slib als doelvariabele op zich, maar van hoe scheef het bereik van die variabele over de waterschappen verdeeld is: bij de waterschappen waar het gemeten niveau dichter bij het trainingsgemiddelde ligt, is de CV-R² veel minder negatief.
 
-Hetzelfde mechanisme, maar dan extremer, verklaart de zeer lage ruimtelijke CV-R² voor **bedekking ondergedoken planten** en **aantal waterplantensoorten**. In @fig-box-ws-target is te zien dat ondergedoken waterplanten in HHSK, HDSR, AGV en HHNK vrijwel afwezig zijn: het aandeel meetpunten zonder bedekking (0%) loopt daar op tot 100% (HHSK), 84% (HDSR), 75% (AGV) en 73% (HHNK), tegenover slechts 6–25% in Fryslân, WDOD, HDL en WVV, waar submerse vegetatie met een gemiddelde bedekking van 29–38% juist wijdverspreid is. Wanneer HHNK (een waterschap met vrijwel geen waterplanten) als testset wordt weggelaten en het model dus traint op de overige acht waterschappen (waaronder de drie met veel waterplanten), voorspelt het voor HHNK ten onrechte substantiële bedekking, wat de extreme CV-R² van ongeveer −3025 verklaart die eerder bij de bespreking van @fig-cv-r2 werd genoemd. Omgekeerd geldt het risico ook: wordt bijvoorbeeld Fryslân of WDOD weggelaten, dan is de trainingsset overwegend gevuld met sloten zonder waterplanten, en onderschat het model de bedekking in het weggelaten, plantrijke waterschap. Dit is dus geen kwestie van een verkeerd geschat verband tussen predictoren en waterplanten, maar van een scheve, grotendeels bimodale verdeling van de doelvariabele zelf over de waterschappen (vergelijkbaar met, maar sterker uitgesproken dan, het P-AL-patroon hierboven).
+Dit patroon (lage of negatieve ruimtelijke CV-R² naast een redelijke gewone testset-R²) wijst dus niet zozeer op overfitting in algemene zin, maar concreet op extrapolatie naar predictor- of doelvariabelewaarden die buiten het bereik van de trainingsdata liggen. Het "geheugen" van hoe sloten in bijvoorbeeld Rijnland eruitzien, werkt niet voor een waterschap met een wezenlijk ander P-AL-niveau zoals `r pal_laag$waterschap[1]`.
+
+Hetzelfde mechanisme, maar dan sterker, verklaart de zeer lage ruimtelijke CV-R² voor **bedekking ondergedoken planten** en **soortensamenstelling hydrofyten**. In @fig-box-ws-target is te zien dat ondergedoken waterplanten in `r opsomming(subm_kaal$waterschap)` grotendeels ontbreken: het aandeel meetpunten zonder bedekking is daar `r opsomming(paste0(round(100 * subm_kaal$nul), "%"))`, tegenover `r f1(100 * min(subm_rijk$nul), 0)`–`r f1(100 * max(subm_rijk$nul), 0)`% in `r opsomming(subm_rijk$waterschap)`, waar ondergedoken vegetatie met een gemiddelde bedekking van `r f1(min(subm_rijk$gem_aanw), 0)`–`r f1(max(subm_rijk$gem_aanw), 0)`% (waar aanwezig) juist wijdverspreid is. Wordt een waterschap met weinig waterplanten weggelaten, dan traint het model ook op de waterschappen met veel waterplanten en voorspelt het voor het weggelaten waterschap ten onrechte een substantiële bedekking. Dat verklaart de sterk negatieve CV-R² voor bedekking ondergedoken planten in `r ws_txt(subm_slecht)` en voor soortensamenstelling hydrofyten in `r ws_txt(hyd_slecht)`.`r if (length(subm_na) > 0) paste0(" Voor ", opsomming(subm_na), ", waar geen enkel meetpunt ondergedoken planten heeft, is de CV-R² voor de bedekking niet te berekenen: de gemeten waarden hebben daar geen spreiding.") else ""` Omgekeerd geldt het risico ook: wordt een plantrijk waterschap weggelaten, dan bestaat de trainingsset overwegend uit sloten zonder waterplanten en onderschat het model de bedekking. Dit is dus geen kwestie van een verkeerd geschat verband tussen predictoren en waterplanten, maar van een scheve, grotendeels bimodale verdeling van de doelvariabele zelf over de waterschappen.
 
 De predictoren die zijn meegenomen, vangen kennelijk niet alle variatie die tussen waterschappen verschilt (bijvoorbeeld regionale verschillen in (peil)beheer, bodemopbouw, waterkwaliteitshistorie en seizoensdynamiek, wat een vorm van confounding met waterschap in de trainingsdata oplevert die niet in het model als voorspeller is opgenomen). Praktisch betekent dit dat het model niet zomaar toepasbaar is op een nieuw, ongezien gebied: de hoge testset-R² weerspiegelt vooral interpolatie binnen bekende gebieden, niet extrapolatie naar nieuwe gebieden. 
 
 ### Is dit patroon breder dan alleen P-AL slib?
 
-Het P-AL-voorbeeld hierboven laat zien dat een lage of negatieve ruimtelijke CV-score in de eerste plaats iets zegt over hoe goed het weggelaten waterschap qua doelvariabele (en onderliggende predictoren) binnen het bereik van de overige acht waterschappen valt, niet per se over de kwaliteit van het model. Bijna alle CV-R²-waarden in @fig-cv-r2 liggen onder nul: voor vrijwel elke combinatie van waterschap en doelvariabele presteert het model op het weggelaten waterschap slechter dan simpelweg het gemiddelde van dat waterschap voorspellen. Dat is een generieke bevinding, geen kenmerk van één specifiek "moeilijk" gebied: de voorspellende variabelen die nu zijn meegenomen, verklaren over de hele linie onvoldoende hoe doelvariabelen van waterschap tot waterschap verschillen. Dit in tegenstelling tot de gewone (niet-ruimtelijke) testset-R², die voor veel doelvariabelen wel 50% of hoger lag: die score weerspiegelt vooral dat het model goed presteert *binnen* al bekende gebieden, niet dat het naar een geheel nieuw gebied kan extrapoleren.
+Het P-AL-voorbeeld hierboven laat zien dat een lage of negatieve ruimtelijke CV-score in de eerste plaats iets zegt over hoe goed het weggelaten waterschap qua doelvariabele (en onderliggende predictoren) binnen het bereik van de overige acht waterschappen valt, niet per se over de kwaliteit van het model. Bijna alle CV-R²-waarden in @fig-cv-r2 liggen onder nul: voor vrijwel elke combinatie van waterschap en doelvariabele presteert het model op het weggelaten waterschap slechter dan simpelweg het gemiddelde van dat waterschap voorspellen. Dat is een generieke bevinding, geen kenmerk van één specifiek "moeilijk" gebied: de voorspellende variabelen die nu zijn meegenomen, verklaren over de hele linie onvoldoende hoe doelvariabelen van waterschap tot waterschap verschillen. Dit in tegenstelling tot de gewone (niet-ruimtelijke) testset-R², die voor `r sum(cv_tgt$r2_test >= 0.5)` van de `r nrow(cv_tgt)` doelvariabelen 50% of hoger is en voor `r sum(cv_tgt$r2_test >= 0.3)` boven 30%: die score weerspiegelt vooral dat het model goed presteert *binnen* al bekende gebieden, niet dat het naar een geheel nieuw gebied kan extrapoleren.
 
-Binnen dit algemene beeld springt **HHNK** er bij de gemiddelde CV-R² per waterschap uit als het slechtst scorende waterschap, in schril contrast met bijvoorbeeld **Rijnland** en **AGV**, die op de meeste doelvariabelen een CV-R² dicht bij nul laten zien (variërend van licht negatief tot licht positief, zie @tbl-cv-compare). Bij nadere inspectie blijkt dit verschil echter grotendeels te worden veroorzaakt door één doelvariabele: de bedekking van ondergedoken waterplanten wordt voor HHNK extreem verkeerd voorspeld (R² in de orde van -3000), terwijl Rijnland en AGV voor diezelfde doelvariabele een veel bescheidener negatieve score halen (respectievelijk circa -0.2 en -6). Voor de overige doelvariabelen (aantal oeversoorten, draagkracht oever, soortensamenstelling helofyten, oeverindex) scoort HHNK juist relatief goed, vaak beter dan Rijnland en AGV. HHNK is dus niet structureel het moeilijkst te generaliseren waterschap; het gemiddelde wordt sterk vertekend door één extreme uitschieter bij één doelvariabele, wat vermoedelijk duidt op een specifiek slechte extrapolatie van het model voor waterplantenbedekking in dit waterschap, omdat er geen locaties zijn gevonden waar waterplanten voorkomen (@fig-box-ws-target). Rijnland en AGV zijn bovendien de waterschappen met de meeste (Rijnland, n = 24–35) respectievelijk minste (AGV, n = 4–6) testlocaties per fold, wat de precisie van hun CV-score beïnvloedt: bij AGV kan een enkele afwijkende sloot al een grote invloed hebben op de score.
+```{r}
+#| include: false
+ws_r2 <- cv_xgb[, .(gem = mean(r2), med = median(r2), n_max = max(n_test)), by = waterschap]
+ws_gem_slecht <- ws_r2[order(gem)][1]
+ws_extreem <- cv_xgb[waterschap == ws_gem_slecht$waterschap][order(r2)][1]
+ws_med_slecht <- ws_r2[order(med)][1:2]
+ws_beste <- ws_r2[order(-med)][1]
+```
+
+Binnen dit algemene beeld scoort **`r ws_gem_slecht$waterschap`** gemiddeld over de doelvariabelen het slechtst (gemiddelde CV-R² `r f1(ws_gem_slecht$gem, 1)`). Dat gemiddelde wordt echter vooral bepaald door één doelvariabele: `r tolower(ws_extreem$target_nl)` wordt voor `r ws_gem_slecht$waterschap` extreem slecht voorspeld (CV-R² `r f1(ws_extreem$r2, 1)`), terwijl de mediaan over de doelvariabelen `r f1(ws_gem_slecht$med, 2)` is. Op basis van de mediaan scoren `r opsomming(paste0(ws_med_slecht$waterschap, " (", vapply(ws_med_slecht$med, f1, "", d = 2), ")"))` het slechtst; `r if (all(ws_med_slecht$n_max < 10)) paste0("dat zijn ook de waterschappen met de minste testlocaties per fold (", opsomming(paste0(ws_med_slecht$waterschap, ": n = ", vapply(ws_med_slecht$waterschap, n_bereik, ""))), "), waar een enkele afwijkende sloot al een grote invloed op de score heeft") else "hun scores zijn niet het gevolg van een klein aantal testlocaties"`. **`r ws_beste$waterschap`** scoort het best (mediaan `r f1(ws_beste$med, 2)`, n = `r n_bereik(ws_beste$waterschap)` testlocaties per fold). Voor de vergelijking tussen waterschappen is de mediaan daarom een betere maat dan het gemiddelde, dat door één extreme uitschieter sterk vertekend kan worden.
 
 ```{r}
 #| label: fig-box-ws-pred
@@ -1130,8 +1621,8 @@ if (!is.null(p_ws_pred)) {
 
 ```{r}
 #| label: fig-box-ws-beheer
-#| fig-cap: "Spreiding van beheervariabelen (maai- en baggerfrequentie, baggermoment, koebelasting, mestmethode, bemestingsvrije zone) per waterschap, gekleurd naar dezelfde ruimtelijke CV-prestatiegroep als @fig-box-ws-pred."
-#| fig-height: 12
+#| fig-cap: "Spreiding van beheervariabelen (maaifrequentie van oever en bemestingsvrije zone, maaimaand van oever en sloot, baggerfrequentie, baggermoment, koebelasting, mestmethode, bemestingsvrije zone) per waterschap, gekleurd naar dezelfde ruimtelijke CV-prestatiegroep als @fig-box-ws-pred. Maaimaand = eerste maand die in de beheerenquête is genoemd (bv. 6 bij '6,8,9'; 12 bij winterbeheer '12,1,2')."
+#| fig-height: 14
 #| fig-width: 10
 if (!is.null(p_beheer)) {
   print(p_beheer)
@@ -1140,52 +1631,7 @@ if (!is.null(p_beheer)) {
 }
 ```
 
-@fig-box-ws-beheer toont dezelfde vergelijking als @fig-box-ws-pred, maar dan voor de beheervariabelen (maai- en baggerfrequentie, baggermoment, koebelasting, mestmethode en breedte van de bemestingsvrije zone). Dit geeft een indicatie of verschillen in generaliseerbaarheid tussen waterschappen ook samenhangen met regionale verschillen in beheerpraktijk, naast de fysieke/chemische kenmerken uit @fig-box-ws-pred.
-
-## ALE-kantelpunten van de meest betrouwbare modellen
-
-De Accumulated Local Effects (ALE)-curves laten voor elke voorspeller een kantelpunt (omslagpunt) zien: een predictorwaarde waarboven of waaronder het effect op de doelvariabele sterk verandert. Om dit niet voor alle voorspellers van alle tien doelvariabelen te tonen, zijn hieronder de zes doelvariabelen met de hoogste testset-R² uit @tbl-performance uitgelicht (**Aantal waterplantensoorten (71%), P-AL slib (68%), Soortensamenstelling Hydrofyten (59%), Redox slib (42%), Oeverindex (40%)** en **Slibdikte (37%)**), met per doelvariabele de top-2 voorspellers op basis van gecombineerd Gain- en permutation-belang (zie @fig-vip-xgb); voor Slibdikte zijn twee aanvullende voorspellers toegevoegd (zie onder).
-
-```{r}
-#| label: fig-xgb-kantelpunten
-#| fig-cap: "ALE-kantelpunten van de belangrijkste voorspellers voor de zes meest betrouwbare XGBoost-modellen, per doelvariabele in een eigen (gekleurde) rij. De roze stippellijn markeert het omslagpunt; de subtitle geeft aan of dit een plotselinge sprong of een geleidelijke verandering betreft."
-#| fig-height: 29
-#| fig-width: 24
-print(xgb_kantelpunt_plot)
-```
-
-```{r}
-#| label: tbl-xgb-kantelpunten
-#| tbl-cap: "Betrouwbaarheid van de kantelpunten in fig-xgb-kantelpunten. 'Sloten bij omslag' = aantal sloten met een predictorwaarde binnen 8% van de x-range rond het omslagpunt; 'SD-ratio' = spreiding van het residu bij die sloten t.o.v. de globale residu-spreiding van het model (>1 betekent dat de voorspelling rond dit punt onzekerder is dan gemiddeld voor dit model)."
-kantel_tbl_out <- copy(xgb_kantelpunt_tbl)
-kantel_tbl_out <- kantel_tbl_out[, .(
-  Doelvariabele        = target_nl,
-  Voorspeller          = pred_nl,
-  `R² model (test)`    = paste0(round(r2_test * 100, 0), "%"),
-  `Omslagpunt`         = x_omslag,
-  Type                 = vorm,
-  `Sloten bij omslag`  = paste0(n_sloten_bij_omslag, " / ", n_sloten_totaal),
-  `SD-ratio (lokaal/globaal)` = ratio_sd_lokaal_vs_globaal,
-  Betrouwbaarheid      = betrouwbaarheid
-)]
-kable(kantel_tbl_out)
-```
-
-Twee zaken bepalen hoe betrouwbaar zo'n kantelpunt is. Ten eerste: hoeveel sloten hebben een waarde dichtbij het kantelpunt (kolom "Sloten bij omslag")? Als dat er maar een paar zijn, is het omslagpunt op weinig informatie gebaseerd en dus minder zeker. Ten tweede: hoe groot is de "lokale spreiding" (SD-ratio) bij de sloten die rond het kantelpunt liggen? Dit is de spreiding in de voorspelfout van het model bij sloten rond het kantelpunt, vergeleken met de spreiding in de voorspelfout van het model over alle sloten samen. Een SD-ratio rond 1 betekent dat het model bij deze sloten niet onzekerder voorspelt dan gemiddeld; een SD-ratio duidelijk boven 1 betekent dat het model juist bij déze sloten minder goed voorspelt, wat erop wijst dat het gevonden kantelpunt zelf ook minder precies is vastgesteld. Kantelpunten die op veel sloten zijn gebaseerd én een normale (niet-verhoogde) lokale spreiding hebben, zijn dus het meest betrouwbaar.
-
-**P-AL slib** (testset-R² XGBoost = 68%): het kantelpunt bij FeP ≈ 1,15 mol/mol is een plotselinge sprong. Van de 162 sloten die in dat model zijn meegenomen, hebben er 143 een FeP-waarde dichtbij dit kantelpunt, en bij die sloten voorspelt het model niet onzekerder dan gemiddeld: dit kantelpunt is dus redelijk betrouwbaar. Het kantelpunt bij Drooglegging ≈ 0,39 m is eveneens een plotselinge sprong, gebaseerd op 56 sloten met een spreiding dicht bij gemiddeld: ook dit kantelpunt is redelijk betrouwbaar.
-
-**Aantal waterplantensoorten** (testset-R² XGBoost = 71%, de hoogste van de zes): het kantelpunt bij P-AL slib ≈ 35 mg P2O5/100g is een geleidelijke verandering, gebaseerd op 50 sloten met een spreiding iets hoger dan gemiddeld: redelijk betrouwbaar. Het kantelpunt bij **Onderholling ≈ 36 cm** is eveneens een geleidelijke verandering, gebaseerd op 35 sloten, met een spreiding lager dan gemiddeld: ook dit kantelpunt is redelijk betrouwbaar.
-
-**Soortensamenstelling Hydrofyten** (testset-R² XGBoost = 59%): het kantelpunt bij P-AL slib ≈ 22 mg P2O5/100g is een geleidelijke verandering, gebaseerd op 47 sloten met een spreiding iets hoger dan gemiddeld: redelijk betrouwbaar. Het kantelpunt bij FeP ≈ 2,5 mol/mol is een plotselinge sprong, gebaseerd op 143 van de 161 sloten, met een spreiding dicht bij gemiddeld: eveneens redelijk betrouwbaar, en op veel sloten gebaseerd.
-
-**Redox slib** (testset-R² XGBoost = 42%, en met een hoge residu-skewness, zie @tbl-xgb-diag-summary): het kantelpunt bij pH slib ≈ 7,0 is geleidelijk, gebaseerd op 32 sloten, met een lagere spreiding dan gemiddeld: redelijk betrouwbaar, ondanks de eerder besproken heteroscedasticiteit bij dit model (die zich vooral aan de bovenkant van de redoxschaal voordoet, niet in deze pH-zone). Het kantelpunt bij draagkracht perceel ≈ 1,1 MPa is een geleidelijke verandering, met een spreiding iets boven gemiddeld, gebaseerd op 29 sloten: matig betrouwbaar.
-
-**Oeverindex** (testset-R² XGBoost = 40%): het kantelpunt bij Cation Exchange Capacity ≈ 611 mmol+/kg is een geleidelijke verandering, gebaseerd op 25 sloten, met een spreiding iets onder gemiddeld: matig betrouwbaar (minder sloten dan bij de andere kantelpunten in deze figuur). Het kantelpunt bij P-AL slib ≈ 53 mg P2O5/100g is een plotselinge sprong, gebaseerd op 46 sloten, met een spreiding 20% hoger dan gemiddeld: eveneens matig betrouwbaar.
-
-**Slibdikte** (testset-R² XGBoost = 37%): het kantelpunt bij P-AL slib ≈ 7,3 mg P2O5/100g is een geleidelijke verandering met een spreiding iets onder gemiddeld, gebaseerd op 27 sloten: matig betrouwbaar. Het kantelpunt bij Afscheurende oever ≈ 37.500 cm² is een plotselinge sprong, gebaseerd op 81 van de 162 sloten, met een spreiding iets hoger dan gemiddeld: ook dit kantelpunt is matig betrouwbaar. Twee aanvullende voorspellers voor slibdikte zijn hier ook opgenomen omdat ze aansluiten bij de eerder besproken interpretatie (zie "Voorspellers die het meest bijdragen"): het kantelpunt bij Doorzicht/waterdiepte (≈ 0,19, gebaseerd op 62 sloten) laat zien dat een hogere ratio (relatief helderder water) samengaat met méér slib, en het kantelpunt bij Taludhoek onder waterlijn (≈ 7,1%, gebaseerd op 127 sloten) bevestigt dat een steilere oever onder water samengaat met minder slib (beide in dezelfde onverwachte richting als bij de VIP-analyse geconstateerd).
-
-Samenvattend: vrijwel alle hier getoonde kantelpunten zijn op minstens 25 sloten gebaseerd en hebben een lokale spreiding die niet sterk afwijkt van het modelgemiddelde, en worden daarom als redelijk tot matig betrouwbaar beoordeeld. De minst goed onderbouwde kantelpunten in deze selectie zijn Cation Exchange Capacity → Oeverindex (25 sloten, matig betrouwbaar) en P-AL slib → Slibdikte (27 sloten); de exacte ligging van deze omslagpunten is gevoeliger voor de specifieke steekproef en verdient een minder stellige formulering dan de overige kantelpunten in deze figuur.
+@fig-box-ws-beheer toont dezelfde vergelijking als @fig-box-ws-pred, maar dan voor de beheervariabelen (maaifrequentie en maaimaand, baggerfrequentie, baggermoment, koebelasting, mestmethode en breedte van de bemestingsvrije zone). Dit geeft een indicatie of verschillen in generaliseerbaarheid tussen waterschappen ook samenhangen met regionale verschillen in beheerpraktijk, naast de fysieke/chemische kenmerken uit @fig-box-ws-pred.
 
 ## GAM: prestaties en smooth-effecten
 
@@ -1303,11 +1749,90 @@ if (!is.null(beheer_gam_plots) && length(beheer_gam_plots) > 0) {
 }
 ```
 
-Voor de **erosieindex** blijkt geen van de zes beheervariabelen een aantoonbaar effect te hebben: alle bijbehorende smooth-termen worden door `select = TRUE` (nagenoeg) naar nul gepenaliseerd (edf ≈ 0, p > 0,5). De verklaarde deviantie van dit model komt vrijwel volledig van de ruimtelijke term (edf ≈ 5,4, p < 0,001), wat erop wijst dat erosie in deze dataset vooral samenhangt met locatie/gebied en niet met de gemeten beheervariabelen.
+```{r}
+#| include: false
+# Getallen voor de lopende tekst in deze sectie, rechtstreeks uit de .rds-bestanden.
+# NB: de interpretatie (welke termen significant zijn, richting van effecten) is
+# geschreven op basis van de run van 20-10-2026 en voor erosie bijgewerkt op
+# 30-10-2026; de controle-chunk hieronder
+# toont een waarschuwing in het rapport als de uitkomsten daar niet meer bij passen.
+fmt_pct <- function(x) if (length(x) == 0) "?" else formatC(100 * x, format = "f", digits = 1, decimal.mark = ",")
+fmt_edf <- function(x) if (length(x) == 0) "?" else formatC(x, format = "f", digits = 1, decimal.mark = ",")
+fmt_p <- function(p) {
+  if (length(p) == 0 || is.na(p)) return("p onbekend")
+  if (p < 0.001) return("p < 0,001")
+  paste0("p = ", formatC(p, format = "f", digits = if (p < 0.1) 3 else 2, decimal.mark = ","))
+}
+bt <- function(tgt_nl, pred, tab = beheer_gam_terms) {
+  if (is.null(tab)) return(data.table())
+  tab[target_nl == tgt_nl & predictor == pred]
+}
+p_full   <- function(tgt_nl, pred) fmt_p(bt(tgt_nl, pred)$`p-value`)
+p_ns     <- function(tgt_nl, pred) fmt_p(bt(tgt_nl, pred, beheer_gam_nospatial_stable)$`p-value`)
+edf_full <- function(tgt_nl, pred) fmt_edf(bt(tgt_nl, pred)$edf)
+dev_full <- function(tgt) fmt_pct(beheer_gam_summary[target == tgt, dev_expl])
+dev_ns   <- function(tgt) fmt_pct(beheer_gam_nospatial_summary[target == tgt, dev_expl])
+n_beheer <- if (is.null(beheer_gam_summary)) "?" else beheer_gam_summary$n[1]
+ero <- "Erosieindex"; ver <- "Vernattingsrisico-index"
+ruimte   <- "lon,lat (ruimtelijk)"
+koe      <- "koebelasting_drinkende_koeien"
+mest     <- "Methode_toedienen_dierlijke_mest"
+bagm     <- "Baggermoment_maand"
+maai_bvz <- "Maaifrequentie_bemestingsvrije_zone_per_jaar"
+maai_oev <- "Maaifrequentie_oever_per_jaar"
+```
 
-Voor de **vernattingsrisico-index** ligt dit anders: de methode van mesttoediening heeft een duidelijk aantoonbaar effect (p < 0,001) en koebelasting door drinkende koeien een grensgeval-effect (p ≈ 0,04); maaifrequentie bemestingsvrije zone is niet significant maar wel indicatief (p ≈ 0,09). De ruimtelijke term is hier juist niet significant (p ≈ 0,2), wat suggereert dat vernattingsrisico sterker samenhangt met beheer dan met locatie — het omgekeerde patroon van de erosieindex.
+```{r}
+#| results: asis
+#| echo: false
+# Controle: passen de huidige GAM-uitkomsten nog bij de interpretatie in de tekst
+# hieronder? Zo niet, dan verschijnt een waarschuwing in het gerenderde rapport.
+# Klassen: "sig" p < 0,05; "grens" 0,05 <= p < 0,15; "ns" p >= 0,15.
+# Richting "+"/"-" = teken van het partiële effect (alleen gecontroleerd waar de tekst die noemt).
+verwacht <- rbindlist(list(
+  # model met ruimtelijke term
+  data.table(model = "volledig", target_nl = ero, predictor = c(ruimte, bagm, mest, koe, maai_bvz, maai_oev, "Baggerfrequentie_per_jaar"),
+             klasse = c("sig", "grens", "ns", "ns", "grens", "ns", "ns"), richting = NA_character_),
+  data.table(model = "volledig", target_nl = ver, predictor = c(ruimte, koe, mest, bagm),
+             klasse = "sig", richting = c(NA, "-", NA, NA)),
+  # model zonder ruimtelijke term
+  data.table(model = "zonder ruimte", target_nl = ero, predictor = c(maai_bvz, bagm, maai_oev, koe, mest),
+             klasse = c("sig", "grens", "grens", "ns", "ns"), richting = NA_character_),
+  data.table(model = "zonder ruimte", target_nl = ver, predictor = c(koe, mest, bagm),
+             klasse = "sig", richting = NA_character_)
+))
+klasse_p <- function(p) fifelse(p < 0.05, "sig", fifelse(p < 0.15, "grens", "ns"))
+huidig <- rbind(
+  if (!is.null(beheer_gam_terms)) beheer_gam_terms[, .(model = "volledig", target_nl, predictor, p = `p-value`,
+                                                        richting_nu = if ("richting" %in% names(beheer_gam_terms)) richting else NA_character_)],
+  if (!is.null(beheer_gam_nospatial_stable)) beheer_gam_nospatial_stable[, .(model = "zonder ruimte", target_nl, predictor, p = `p-value`, richting_nu = NA_character_)]
+)
+afwijkingen <- if (is.null(huidig)) data.table() else {
+  m <- merge(verwacht, huidig, by = c("model", "target_nl", "predictor"), all.x = TRUE)
+  m[, klasse_nu := klasse_p(p)]
+  m[is.na(p) | klasse_nu != klasse | (!is.na(richting) & !is.na(richting_nu) & richting_nu != richting)]
+}
+if (is.null(huidig) || nrow(afwijkingen) > 0) {
+  cat("::: {.callout-warning}\n## Controleer de interpretatie in deze sectie\n\n")
+  cat("De huidige GAM-uitkomsten wijken af van wat de tekst hieronder beschrijft (de tekst is geschreven op basis van de run van 20-10-2026). Pas de interpretatie aan en daarna de verwachtingen in de controle-chunk.\n\n")
+  if (nrow(afwijkingen) > 0) {
+    for (i in seq_len(nrow(afwijkingen))) with(afwijkingen[i], cat(sprintf(
+      "- %s, %s, %s: verwacht %s%s, nu %s%s\n", model, target_nl,
+      fifelse(predictor == ruimte, "ruimtelijke term", nederlandse_namen[predictor]),
+      klasse, fifelse(is.na(richting), "", paste0(" (", richting, ")")),
+      fifelse(is.na(p), "ontbreekt", paste0(klasse_nu, " (", fmt_p(p), ")")),
+      fifelse(is.na(richting_nu) | is.na(richting), "", paste0(" (", richting_nu, ")"))
+    )))
+  } else cat("- De GAM-resultaten (.rds) ontbreken.\n")
+  cat("\n:::\n")
+}
+```
 
-Deze resultaten zijn gebaseerd op een beperkt aantal complete waarnemingen (n = 160, na uitval door ontbrekende beheerdata) en de gerapporteerde p-waarden zijn niet gecorrigeerd voor de twaalf uitgevoerde smooth-term-toetsen (zes voorspellers × twee doelvariabelen); de bevindingen moeten dan ook als indicatief worden gelezen, niet als bevestigd bewijs van causale sturing door beheer. Daarnaast liggen sloten met bepaald beheer geclusterd in de ruimte, waardoor het ruimtelijke oppervlak een variabele als bagger- of maaifrequentie zou kunnen verklaren.
+Voor de **erosieindex** wordt de verklaarde deviantie (`r dev_full("erosieindex")`%) grotendeels gedragen door de ruimtelijke term (edf ≈ `r edf_full(ero, ruimte)`, `r p_full(ero, ruimte)`). Geen van de zes beheervariabelen is significant op 5%-niveau. Baggermoment (`r p_full(ero, bagm)`) en de maaifrequentie van de bemestingsvrije zone (`r p_full(ero, maai_bvz)`) zijn grensgevallen. Methode van mesttoediening (`r p_full(ero, mest)`), koebelasting door drinkende koeien (`r p_full(ero, koe)`) en de overige beheertermen worden door `select = TRUE` grotendeels weggepenaliseerd (p > 0,15). Erosie hangt in deze dataset dus vooral samen met locatie/gebied.
+
+Voor de **vernattingsrisico-index** hebben drie beheervariabelen een aantoonbaar effect: koebelasting door drinkende koeien (`r p_full(ver, koe)`), methode van mesttoediening (`r p_full(ver, mest)`) en baggermoment (`r p_full(ver, bagm)`). Opvallend is de richting van het koebelastingseffect: een hogere koebelasting gaat samen met een *lager* vernattingsrisico. Dit effect wordt vooral bepaald door de circa 10% waarnemingen met de hoogste koebelasting (meer dan circa 0,75 koeien per 100 m oever, waaronder Mijnden 2024). Een mogelijke verklaring is dat vertrapping de oever vlakker maakt (een steil talud is een van de componenten van de index), maar dat is met deze data niet te toetsen. De ruimtelijke term is ook hier significant (edf ≈ `r edf_full(ver, ruimte)`, `r p_full(ver, ruimte)`): voor vernattingsrisico spelen zowel beheer als locatie een rol.
+
+Deze resultaten zijn gebaseerd op een beperkt aantal complete waarnemingen (n = `r n_beheer`, na uitval door ontbrekende beheerdata) en de gerapporteerde p-waarden zijn niet gecorrigeerd voor de twaalf uitgevoerde smooth-term-toetsen (zes voorspellers × twee doelvariabelen); de bevindingen moeten dan ook als indicatief worden gelezen, niet als bevestigd bewijs van causale sturing door beheer. Daarnaast liggen sloten met bepaald beheer geclusterd in de ruimte, waardoor het ruimtelijke oppervlak een variabele als bagger- of maaifrequentie zou kunnen verklaren.
 
 ### Beheer versus ruimte: hoeveel is een gebiedseffect?
 
@@ -1340,7 +1865,7 @@ beheer_eta2_tbl <- rbindlist(lapply(beheer_eta2_vars, function(v) {
 kable(beheer_eta2_tbl)
 ```
 
-Alle zes beheervariabelen blijken sterk geclusterd per gebied: 43-61% van hun variantie zit tussen gebieden in plaats van binnen gebieden (alle p < 0,001). Ter referentie: ook lengte- en breedtegraad zelf vallen vrijwel volledig samen met gebied (eta² ≈ 99,9%), wat logisch is omdat "gebied" zelf een ruimtelijk label is. Beheer wordt in de praktijk dus grotendeels per gebied (beheerder) bepaald, niet per individuele sloot — hierdoor is de ruimtelijke smooth `s(lon,lat)` in het GAM hierboven sterk verward (concurvity) met de beheertermen en kan het model niet betrouwbaar onderscheiden of het gebied of het beheer verantwoordelijk is voor een gevonden effect.
+Alle zes beheervariabelen blijken sterk geclusterd per gebied: `r paste(formatC(range(beheer_eta2_tbl[[4]]), format = "f", digits = 0), collapse = "–")`% van hun variantie zit tussen gebieden in plaats van binnen gebieden (alle p < 0,001). Ter referentie: ook lengte- en breedtegraad zelf vallen vrijwel volledig samen met gebied (eta² ≈ 99,9%), wat logisch is omdat "gebied" zelf een ruimtelijk label is. Beheer wordt in de praktijk dus grotendeels per gebied (beheerder) bepaald, niet per individuele sloot — hierdoor is de ruimtelijke smooth `s(lon,lat)` in het GAM hierboven sterk verward (concurvity) met de beheertermen en kan het model niet betrouwbaar onderscheiden of het gebied of het beheer verantwoordelijk is voor een gevonden effect.
 
 Om te laten zien wat een optimistische bovengrens is van wat de beheervariabelen zouden kunnen verklaren áls al hun samenhang met locatie aan beheer wordt toegeschreven, zijn dezelfde twee GAM's herhaald zonder de ruimtelijke term `s(lon,lat)`.
 
@@ -1374,11 +1899,11 @@ if (!is.null(beheer_gam_nospatial_stable) && nrow(beheer_gam_nospatial_stable) >
 }
 ```
 
-Zonder ruimtelijke term daalt de verklaarde deviantie voor de **erosieindex** sterk, van 29,9% naar 12,0%; voor de **vernattingsrisico-index** daalt de verklaarde deviantie licht, van 10,7% (volledige model) naar 9,6%. Dit past bij het beeld hierboven dat de ruimtelijke term bij vernattingsrisico al niet significant was (p ≈ 0,2): ze droeg wel iets bij aan de verklaarde deviantie, maar veel minder dan bij erosie, waar het overgrote deel van de verklaarde deviantie samenhing met de ruimtelijke term. Voor erosie worden na het weglaten van de ruimtelijke term drie termen (grensgeval-)significant: maaifrequentie oever (p ≈ 0,001), maaifrequentie bemestingsvrije zone (p ≈ 0,05) en methode mesttoediening (p ≈ 0,10); voor vernattingsrisico blijft het patroon vergelijkbaar met het volledige model (methode mesttoediening p < 0,001, koebelasting grensgeval).
+Zonder ruimtelijke term daalt de verklaarde deviantie voor de **erosieindex** sterk, van `r dev_full("erosieindex")`% naar `r dev_ns("erosieindex")`%. Voor de **vernattingsrisico-index** is de daling kleiner, van `r dev_full("vernattingsrisico_index")`% naar `r dev_ns("vernattingsrisico_index")`%. Bij erosie ving de ruimtelijke term dus het overgrote deel van de verklaarde deviantie; bij vernattingsrisico droegen de beheertermen ook in het volledige model al een substantieel deel bij. Voor erosie is na het weglaten van de ruimtelijke term alleen de maaifrequentie van de bemestingsvrije zone net significant (`r p_ns(ero, maai_bvz)`, zonder correctie voor de twaalf toetsen; met ruimtelijke term `r p_full(ero, maai_bvz)`). Baggermoment (`r p_ns(ero, bagm)`) en maaifrequentie oever (`r p_ns(ero, maai_oev)`) zijn grensgevallen, koebelasting (`r p_ns(ero, koe)`) niet. Omdat het effect van de maaifrequentie verdwijnt zodra de ruimtelijke term in het model zit, is niet te onderscheiden of het om een effect van het maaien of van het gebied gaat. Voor vernattingsrisico blijft het patroon gelijk aan het volledige model, met nog duidelijkere effecten van koebelasting (`r p_ns(ver, koe)`), methode mesttoediening (`r p_ns(ver, mest)`) en baggermoment (`r p_ns(ver, bagm)`).
 
-Deze vergelijking laat vooral zien dat de twee modellen dezelfde gedeelde variantie op een andere manier toewijzen, en niet dat locatie de "echte" verklaring is en beheer niet. Omdat beheer en gebied sterk samenhangen (zie tabel hierboven), is een groot deel van de verklaarde deviantie in beide modellen afkomstig uit dezelfde onderliggende variantie: in het volledige model (met `s(lon,lat)`) claimt de ruimtelijke term die variantie via de penalisatie, terwijl in het model zonder ruimtelijke term de beheertermen die variantie opvangen (deviantie stijgt van vrijwel 0% naar 12,0% voor erosie). Dat de beheertermen daar wél significant worden, laat zien dat het gevonden patroon in erosie net zo goed (gedeeltelijk) aan beheer kán liggen. De reden dat beheer in het volledige model wegvalt, is niet dat is aangetoond dat beheer er niet toe doet, maar dat het model moet kiezen welke van twee sterk overlappende verklaringen (locatie of beheer) het krijgt: omdat beide grotendeels dezelfde variantie beschrijven, gaat de "eer" naar de ruimtelijke term zodra die in het model zit, en blijft er voor beheer weinig unieks over om aan toe te schrijven. Let op het verschil tussen de twee vergelijkingen hierboven: de *totale* verklaarde deviantie van het model daalt als de ruimtelijke term wordt weggelaten (voor erosie van 29,9% naar 12,0%, want er verdwijnt een term die zelf veel variantie ving), maar het *aandeel daarvan dat aan de beheertermen zelf wordt toegeschreven* stijgt juist, van vrijwel 0% (in het volledige model, waar de beheertermen tot nul waren gepenaliseerd) naar de volle 12,0% (in het model zonder ruimtelijke term, waar geen enkele concurrerende term meer is).
+Deze vergelijking laat vooral zien dat de twee modellen dezelfde gedeelde variantie op een andere manier toewijzen, en niet dat locatie de "echte" verklaring is en beheer niet. Omdat beheer en gebied sterk samenhangen (zie tabel hierboven), is een groot deel van de verklaarde deviantie in beide modellen afkomstig uit dezelfde onderliggende variantie: in het volledige model (met `s(lon,lat)`) claimt de ruimtelijke term die variantie via de penalisatie, terwijl in het model zonder ruimtelijke term de beheertermen die variantie opvangen (voor erosie: van een klein deel naar de volle `r dev_ns("erosieindex")`%). Dat de beheertermen daar dichter bij significantie komen (bij vernattingsrisico duidelijk significant, bij erosie grensgevallen), laat zien dat het gevonden patroon net zo goed (gedeeltelijk) aan beheer kán liggen. De reden dat beheer in het volledige model wegvalt, is niet dat is aangetoond dat beheer er niet toe doet, maar dat het model moet kiezen welke van twee sterk overlappende verklaringen (locatie of beheer) het krijgt: omdat beide grotendeels dezelfde variantie beschrijven, gaat de "eer" naar de ruimtelijke term zodra die in het model zit, en blijft er voor beheer weinig unieks over om aan toe te schrijven. Let op het verschil tussen de twee vergelijkingen hierboven: de *totale* verklaarde deviantie van het model daalt als de ruimtelijke term wordt weggelaten (voor erosie van `r dev_full("erosieindex")`% naar `r dev_ns("erosieindex")`%, want er verdwijnt een term die zelf veel variantie ving), maar het *aandeel daarvan dat aan de beheertermen zelf wordt toegeschreven* stijgt juist, van een klein deel (in het volledige model, waar de beheertermen grotendeels werden weggepenaliseerd) naar de volle `r dev_ns("erosieindex")`% (in het model zonder ruimtelijke term, waar geen enkele concurrerende term meer is).
 
-Met het huidige dataontwerp (n = 160, beheer grotendeels op gebiedsniveau toegewezen) is niet vast te stellen welk deel van dit patroon aan locatie, aan beheer, of aan een derde, met beide samenhangende factor (bijv. bodemtype of beheerregio) is toe te schrijven. De 12,0% (erosie) en 9,6% (vernattingsrisico) uit het model zonder ruimtelijke term zijn dan ook geen "bewezen" beheereffect maar een bovengrens die evengoed grotendeels gebiedsgebonden kan zijn. Om locatie- en beheereffecten wel te kunnen scheiden is een studieopzet nodig waarin beheer binnen hetzelfde gebied varieert (bijvoorbeeld door beheer te modelleren als afwijking van het gebiedsgemiddelde, of met een random-effect-term per gebied naast de beheervariabelen), of herhaalde metingen bij beheerswijzigingen binnen dezelfde locatie.
+Met het huidige dataontwerp (n = `r n_beheer`, beheer grotendeels op gebiedsniveau toegewezen) is niet vast te stellen welk deel van dit patroon aan locatie, aan beheer, of aan een derde, met beide samenhangende factor (bijv. bodemtype of beheerregio) is toe te schrijven. De `r dev_ns("erosieindex")`% (erosie) en `r dev_ns("vernattingsrisico_index")`% (vernattingsrisico) uit het model zonder ruimtelijke term zijn dan ook geen "bewezen" beheereffect maar een bovengrens die evengoed grotendeels gebiedsgebonden kan zijn. Om locatie- en beheereffecten wel te kunnen scheiden is een studieopzet nodig waarin beheer binnen hetzelfde gebied varieert (bijvoorbeeld door beheer te modelleren als afwijking van het gebiedsgemiddelde, of met een random-effect-term per gebied naast de beheervariabelen), of herhaalde metingen bij beheerswijzigingen binnen dezelfde locatie.
 
 # Bijlagen
 
