@@ -8,3 +8,7 @@ backup/
 rosm.cache/
 *_cache/
 *_files/
+
+/.quarto/
+**/*.quarto_ipynb
+Rplots.pdf
