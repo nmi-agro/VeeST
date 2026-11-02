@@ -526,7 +526,7 @@ bs <- st_as_sf(bs)
 filcol <- colorRampPalette(brewer.pal(10, 'Spectral'))
 
 ggplot() +
-  ggspatial::annotation_map_tile(type = "cartolight",zoom = 12) + 
+  ggspatial::annotation_map_tile(type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",zoom = 12) + 
   geom_sf(data = prov, aes(), col = 'black', fill = NA) +
   geom_sf(data = vnwschp, aes(), col = 'darkblue', fill = NA) +
   geom_sf(data = bs, aes(fill = var_cut, col = var_cut), color = NA) +
@@ -583,7 +583,7 @@ bs <- st_as_sf(bs)
 filcol <- colorRampPalette(brewer.pal(10, 'Spectral'))
 
 ggplot() +
-  ggspatial::annotation_map_tile(type = "cartolight",zoom = 12) + 
+  ggspatial::annotation_map_tile(type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",zoom = 12) + 
   geom_sf(data = prov, aes(), col = 'black', fill = NA) +
   geom_sf(data = vnwschp, aes(), col = 'darkblue', fill = NA) +
   geom_sf(data = bs, aes(fill = var_cut, col = var_cut), color = NA) +
@@ -724,7 +724,7 @@ ggplot() +
 ggsave(filename = paste0("hist_drglg_vn_brp_10P_klei.jpeg"), width = 40, height = 45, unit = "cm")
 
 ggplot() +
-  # ggspatial::annotation_map_tile(type = "cartolight",zoom = 12) + 
+  # ggspatial::annotation_map_tile(type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",zoom = 12) + 
   # geom_sf(data = vnwschp, aes(), col = 'lightblue', fill = NA) +
   geom_sf(data = prov, aes(), col = 'black', fill = NA) +
   geom_spatraster(data = drglg_vn_klein, show.legend = TRUE, aes(fill = drlg)) +
@@ -1014,7 +1014,7 @@ ggsave(filename = paste0("hist_opp_omtrek_percelen_fracwat.jpeg"), width = 40, h
 # kaart
 
 ggplot() +
-  # ggspatial::annotation_map_tile(type = "cartolight",zoom = 12) + 
+  # ggspatial::annotation_map_tile(type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",zoom = 12) + 
   geom_sf(data = vnwschp, aes(), col = 'lightblue', fill = NA) +
   geom_sf(data = prov, aes(), col = 'black', fill = NA) +
   geom_sf(data = no_gb_vn_gs, aes(fill = var_perbr, col = var_perbr), color = NA) +
@@ -1412,7 +1412,7 @@ leg.txt <- c("Weidevogelgrasland en zoekgebieden (uit naturrbeheerplannen)", "Ve
              "Waterschapsgrenzen", "Provinciale grenzen")
 
 ggplot() +
-  # ggspatial::annotation_map_tile(type = "cartolight",zoom = 5) + 
+  # ggspatial::annotation_map_tile(type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",zoom = 5) + 
   # geom_sf(data = wschp, aes(), col = 'blue', fill = NA) +
   geom_sf(data = prov, aes(), col = 'black', fill = NA) +
   geom_sf(data = grsrt[grsrt$OMSCHRIJVI == "Veen",], aes(), col = 'brown', fill = 'brown') +

@@ -5531,7 +5531,7 @@ for(i in unique(profiel$ID)){
 
 p_clusters_nl <- ggplot() +
   ggspatial::annotation_map_tile(
-    type = "cartolight",
+    type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",
     cachedir = "/osm_cache",
     zoomin = 1,
     progress = "none",
@@ -7229,6 +7229,7 @@ write.table(abio_proj[,c('SlootID','oever','Waterkwaliteitmonster_Bware','drlg',
                          "Start_traject_long","Start_traject_lat" ,"End_traject_long","End_traject_lat")], 
             file = paste(workspace,"/output/Database/locs_info_Floronindexfiguur",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), quote = FALSE, na = "", sep =';', row.names = FALSE)
 ## pars voor analyse diepte wortels Erika ------------------------------------------------------
+
 write.table(unique(abio_proj[,c('SlootID','instanceID_veg','drlg','max_wtd','max_slib','watbte',"oevbte",
               "oeverzone_2a_breedte_cm", "oeverzone_2b_breedte_cm", 
               "holleoever", "veentype", "Z_CLAY_SA_OR_25","OS_perc_OR_25","P-AL mg p2o5/100g_OR_25","pH_CC_OR_25",
@@ -7238,7 +7239,7 @@ write.table(unique(abio_proj[,c('SlootID','instanceID_veg','drlg','max_wtd','max
               'tldk_wtrwtr_perc','tldk_oevrwtr_perc',
               'tldk_vastbodem_perc','max_hgt_or',
               'slib_conductiviteit_uS_cm','slib_O2_mgL','slib_redox_mgL','slib_pH',
-              'BODEMCODE','veentype','trofie','text',
+              'BODEMCODE','veentype','trofie','text',"afscheur_veg_lengte_perc","afscheur_veg_breedte_cm","afscheur_opp",
               "Start_traject_long","Start_traject_lat" ,"End_traject_long","End_traject_lat")]), 
             file = paste(workspace2,"/locs_info_dieptewortels",format(Sys.time(),"%Y%m%d%H%M"),".csv", sep= ""), quote = FALSE, na = "", sep =';', row.names = FALSE)
 ## alles db ---------------------------------------------------------
