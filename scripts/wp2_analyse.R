@@ -14,7 +14,7 @@
 #       (bv. alleen zichtbaar bij lage/hoge P-AL, of alleen in een bepaald
 #       bereik van een belangrijke predictor)
 #  5. Variatie tussen behandelingen op drie niveaus (alle sloten, gebied,
-#     sloot), met en zonder sloten waar geen effect is waargenomen (sectie 9-12)
+#     sloot) (sectie 9-12)
 #  6. Gerichte contrasten (sectie 13-18): full factorial in Hegewarren,
 #     minimaal/regulier en wel/geen afrastering per gebied, afkreeften in
 #     Ronde Hoep en Oukoop, maaimaand in Oukoop, NVO en oevernutriënten in
@@ -98,7 +98,6 @@ figuur_indeling <- tribble(
   "^respons_structuur_2a_abiotiek$",                   "rapport",
   "^sloot_covariaten_variantie$",                      "rapport",
   "^redox_temperatuur_binnen_locatie$",                "rapport",
-  "^uitgangssituatie_waargenomen_effect$",             "rapport",
   "^gebied_diepte_doorzicht$",                         "rapport",
   "^effect_beginwaarde_",                              "rapport",
   # per sloot (wp2_profielen_sloot.R), in bijlage D van het rapport
@@ -375,13 +374,12 @@ sloot_kleuren <- sloot_kleuren[sloot_niveaus]
 # Alleen vakken met MeenemenDataAnalyse_WP2 == "ja" (locatietabel, per SlootID
 # en jaar) doen mee in de behandelingsanalyses. Daarmee vallen o.a. de sloten
 # zonder behandelingscontrast weg (SW_3 en SW_5: volgens de kolom Behandeling
-# overal R of R-NVO; RH_1: in 2026 draad overal weg en niets gemaaid), en ook
-# alle R-AF- en NVO-vakken. wp2_compleet bewaart alle vakken; die wordt
-# gebruikt voor de proefopzet, Hegewarren (basisbeheer x afrastering, sectie
-# 13a) en de NVO in Spaarnwoude (sectie 15). In Spaarnwoude telt SW_5 daar wel
-# mee (contrast NVO / geen NVO binnen de sloot), SW_3 niet (geen NVO).
-sloten_zonder_contrast <- c("SW_3", "SW_5", "RH_1")
-sloten_nvo_contrast    <- c("SW_5")
+# overal R of R-NVO; RH_5: alleen M-AF-KR), en ook alle R-AF- en NVO-vakken.
+# Van RH_1 doen de vakken R en M-AF wel mee (in de locatietabel op "ja"),
+# hoewel de uitvoering daar afweek (hulptabellen/uitvoering_beheer_wp2.csv).
+# wp2_compleet bewaart alle vakken; die wordt gebruikt voor de proefopzet,
+# Hegewarren (basisbeheer x afrastering, sectie 13a) en de NVO in Spaarnwoude
+# (sectie 15).
 wp2_compleet <- wp2
 
 # Proefopzet per gebied (alle sloten, ook die zonder behandelingscontrast):
@@ -1203,6 +1201,40 @@ if (length(plots_ancova) > 0) {
   })
 }
 
+# Vergelijking van behandelingen: alleen binnen dezelfde sloot ------------------
+# Behandelingen worden steeds per sloot vergeleken (verschil tussen twee vakken
+# van dezelfde sloot); pas daarna wordt het gemiddelde over de sloten berekend.
+#' Gemiddeld verschil in verandering tussen twee behandelingen binnen de sloot
+#'
+#' Per sloot met beide behandelingen het verschil in verandering (a - b; bij
+#' meer vakken per behandeling het gemiddelde per behandeling), daarna het
+#' gemiddelde over de sloten met 95%-BI en p-waarde uit een t-toets op de
+#' verschillen per sloot. Vakken in sloten zonder beide behandelingen tellen
+#' niet mee.
+#'
+#' @param d Data met de kolommen gebied, sloot_nummer, `kolom_beh` en `respons`.
+#' @param a,b Niveaus van `kolom_beh` die vergeleken worden.
+#' @param kolom_beh Naam van de behandelingskolom.
+#' @param respons Naam van de responskolom.
+#' @return Tibble met schatting, ondergrens, bovengrens, p_waarde, n_sloten en
+#'   n_gebieden (schatting en p NA bij minder dan 2 resp. 3 sloten).
+verschil_binnen_sloot <- function(d, a, b, kolom_beh = "behandeling_basis", respons = "verandering") {
+  per_sloot <- d |>
+    filter(.data[[kolom_beh]] %in% c(a, b), !is.na(.data[[respons]])) |>
+    summarise(.by = c(gebied, sloot_nummer), va = mean(.data[[respons]][.data[[kolom_beh]] == a]),
+              vb = mean(.data[[respons]][.data[[kolom_beh]] == b])) |>
+    filter(is.finite(va), is.finite(vb)) |>
+    mutate(verschil = va - vb)
+  uit <- tibble(
+    schatting = if (nrow(per_sloot) >= 2) mean(per_sloot$verschil) else NA_real_,
+    ondergrens = NA_real_, bovengrens = NA_real_, p_waarde = NA_real_,
+    n_sloten = nrow(per_sloot), n_gebieden = n_distinct(per_sloot$gebied)
+  )
+  if (nrow(per_sloot) < 3 || sd(per_sloot$verschil) == 0) return(uit)
+  tt <- t.test(per_sloot$verschil)
+  mutate(uit, ondergrens = tt$conf.int[1], bovengrens = tt$conf.int[2], p_waarde = tt$p.value)
+}
+
 # 8. Draagkracht/indringingsweerstand: verandering per SlootID en dieptebin ----
 # Long-format penetrometerdata (penmerge) heeft één rij per meting, met
 # diepte (cm) en indringingsweerstand (MPa). We filteren op WP2 en op
@@ -1221,8 +1253,13 @@ if (length(plots_ancova) > 0) {
 if (!exists("penmerge")) {
   # penmerge zit in de Processed_data_workspace.RData die main_veest.R inleest.
   # Als main_veest.R (t/m regel ~258) al gedraaid is in deze sessie is het
-  # object al aanwezig; anders hier alsnog laden.
-  sys.load.image(paste0(workspace, "Processed_data_workspace.RData"), quiet = TRUE)
+  # object al aanwezig; anders hier alsnog laden. In een eigen omgeving: de
+  # RData bevat ook oude versies van o.a. wp2, wp2_compleet, abio_proj en
+  # var_lijst, die anders de objecten in deze sessie overschrijven.
+  ws_omgeving <- new.env()
+  load(paste0(workspace, "Processed_data_workspace.RData"), envir = ws_omgeving)
+  penmerge <- ws_omgeving$penmerge
+  rm(ws_omgeving)
 }
 
 penmerge <- as.data.table(penmerge)
@@ -1281,24 +1318,42 @@ verandering_draagkracht <- mediaan_sloot_diepte_jaar[
   by = .(SlootID, diepte_mid)
 ][jaar_eerste != jaar_laatste][, verandering := waarde_laatste - waarde_eerste]
 
-# Per dieptebin: ANOVA op verandering ~ behandeling_x (minimaal/regulier/
-# afrastering) - toetst of de mediane verandering in indringingsweerstand op
-# die diepte verschilt tussen de drie basisbeheer-groepen.
-toets_dieptebin <- function(d) {
-  if (n_distinct(d$behandeling_x) < 2 || nrow(d) < 6) return(NA_real_)
-  fit <- tryCatch(aov(verandering ~ behandeling_x, data = d), error = function(e) NULL)
-  if (is.null(fit)) return(NA_real_)
-  tab <- summary(fit)[[1]]
-  if (!"behandeling_x" %in% trimws(rownames(tab))) return(NA_real_)
-  tab[grep("behandeling_x", rownames(tab)), "Pr(>F)"][1]
+# Per dieptebin: verschil binnen de sloot (verschil_binnen_sloot()) voor
+# M − R, M-AF − M en M-AF − R, met Holm-correctie over de drie vergelijkingen
+# per dieptebin. Een dieptebin krijgt een dicht bolletje als minstens één
+# vergelijking na correctie p < 0,05 heeft. In de selectie is "afrastering"
+# altijd M-AF (R-AF valt erbuiten).
+verandering_draagkracht[, `:=`(
+  sloot_nummer = str_extract(SlootID, "^[A-Z]+_[0-9]+"),
+  gebied = str_extract(SlootID, "^[A-Z]+"),
+  behandeling_basis = fcase(
+    behandeling_x == "regulier", "R", behandeling_x == "minimaal", "M", behandeling_x == "afrastering", "M-AF"
+  )
+)]
+contrasten_draagkracht <- list(c("M", "R"), c("M-AF", "M"), c("M-AF", "R"))
+
+#' Verschillen binnen de sloot per dieptebin, met Holm over de drie vergelijkingen
+#'
+#' @param v Data met diepte_mid, gebied, sloot_nummer, behandeling_basis en
+#'   verandering.
+#' @param per Groepeerkolommen naast diepte_mid (bv. "gebied").
+#' @return Tibble per dieptebin (en groep) en vergelijking met schatting,
+#'   p_waarde, p_holm en n_sloten.
+toets_diepte_binnen_sloot <- function(v, per = character(0)) {
+  as_tibble(v) |>
+    filter(!is.na(behandeling_basis)) |>
+    group_by(across(all_of(c(per, "diepte_mid")))) |>
+    group_modify(\(d, sleutel) map_dfr(contrasten_draagkracht, \(paar) {
+      mutate(verschil_binnen_sloot(d, paar[1], paar[2]), contrast = paste(paar[1], "−", paar[2]), .before = 1)
+    }), .keep = TRUE) |>
+    ungroup() |>
+    mutate(p_holm = p.adjust(p_waarde, method = "holm"), .by = all_of(c(per, "diepte_mid")))
 }
 
-significantie_diepte <- verandering_draagkracht[
-  !is.na(behandeling_x),
-  .(p_waarde = toets_dieptebin(.SD)),
-  by = .(diepte_mid)
-]
-significantie_diepte[, significant := !is.na(p_waarde) & p_waarde < 0.05]
+draagkracht_diepte_contrasten <- toets_diepte_binnen_sloot(verandering_draagkracht)
+significantie_diepte <- draagkracht_diepte_contrasten |>
+  summarise(.by = diepte_mid, significant = any(!is.na(p_holm) & p_holm < 0.05)) |>
+  as.data.table()
 
 print(significantie_diepte[order(diepte_mid)])
 
@@ -1331,15 +1386,17 @@ plot_profiel_draagkracht <- ggplot(
   ) +
   scale_shape_manual(
     values = c(`TRUE` = 16, `FALSE` = 1), na.value = 1,
-    labels = c(`TRUE` = "significant (p < 0.05)", `FALSE` = "niet significant"),
-    name = "Verschil tussen basisbeheer"
+    labels = c(`TRUE` = "p (Holm) < 0,05", `FALSE` = "niet significant"),
+    name = "Verschil binnen de sloot"
   ) +
   lims(x = c(-0.5, 0.5), y = c(-85, 0)) +
   labs(
     title = "WP2 - Verandering indringingsweerstand oever per dieptebin (5 cm), per basisbeheer",
     subtitle = paste0(
       "Mediane verandering per SlootID (laatste jaar \u2212 eerste jaar) per dieptebin. Positief = toename, negatief = afname.\n",
-      "Dicht bolletje = significant verschil tussen minimaal/regulier/afrastering op die diepte (ANOVA, p < 0.05)."
+      "Dicht bolletje = op die diepte verschilt minstens één vergelijking (M − R, M-AF − M of M-AF − R) binnen dezelfde sloot
+",
+      "(t-toets op de verschillen per sloot, Holm-correctie over de drie vergelijkingen per diepte)."
     ),
     x = "Verandering indringingsweerstand (MPa, laatste jaar \u2212 eerste jaar)",
     y = "Diepte (cm, negatief = dieper)",
@@ -1351,8 +1408,9 @@ plot_profiel_draagkracht
 sla_figuur_op(plot_profiel_draagkracht, "profiel_draagkracht_diepte")
 
 # 8b. Zelfde profiel per gebied. Gebied uit het SlootID-voorvoegsel (bv. "RH").
-# De toets per dieptebin gebeurt hier binnen het gebied; met weinig sloten per
-# gebied is die zwak (geen toets bij < 6 locaties of < 2 behandelingen).
+# De toets per dieptebin gebeurt hier binnen het gebied, ook als verschil
+# binnen de sloot; een p-waarde alleen bij 3 of meer sloten met beide
+# behandelingen, dus in de meeste gebieden geen toets.
 
 #' Profiel van de verandering in indringingsweerstand per gebied en basisbeheer
 #'
@@ -1363,8 +1421,9 @@ maak_profiel_per_gebied <- function(verandering) {
   v <- copy(verandering)[!is.na(behandeling_x)]
   v[, gebied := str_extract(SlootID, "^[A-Z]+")]
 
-  significantie <- v[, .(p_waarde = toets_dieptebin(.SD)), by = .(gebied, diepte_mid)]
-  significantie[, significant := !is.na(p_waarde) & p_waarde < 0.05]
+  significantie <- toets_diepte_binnen_sloot(v, per = "gebied") |>
+    summarise(.by = c(gebied, diepte_mid), significant = any(!is.na(p_holm) & p_holm < 0.05)) |>
+    as.data.table()
 
   n_locaties <- v[, .(n_locaties = uniqueN(SlootID)), by = gebied]
   n_locaties[, gebied_label := paste0(gebied, " (", n_locaties, " locaties)")]
@@ -1386,8 +1445,8 @@ maak_profiel_per_gebied <- function(verandering) {
     ) +
     scale_shape_manual(
       values = c(`TRUE` = 16, `FALSE` = 1), na.value = 1,
-      labels = c(`TRUE` = "significant (p < 0.05)", `FALSE` = "niet significant"),
-      name = "Verschil tussen basisbeheer"
+      labels = c(`TRUE` = "p (Holm) < 0,05", `FALSE` = "niet significant of niet te toetsen"),
+      name = "Verschil binnen de sloot"
     ) +
     coord_cartesian(xlim = c(-0.5, 0.5), ylim = c(-85, 0)) +
     facet_wrap(~gebied_label, nrow = 2) +
@@ -1395,7 +1454,7 @@ maak_profiel_per_gebied <- function(verandering) {
       title = paste0("WP2 - Verandering indringingsweerstand oever per dieptebin (5 cm), per gebied en basisbeheer"),
       subtitle = paste0(
         "Lijn = mediane verandering per SlootID (laatste jaar − eerste jaar) per dieptebin. Positief = stevigere oever, negatief = slapper.\n",
-        "Dicht bolletje = significant verschil tussen de behandelingen binnen het gebied op die diepte (ANOVA, p < 0.05); indicatief, weinig sloten per gebied."
+        "Dicht bolletje = verschil binnen dezelfde sloot (t-toets, Holm over M − R, M-AF − M en M-AF − R) op die diepte; alleen te toetsen bij 3 of meer sloten."
       ),
       x = "Verandering indringingsweerstand (MPa, laatste jaar − eerste jaar)",
       y = "Diepte (cm, negatief = dieper)",
@@ -1717,10 +1776,16 @@ sla_tabel_op <- function(tabel, naam) {
 # hoeveel zit in een behandelingseffect dat per gebied verschilt, hoeveel
 # tussen gebieden, tussen sloten binnen een gebied en tussen locaties binnen
 # een sloot? Model per variabele:
-#   verandering ~ behandeling_basis + (1 | gebied) + (1 | gebied:behandeling_basis)
-#                 + (1 | sloot_nummer)
-# Het aandeel "behandeling" is de variantie van de vaste effecten (zoals in de
-# marginale R² van Nakagawa & Schielzeth). "behandeling × gebied" is de
+#   verandering ~ behandeling_basis + aandeel_M_sloot + aandeel_MAF_sloot
+#                 + (1 | gebied) + (1 | gebied:behandeling_basis) + (1 | sloot_nummer)
+# Het behandelingseffect mag alleen binnen de sloot geschat worden. Daarom staat
+# per sloot het aandeel M- en M-AF-vakken als extra vaste term in het model
+# (Mundlak): die termen vangen verschillen tussen sloten met een andere
+# samenstelling van behandelingen op, zodat het effect van behandeling_basis
+# alleen op verschillen binnen de sloot berust. Het aandeel "behandeling" is
+# de variantie van dat behandelingsdeel van de vaste effecten (zoals in de
+# marginale R² van Nakagawa & Schielzeth); de variantie van de
+# samenstellingstermen telt bij "sloot". "behandeling × gebied" is de
 # variatie in het behandelingseffect tussen gebieden: per gebied wijkt het
 # effect binnen dat gebied af van het gemiddelde effect (behandeling genest in
 # gebied). "sloot" is de variatie tussen sloten binnen hetzelfde gebied
@@ -1758,11 +1823,17 @@ kleuren_niveau <- setNames(
 #'   gebied en sloot_nummer.
 #' @return Tibble met variantie en aandeel per niveau (leeg bij te weinig data).
 variantie_niveaus <- function(d) {
-  d <- droplevels(filter(d, !is.na(verandering)))
+  d <- droplevels(filter(d, !is.na(verandering))) |>
+    mutate(
+      .by = sloot_nummer,
+      aandeel_M_sloot = mean(behandeling_basis == "M"),
+      aandeel_MAF_sloot = mean(behandeling_basis == "M-AF")
+    )
   if (nrow(d) < 12 || n_distinct(d$gebied) < 3) return(tibble())
   fit <- tryCatch(
     suppressWarnings(suppressMessages(lme4::lmer(
-      verandering ~ behandeling_basis + (1 | gebied) + (1 | gebied:behandeling_basis) + (1 | sloot_nummer),
+      verandering ~ behandeling_basis + aandeel_M_sloot + aandeel_MAF_sloot +
+        (1 | gebied) + (1 | gebied:behandeling_basis) + (1 | sloot_nummer),
       data = d
     ))),
     error = \(e) NULL
@@ -1770,12 +1841,20 @@ variantie_niveaus <- function(d) {
   if (is.null(fit)) return(tibble())
   vc <- as.data.frame(lme4::VarCorr(fit))
   vc_groep <- \(g) sum(vc$vcov[vc$grp == g])
+  # vaste effecten splitsen in behandeling (binnen de sloot) en samenstelling
+  # van de sloot (tussen sloten); kolommen die lme4 wegliet tellen niet mee
+  X <- lme4::getME(fit, "X")
+  b <- lme4::fixef(fit)[colnames(X)]
+  deel <- \(patroon) {
+    k <- grep(patroon, colnames(X))
+    if (length(k) == 0) 0 else var(as.vector(X[, k, drop = FALSE] %*% b[k]))
+  }
   tibble(
     niveau = niveaus_variantie,
     variantie = c(
-      var(as.vector(lme4::getME(fit, "X") %*% lme4::fixef(fit))),
+      deel("^behandeling_basis"),
       vc_groep("gebied:behandeling_basis"), vc_groep("gebied"),
-      vc_groep("sloot_nummer"), vc_groep("Residual")
+      vc_groep("sloot_nummer") + deel("^aandeel_"), vc_groep("Residual")
     )
   ) |>
     mutate(
@@ -1801,7 +1880,7 @@ toelichting_niveaus <- tibble(
     "Gemiddeld verschil tussen R, M en M-AF over alle sloten en gebieden",
     "Hoeveel het behandelingseffect binnen een gebied afwijkt van het gemiddelde effect",
     "Verschil in gemiddelde verandering tussen gebieden (alle behandelingen samen)",
-    "Verschil in gemiddelde verandering tussen sloten in hetzelfde gebied (gebied + sloot = verschil tussen alle sloten)",
+    "Verschil in gemiddelde verandering tussen sloten in hetzelfde gebied",
     "Wat overblijft: verschil tussen de vakken van één sloot dat niet door het gemiddelde behandelingseffect of het gebied wordt verklaard"
   ),
   `Groot aandeel betekent` = c(
@@ -1809,7 +1888,7 @@ toelichting_niveaus <- tibble(
     "Effect van beheer hangt af van het gebied (bv. in het ene gebied toename, in het andere afname)",
     "Alle locaties in een gebied veranderen tussen de meetronden dezelfde kant op (werkelijke verandering of meetomstandigheden zoals meetdag en peil)",
     "De hele sloot verandert samen (bv. baggeren, of slootkenmerken die de snelheid van verandering bepalen)",
-    "Behandelingseffect verschilt per sloot in grootte of richting, of een vak verandert anders door eigen omstandigheden (bv. drinkplek, ligging) of meetruis; met één vak per behandeling per sloot niet te scheiden"
+    "Behandelingseffect wijkt per sloot sterk af van het gemiddelde (grootte of richting), of een vak verandert anders door eigen omstandigheden (bv. drinkplek, ligging) of meetruis; met één vak per behandeling per sloot niet te scheiden"
   )
 ) |>
   mutate(across(-Niveau, \(x) str_wrap(x, 62)))
@@ -1836,19 +1915,29 @@ tabel_toelichting$widths <- unit(c(0.2, 0.37, 0.42), "npc")
 # Behandeling links in de balk (position_stack(reverse = TRUE)); per thema
 # gesorteerd op het aandeel van de behandeling, van groot (boven) naar klein
 # (onder), bij gelijke stand op behandeling × gebied.
-# Het aantal sloten en gebieden met data staat achter de parameternaam.
-variantie_fig <- variantie_decompositie |>
-  mutate(label_n = paste0(label, "\n", n_locaties, " vakken, ", n_sloten, " sloten, ", n_gebieden, " gebieden"))
+# Het aantal vakken, sloten en gebieden verschilt nauwelijks tussen de
+# parameters en staat daarom als bereik in de ondertitel.
+variantie_fig <- variantie_decompositie
+
+#' Bereik van een aantal als tekst ("48" of "48–55")
+#'
+#' @param x Numerieke vector.
+#' @return Character.
+bereik_tekst <- function(x) if (min(x) == max(x)) as.character(min(x)) else paste0(min(x), "–", max(x))
+n_variantie_tekst <- paste0(
+  bereik_tekst(variantie_fig$n_locaties), " vakken, ", bereik_tekst(variantie_fig$n_sloten), " sloten en ",
+  bereik_tekst(variantie_fig$n_gebieden), " gebieden per parameter"
+)
 
 volgorde_variantie <- variantie_fig |>
-  select(thema, label_n, niveau, aandeel) |>
+  select(thema, label, niveau, aandeel) |>
   pivot_wider(names_from = niveau, values_from = aandeel) |>
   arrange(thema, `behandeling (basisbeheer)`, `behandeling × gebied`) |>
-  pull(label_n)
+  pull(label)
 
 plot_variantie_balken <- variantie_fig |>
-  mutate(label_n = factor(label_n, levels = unique(volgorde_variantie))) |>
-  ggplot(aes(x = aandeel, y = label_n, fill = niveau)) +
+  mutate(label = factor(label, levels = unique(volgorde_variantie))) |>
+  ggplot(aes(x = aandeel, y = label, fill = niveau)) +
   geom_col(width = 0.75, position = position_stack(reverse = TRUE)) +
   scale_fill_manual(values = kleuren_niveau, labels = niveaus_variantie_label) +
   scale_x_continuous(labels = scales::percent, expand = expansion(mult = c(0, 0.01))) +
@@ -1860,30 +1949,31 @@ plot_variantie_balken <- variantie_fig |>
   labs(
     title = "WP2 - Waar zit de variatie in de verandering (laatste − eerste meetjaar)?",
     subtitle = paste0(
-      "Gemengd model per variabele: verandering ~ basisbeheer + (1 | gebied) + (1 | gebied:basisbeheer)\n",
-      "+ (1 | sloot). Alle vakken uit de selectie voor de vergelijking van behandelingen;\n",
-      "per thema gesorteerd op het aandeel van de behandeling (groot boven)."
+      "Gemengd model per variabele: verandering ~ basisbeheer + samenstelling sloot\n",
+      "+ (1 | gebied) + (1 | gebied:basisbeheer) + (1 | sloot); het behandelingseffect berust\n",
+      "alleen op verschillen binnen de sloot. Alle vakken uit de selectie\n",
+      "(", n_variantie_tekst, "); per thema gesorteerd op het aandeel\n",
+      "van de behandeling (groot boven)."
     ),
     x = "Aandeel van de totale variantie", y = NULL, fill = "Niveau"
   ) +
-  theme_wp2
+  theme_wp2 +
+  # Titel en ondertitel vanaf de linkerrand van de figuur, niet vanaf het
+  # paneel; anders vallen ze door de lange y-labels rechts buiten beeld.
+  theme(plot.title.position = "plot", plot.title = element_text(face = "bold", hjust = 0))
 
 plot_variantie <- patchwork::wrap_plots(
   plot_variantie_balken, patchwork::wrap_elements(full = tabel_toelichting),
   ncol = 1, heights = grid::unit.c(unit(1, "null"), sum(tabel_toelichting$heights) + unit(0.2, "in"))
 )
 print(plot_variantie)
-sla_figuur_op(plot_variantie, "niveaus_variantiedecompositie", width = 11, height = 16)
+sla_figuur_op(plot_variantie, "niveaus_variantiedecompositie", width = 11, height = 14)
 
-# 12b. Niveau 'alles': verandering per basisbeheer over alle gebieden, met de
-# p-waarde van het basisbeheer uit het gemengde model (gebied en sloot
-# random).
-toets_alles <- toets_per_variabele(
-  wp2_verandering, model_termen = "behandeling_basis", toets_termen = "behandeling_basis",
-  random = "(1 | gebied) + (1 | sloot_nummer)"
-) |>
-  mutate(p_bh = p.adjust(p_waarde, method = "BH"))
-print(toets_alles |> select(naam, p_waarde, p_bh, n_locaties), n = 60)
+# 12b. Niveau 'alles': verandering per basisbeheer over alle gebieden.
+# Behandelingen worden alleen binnen dezelfde sloot vergeleken: per sloot het
+# verschil in verandering tussen twee vakken, daarna het gemiddelde over de
+# sloten (verschil_binnen_sloot(), gedefinieerd voor sectie 8).
+
 
 # Sloten zonder waargenomen effect krijgen een zwart kruisje over het punt
 # (vervagen was slecht leesbaar). De kruisjeslaag tekent alle rijen met
@@ -1906,69 +1996,53 @@ laag_geen_effect <- function(geen_effect, width) {
   )
 }
 
-# Figuur per basisbeheer (R, M, M-AF) voor de hoofdtekst. Per variabele een
-# gemengd model verandering ~ 0 + basisbeheer + (1 | gebied) + (1 | sloot),
-# zoals toets_verandering() (sectie 4). Daaruit:
-#  - links: de gemiddelde verandering per basisbeheer met 95%-BI, met de
-#    beginwaarde op 0 (eerste meetjaar) en de verandering bij het laatste
-#    meetjaar; het label geeft de gemiddelde absolute waarden (eerste ->
-#    laatste meetjaar, over de locaties met beide jaren);
-#  - rechts: het verschil in verandering tussen M en R, M-AF en M, en M-AF en
-#    R met 95%-BI en p-waarde (t-toets op het contrast, Satterthwaite).
+# Figuur per basisbeheer (R, M, M-AF) voor de hoofdtekst:
+#  - links: de gemiddelde verandering per basisbeheer over de vakken met
+#    95%-BI (beschrijvend), met de beginwaarde op 0 (eerste meetjaar) en de
+#    verandering bij het laatste meetjaar; het label geeft de gemiddelde
+#    absolute waarden (eerste -> laatste meetjaar);
+#  - rechts: het gemiddelde verschil binnen de sloot tussen M en R, M-AF en M,
+#    en M-AF en R met 95%-BI en p-waarde (verschil_binnen_sloot()). Alleen
+#    sloten met beide behandelingen tellen mee; het aantal staat erbij.
 groepen_basis <- c("R", "M", "M-AF")
 contrasten_basis <- list(c("M", "R"), c("M-AF", "M"), c("M-AF", "R"))
 
-#' Gemiddelde verandering per basisbeheer en de verschillen daartussen
+#' Gemiddelde verandering per basisbeheer en de verschillen binnen de sloot
 #'
 #' @param d Data voor één variabele met verandering, waarde_eerste,
 #'   waarde_laatste, behandeling_basis, gebied en sloot_nummer.
-#' @return Tibble met per groep (type "groep") en per contrast (type
-#'   "contrast") de schatting, 95%-BI (ondergrens, bovengrens) en p-waarde;
-#'   voor de groepen ook n en de gemiddelde waarde in het eerste en laatste
-#'   meetjaar. Leeg als het model niet te fitten is.
+#' @return Tibble met per groep (type "groep") het gemiddelde over de vakken
+#'   met 95%-BI, n en de gemiddelde waarde in het eerste en laatste meetjaar,
+#'   en per contrast (type "contrast") het gemiddelde verschil binnen de sloot
+#'   met 95%-BI, p-waarde en het aantal sloten (n).
 schat_basisbeheer <- function(d) {
-  d <- d |>
-    filter(!is.na(verandering), behandeling_basis %in% groepen_basis) |>
-    mutate(groep = factor(behandeling_basis, levels = groepen_basis)) |>
-    droplevels()
-  if (n_distinct(d$groep) < 2 || nrow(d) < 6) return(tibble())
-  random <- if (n_distinct(d$gebied) >= 3) "(1 | gebied) + (1 | sloot_nummer)" else "(1 | sloot_nummer)"
-  fit <- tryCatch(
-    suppressWarnings(suppressMessages(
-      lmerTest::lmer(as.formula(paste("verandering ~ 0 + groep +", random)), data = d)
-    )),
-    error = \(e) NULL
-  )
-  if (is.null(fit)) return(tibble())
-  coefs <- names(lme4::fixef(fit))
-  toets <- function(L) {
-    res <- tryCatch(lmerTest::contest1D(fit, L, confint = TRUE), error = \(e) NULL)
-    if (is.null(res)) return(tibble(schatting = NA_real_, ondergrens = NA_real_, bovengrens = NA_real_, p_waarde = NA_real_))
-    tibble(schatting = res$Estimate, ondergrens = res$lower, bovengrens = res$upper, p_waarde = res$`Pr(>|t|)`)
-  }
-  groepen <- map_dfr(levels(d$groep), \(g) {
-    L <- setNames(as.numeric(coefs == paste0("groep", g)), coefs)
-    bind_cols(tibble(type = "groep", naam_schatting = g), toets(L))
-  }) |>
-    left_join(
-      d |>
-        summarise(.by = groep, n = n(), eerste = mean(waarde_eerste), laatste = mean(waarde_laatste)) |>
-        transmute(naam_schatting = as.character(groep), n, eerste, laatste),
-      by = "naam_schatting"
+  d <- filter(d, !is.na(verandering), behandeling_basis %in% groepen_basis)
+  if (n_distinct(d$behandeling_basis) < 2) return(tibble())
+  groepen <- map_dfr(groepen_basis, \(g) {
+    x <- d$verandering[d$behandeling_basis == g]
+    if (length(x) == 0) return(tibble())
+    ci <- if (length(x) >= 2 && sd(x) > 0) t.test(x)$conf.int else c(NA_real_, NA_real_)
+    tibble(
+      type = "groep", naam_schatting = g, schatting = mean(x), ondergrens = ci[1], bovengrens = ci[2],
+      p_waarde = NA_real_, n = length(x),
+      eerste = mean(d$waarde_eerste[d$behandeling_basis == g]),
+      laatste = mean(d$waarde_laatste[d$behandeling_basis == g])
     )
-  contrasten <- map_dfr(keep(contrasten_basis, \(paar) all(paar %in% levels(d$groep))), \(paar) {
-    L <- setNames(numeric(length(coefs)), coefs)
-    L[paste0("groep", paar)] <- c(1, -1)
-    bind_cols(tibble(type = "contrast", naam_schatting = paste(paar[1], "−", paar[2])), toets(L))
+  })
+  contrasten <- map_dfr(contrasten_basis, \(paar) {
+    verschil_binnen_sloot(d, paar[1], paar[2]) |>
+      transmute(type = "contrast", naam_schatting = paste(paar[1], "−", paar[2]),
+                schatting, ondergrens, bovengrens, p_waarde, n = n_sloten, n_gebieden)
   })
   bind_rows(groepen, contrasten)
 }
 
+# Holm-correctie over de drie contrasten per variabele
 basisbeheer_schatting <- wp2_verandering |>
   group_by(thema, naam, label, kolom) |>
   group_modify(\(d, sleutel) schat_basisbeheer(d)) |>
   ungroup() |>
-  mutate(p_holm = if_else(type == "contrast", p.adjust(p_waarde, method = "holm"), NA_real_), .by = kolom)
+  mutate(.by = c(kolom, type), p_holm = if (first(type) == "contrast") p.adjust(p_waarde, method = "holm") else NA_real_)
 print(
   basisbeheer_schatting |> filter(type == "contrast") |> select(thema, naam, naam_schatting, schatting, p_waarde, p_holm),
   n = 100
@@ -2023,7 +2097,7 @@ plot_basisbeheer_variabele <- function(s) {
     filter(type == "contrast") |>
     mutate(
       contrast = factor(naam_schatting, levels = rev(map_chr(contrasten_basis, \(p) paste(p[1], "−", p[2])))),
-      p_tekst = paste0("p = ", p_label(p_waarde)),
+      p_tekst = paste0("p = ", p_label(p_waarde), " (", n, " sloten)"),
       sign = !is.na(p_waarde) & p_waarde < 0.05
     )
   rechts <- ggplot(k, aes(y = contrast)) +
@@ -2051,10 +2125,10 @@ plot_niveau_alles <- function(thema_sel) {
     patchwork::plot_annotation(
       title = paste0("WP2 - ", thema_sel, ": verandering per basisbeheer, alle gebieden"),
       subtitle = paste0(
-        "Links: gemiddelde verandering t.o.v. ", jaar_eerste_lab, " (op 0) met 95%-BI per basisbeheer; label = gemiddelde waarde ",
+        "Links: gemiddelde verandering t.o.v. ", jaar_eerste_lab, " (op 0) met 95%-BI per basisbeheer, over de vakken; label = gemiddelde waarde ",
         jaar_eerste_lab, " → ", jaar_laatste_lab, ".\n",
-        "Rechts: verschil in verandering tussen basisbeheer met 95%-BI; dicht punt en vet = p < 0,05 (zonder correctie). ",
-        "Gemengd model met gebied en sloot als random effect."
+        "Rechts: gemiddeld verschil in verandering binnen dezelfde sloot (alleen sloten met beide behandelingen) met 95%-BI; ",
+        "p uit t-toets op de verschillen per sloot. Dicht punt en vet = p < 0,05 (zonder correctie)."
       ),
       caption = "R = regulier (incl. R-KR), M = minimaal, M-AF = minimaal met afrastering (incl. M-AF-KR).",
       theme = theme(plot.title = element_text(face = "bold", hjust = 0.5))
@@ -2768,32 +2842,27 @@ verruiging_2b <- wp2 |>
 print(verruiging_2b)
 
 # 12k. Breedte zone 2a bij wel en geen afrastering -------------------------------
-# Verandering in de breedte van zone 2a in vakken met en zonder afrastering,
-# over alle sloten en binnen dezelfde sloot (verschil afgerasterde vakken -
-# vakken zonder afrastering). Toets: gemengd model met alleen wel/geen
-# afrastering (gebied en sloot random); dit is een aanvullende, achteraf
-# gekozen toets naast die op basisbeheer (sectie 12b).
-z2a <- wp2_verandering |>
-  filter(kolom == "oeverzone_2a_breedte_cm") |>
-  mutate(afrastering = str_detect(Behandeling, "AF"))
-z2a_binnen <- z2a |>
-  summarise(.by = c(gebied, sloot_nummer, afrastering), v = mean(verandering)) |>
-  pivot_wider(names_from = afrastering, values_from = v, names_prefix = "af_") |>
-  filter(!is.na(af_TRUE), !is.na(af_FALSE)) |>
-  mutate(verschil = af_TRUE - af_FALSE)
-z2a_fit <- tryCatch(
-  suppressWarnings(suppressMessages(lmerTest::lmer(verandering ~ afrastering + (1 | gebied) + (1 | sloot_nummer), data = z2a))),
-  error = \(e) NULL
-)
-z2a_co <- if (is.null(z2a_fit)) NULL else summary(z2a_fit)$coefficients
-zone2a_af <- tibble(
-  gem_met_af = mean(z2a$verandering[z2a$afrastering]), gem_zonder_af = mean(z2a$verandering[!z2a$afrastering]),
-  n_sloten_vergelijk = nrow(z2a_binnen), n_sloten_af_breder = sum(z2a_binnen$verschil > 0),
-  mediaan_verschil_binnen_sloot = median(z2a_binnen$verschil),
-  schatting = if (is.null(z2a_co)) NA_real_ else z2a_co["afrasteringTRUE", "Estimate"],
-  p_waarde = if (is.null(z2a_co)) NA_real_ else z2a_co["afrasteringTRUE", "Pr(>|t|)"],
-  grootste_verschil = paste(head(arrange(z2a_binnen, desc(verschil))$sloot_nummer, 3), collapse = ", ")
-)
+# Verandering in de breedte van zone 2a in het afgerasterde vak t.o.v. het
+# M-vak en t.o.v. het R-vak van dezelfde sloot (zelfde verschil binnen de
+# sloot als in 12b), met per vergelijking het aantal sloten waar het
+# afgerasterde vak meer verbreedde en de sloten met het grootste verschil.
+z2a <- wp2_verandering |> filter(kolom == "oeverzone_2a_breedte_cm")
+zone2a_af <- map_dfr(list(c("M-AF", "M"), c("M-AF", "R")), \(paar) {
+  per_sloot <- z2a |>
+    filter(behandeling_basis %in% paar) |>
+    summarise(.by = c(gebied, sloot_nummer), va = mean(verandering[behandeling_basis == paar[1]]),
+              vb = mean(verandering[behandeling_basis == paar[2]])) |>
+    filter(is.finite(va), is.finite(vb)) |>
+    mutate(verschil = va - vb)
+  verschil_binnen_sloot(z2a, paar[1], paar[2]) |>
+    mutate(
+      contrast = paste(paar[1], "−", paar[2]), .before = 1,
+      gem_met_af = mean(per_sloot$va), gem_referentie = mean(per_sloot$vb),
+      n_sloten_af_breder = sum(per_sloot$verschil > 0),
+      mediaan_verschil_binnen_sloot = median(per_sloot$verschil),
+      grootste_verschil = paste(head(arrange(per_sloot, desc(verschil))$sloot_nummer, 3), collapse = ", ")
+    )
+})
 print(zone2a_af)
 
 # Behandeling per vak en jaar, met de veldnotities over afwijkend beheer
@@ -2817,93 +2886,6 @@ behandeling_per_vak <- wp2_compleet |>
   ) |>
   mutate(veldnotities = if_else(veldnotities == ": ", "", veldnotities)) |>
   arrange(gebied, sloot_nummer, SlootID)
-
-# 12l. Uitgangssituatie van sloten met en zonder waargenomen effect --------------
-# Uitgangssituatie (eerste meetjaar met een waarde, gemiddeld over de vakken van
-# een sloot) van de sloten waar in het veld de verwachte verruiging van de
-# oevervegetatie is gezien (sloten_verruiging, 12j), de sloten waar geen enkel
-# effect is gezien (sloten_geen_effect) en de overige sloten. Verkennend: de
-# groepen zijn gekozen op een veldwaarneming en klein; Wilcoxon-toets
-# 'verwacht effect' tegen de overige sloten, met BH-correctie.
-uitgang_vars <- tribble(
-  ~kolom,                            ~kenmerk,                         ~groep_kenmerk,
-  "oeverzone_2b_kaal_perc",          "Kale oever zone 2b (%)",         "vegetatie",
-  "oeverzone_2b_emers_perc",         "Emerse vegetatie zone 2b (%)",   "vegetatie",
-  "oeverzone_2b_ter_prodgras_perc",  "Productiegras zone 2b (%)",      "vegetatie",
-  "n_soorten_oev_zone2b",            "Aantal soorten zone 2b",         "vegetatie",
-  "Soortensamenstelling Helofyten",  "EKR helofyten",                  "vegetatie",
-  "max_wtd",                         "Waterdiepte (m)",                "hydrologie",
-  "drglg",                           "Drooglegging (m)",               "hydrologie",
-  "slib_redox_pH7",                  "Redox slib (mV)",                "slib",
-  "P-AL mg p2o5/100g_SB",            "P-AL slib (mg P2O5/100 g)",      "slib",
-  "P_µmol/l_PW",                     "P poriewater (µmol/l)",          "slib",
-  "NH4_µmol/l_PW",                   "NH4 poriewater (µmol/l)",        "slib",
-  "P-AL mg p2o5/100g_OR_25",         "P-AL oever (mg P2O5/100 g)",     "oever",
-  "N_mineraal_OR_25",                "N-mineraal oever (mg/kg)",       "oever",
-  "OS_perc_OR_25",                   "Organische stof oever (%)",      "oever",
-  "Z_CLAY_SA_OR_25",                 "Klei oever (%)",                 "oever"
-) |>
-  filter(kolom %in% names(wp2))
-
-groep_effect <- \(s) case_when(
-  s %in% sloten_verruiging ~ "verwacht effect gezien",
-  s %in% sloten_geen_effect ~ "geen effect gezien",
-  TRUE ~ "overige sloten"
-)
-uitgang_sloot <- wp2 |>
-  as_tibble() |>
-  select(gebied, sloot_nummer, SlootID, jaar, all_of(uitgang_vars$kolom)) |>
-  mutate(across(all_of(uitgang_vars$kolom), \(x) suppressWarnings(as.numeric(x)))) |>
-  pivot_longer(all_of(uitgang_vars$kolom), names_to = "kolom", values_to = "waarde") |>
-  filter(!is.na(waarde)) |>
-  arrange(jaar) |>
-  summarise(.by = c(gebied, sloot_nummer, SlootID, kolom), begin = first(waarde)) |>
-  summarise(.by = c(gebied, sloot_nummer, kolom), begin = mean(begin)) |>
-  left_join(uitgang_vars, by = "kolom") |>
-  mutate(groep = factor(groep_effect(sloot_nummer), levels = c("verwacht effect gezien", "overige sloten", "geen effect gezien")))
-
-uitgang_vergelijking <- uitgang_sloot |>
-  summarise(
-    .by = c(groep_kenmerk, kenmerk),
-    mediaan_verwacht = median(begin[groep == "verwacht effect gezien"]),
-    mediaan_overig = median(begin[groep == "overige sloten"]),
-    mediaan_geen = median(begin[groep == "geen effect gezien"]),
-    p_waarde = tryCatch(
-      wilcox.test(begin[groep == "verwacht effect gezien"], begin[groep != "verwacht effect gezien"], exact = FALSE)$p.value,
-      error = \(e) NA_real_
-    )
-  ) |>
-  mutate(p_bh = p.adjust(p_waarde, method = "BH"))
-print(uitgang_vergelijking, n = 30)
-
-# Veentype per sloot (meest voorkomende waarde)
-uitgang_veentype <- wp2 |>
-  as_tibble() |>
-  filter(!is.na(veentype)) |>
-  summarise(.by = c(gebied, sloot_nummer), veentype = names(which.max(table(veentype)))) |>
-  mutate(groep = groep_effect(sloot_nummer)) |>
-  count(groep, veentype)
-print(uitgang_veentype)
-
-plot_uitgang <- uitgang_sloot |>
-  mutate(kenmerk = factor(kenmerk, levels = uitgang_vars$kenmerk)) |>
-  ggplot(aes(x = groep, y = begin)) +
-  geom_boxplot(outlier.shape = NA, colour = "grey50", width = 0.5) +
-  geom_point(aes(colour = gebied), position = position_jitter(width = 0.12, height = 0, seed = 1), size = 2, alpha = 0.85) +
-  scale_colour_manual(values = gebied_hoofdkleur) +
-  scale_x_discrete(labels = \(x) str_wrap(x, 12)) +
-  facet_wrap(~kenmerk, scales = "free_y", ncol = 5) +
-  labs(
-    title = "WP2 - Uitgangssituatie van sloten met en zonder effect bij de veldbeoordeling in 2026",
-    subtitle = paste0(
-      "Eerste meetjaar, gemiddeld per sloot. Indeling volgens de veldbeoordeling in 2026. Verwacht effect gezien: ", paste(sloten_verruiging, collapse = ", "),
-      "; geen effect gezien: ", paste(sloten_geen_effect, collapse = ", "), "."
-    ),
-    x = NULL, y = NULL, colour = "Gebied"
-  ) +
-  theme_wp2
-print(plot_uitgang)
-sla_figuur_op(plot_uitgang, "uitgangssituatie_waargenomen_effect", width = 16, height = 11)
 
 # 13. Contrasten per gebied ------------------------------------------------------
 # 13a. Hegewarren: het enige gebied met R, M, R-AF en M-AF. Full factorial
@@ -2934,84 +2916,68 @@ labels_hw <- resultaten_hw |>
     niet_sign = all(!is.na(p_waarde)) & all(p_waarde >= 0.05)
   )
 
-plot_hw <- verandering_hw |>
+# De vier behandelingen naast elkaar (geen lijnen: het is geen tijdreeks), met
+# regulier beheer zonder afrastering als referentie (stippellijn).
+hw_plotdata <- verandering_hw |>
   left_join(select(labels_hw, kolom, facet), by = "kolom") |>
-  ggplot(aes(x = basis_mr, y = verandering, colour = afrastering, group = afrastering)) +
+  mutate(behandeling_basis = factor(behandeling_basis, levels = c("R", "R-AF", "M", "M-AF")))
+hw_referentie <- hw_plotdata |>
+  filter(behandeling_basis == "R") |>
+  summarise(.by = facet, ref = mean(verandering))
+
+plot_hw <- ggplot(hw_plotdata, aes(x = behandeling_basis, y = verandering)) +
   geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.4) +
-  geom_point(aes(shape = sloot_nummer), size = 2.3, position = position_dodge(width = 0.3)) +
-  stat_summary(fun = mean, geom = "line", linewidth = 0.9, position = position_dodge(width = 0.3)) +
+  geom_hline(data = hw_referentie, aes(yintercept = ref), colour = okabe_ito[1], linetype = "dashed", linewidth = 0.5) +
+  geom_point(aes(colour = behandeling_basis, shape = sloot_nummer), size = 2.3,
+             position = position_jitter(width = 0.08, height = 0, seed = 1)) +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 3.5, colour = "black") +
   laag_niet_significant(select(labels_hw, facet, niet_sign)) +
-  scale_colour_manual(values = c("zonder AF" = okabe_ito[1], "met AF" = okabe_ito[6])) +
+  scale_colour_manual(values = kleuren_basis, guide = "none") +
   facet_wrap(~facet, scales = "free_y", ncol = 5) +
   labs(
     title = "Hegewarren - full factorial: basisbeheer × afrastering",
     subtitle = paste0(
-      "Lijn = gemiddelde verandering per combinatie; niet-parallelle lijnen wijzen op een interactie.\n",
-      "p uit lm(verandering ~ basisbeheer × afrastering + sloot); 8 locaties, dus indicatief."
+      "Punt = vak (vorm = sloot), zwarte ruit = gemiddelde per behandeling; stippellijn = gemiddelde bij regulier beheer\n",
+      "zonder afrastering (R, referentie). p uit lm(verandering ~ basisbeheer × afrastering + sloot); 8 locaties, dus indicatief."
     ),
     caption = paste(caption_niet_sign, "Hier: alle drie de termen p ≥ 0,05."),
-    x = "Basisbeheer", y = "Verandering (laatste − eerste meetjaar)",
-    colour = "Afrastering", shape = "Sloot"
+    x = "Behandeling", y = "Verandering (laatste − eerste meetjaar)",
+    shape = "Sloot"
   ) +
   theme_wp2
 print(plot_hw)
 sla_figuur_op(plot_hw, "contrast_hegewarren_factorial", width = 18, height = 16)
 
-# 13b. Overige gebieden: minimaal vs. regulier (alleen locaties zonder AF en
-# zonder NVO) en wel vs. geen afrastering (locaties zonder NVO). Waar beide
-# niveaus langs dezelfde sloot liggen, is de sloot een vast blok; anders is
-# het een vergelijking tussen sloten (sloot random). Welke behandelingen
-# feitelijk vergeleken worden, staat in 'vergeleken_behandelingen' (bv. in
-# Ronde Hoep is wel/geen afrastering vooral M-AF vs. R).
-contrasten_gebied <- list(
-  `minimaal vs regulier` = list(
-    selectie = \(d) filter(d, afrastering == "zonder AF", nvo == "zonder NVO"),
-    term = "basis_mr"
-  ),
-  `wel vs geen afrastering` = list(
-    selectie = \(d) filter(d, nvo == "zonder NVO"),
-    term = "afrastering"
-  )
-)
-
-#' Beschrijf welke Behandeling-codes per niveau van een contrastterm vallen
-#'
-#' @param d Data met de kolom Behandeling en de kolom `term`.
-#' @param term Naam van de contrastkolom.
-#' @return Eén tekst, bv. "zonder AF: M/R vs met AF: M-AF".
-beschrijf_vergelijking <- function(d, term) {
-  d |>
-    distinct(niveau = .data[[term]], Behandeling) |>
-    summarise(.by = niveau, b = paste(sort(unique(Behandeling)), collapse = "/")) |>
-    arrange(niveau) |>
-    mutate(tekst = paste0(niveau, ": ", b)) |>
-    pull(tekst) |>
-    paste(collapse = " vs ")
-}
+# 13b. Per gebied dezelfde vergelijkingen als in 12b (M − R, M-AF − M en
+# M-AF − R), alleen binnen dezelfde sloot: per sloot het verschil in
+# verandering, daarna het gemiddelde over de sloten van het gebied
+# (verschil_binnen_sloot()). Een schatting vanaf 2 sloten, een p-waarde vanaf
+# 3 sloten.
+contrasten_gebied <- set_names(contrasten_basis, map_chr(contrasten_basis, \(p) paste(p[1], "−", p[2])))
 
 resultaten_contrasten_gebied <- expand_grid(
   gebied_sel = sort(unique(wp2$gebied)),
   contrast = names(contrasten_gebied)
 ) |>
   pmap_dfr(\(gebied_sel, contrast) {
-    def <- contrasten_gebied[[contrast]]
-    d <- def$selectie(filter(wp2_verandering, gebied == gebied_sel))
-    if (n_distinct(d[[def$term]]) < 2) return(tibble())
-    toets_per_variabele(d, model_termen = def$term, toets_termen = def$term, blok = "sloot_nummer") |>
-      mutate(
-        gebied = gebied_sel, contrast = contrast,
-        vergeleken_behandelingen = beschrijf_vergelijking(d, def$term)
-      )
+    paar <- contrasten_gebied[[contrast]]
+    wp2_verandering |>
+      filter(gebied == gebied_sel) |>
+      group_by(thema, naam, label, kolom) |>
+      group_modify(\(d, sleutel) verschil_binnen_sloot(d, paar[1], paar[2])) |>
+      ungroup() |>
+      filter(n_sloten >= 2) |>
+      mutate(gebied = gebied_sel, contrast = contrast)
   }) |>
   mutate(p_bh = p.adjust(p_waarde, method = "BH"), .by = c(gebied, contrast))
 
-print(resultaten_contrasten_gebied |>
-        distinct(gebied, contrast, vergeleken_behandelingen, opzet))
+print(resultaten_contrasten_gebied |> distinct(gebied, contrast, n_sloten) |> arrange(gebied, contrast), n = 40)
 
 # 13c. Overzicht (heatmap) van alle gebiedscontrasten. De
 # kleur is het gestandaardiseerde effect (schatting / SD van de verandering
-# van die variabele over alle WP2-locaties): rood = grotere toename bij het
-# tweede niveau (minimaal resp. met AF), blauw = kleinere toename / afname.
+# van die variabele over alle WP2-locaties): oranje = grotere toename bij de
+# eerste behandeling van het contrast (bv. M-AF bij M-AF − R), blauw = kleinere
+# toename / afname.
 sd_per_variabele <- wp2_verandering |> summarise(.by = kolom, sd_var = sd(verandering, na.rm = TRUE))
 
 heatmap_data <- resultaten_contrasten_gebied |>
@@ -3035,8 +3001,8 @@ plot_heatmap_gebied <- ggplot(heatmap_data, aes(x = kolomlabel, y = label, fill 
   labs(
     title = "WP2 - Contrasten per gebied (verandering laatste − eerste meetjaar)",
     subtitle = paste0(
-      "Kleur = effect van minimaal (t.o.v. regulier) of met AF (t.o.v. zonder AF), in SD van de verandering.\n",
-      "* p < 0.05; ** p(BH) < 0.05 binnen gebied en contrast. Grijs = niet te schatten."
+      "Kleur = gemiddeld verschil in verandering binnen dezelfde sloot (eerste min tweede behandeling), in SD van de verandering.\n",
+      "* p < 0,05; ** p (BH) < 0,05 binnen gebied en contrast; p alleen bij 3 of meer sloten. Grijs = niet te schatten."
     ),
     x = NULL, y = NULL, fill = "Effect (SD)"
   ) +
@@ -3062,10 +3028,13 @@ if (nrow(sign_contrasten) == 0) {
 } else {
   print(sign_contrasten)
   sign_jaar <- pmap_dfr(sign_contrasten, \(gebied, contrast, kolom, label, schatting, p_waarde, p_bh, n_sloten) {
-    def <- contrasten_gebied[[contrast]]
-    d <- wp2 |> as_tibble() |> filter(.data$gebied == !!gebied)
-    def$selectie(d) |>
-      transmute(SlootID, jaar, groep = as.character(.data[[def$term]]), waarde = as.numeric(.data[[kolom]])) |>
+    paar <- contrasten_gebied[[contrast]]
+    # alleen vakken in sloten met beide behandelingen
+    wp2 |>
+      as_tibble() |>
+      filter(.data$gebied == !!gebied, behandeling_basis %in% paar) |>
+      filter(.by = sloot_nummer, n_distinct(behandeling_basis) == 2) |>
+      transmute(SlootID, jaar, groep = as.character(behandeling_basis), waarde = as.numeric(.data[[kolom]])) |>
       filter(!is.na(waarde)) |>
       mutate(paneel = paste0(
         gebied, " – ", met_richting(label, 45), "\n",
@@ -3077,14 +3046,14 @@ if (nrow(sign_contrasten) == 0) {
     geom_line(aes(group = SlootID), alpha = 0.35) +
     stat_summary(aes(group = groep), fun = median, geom = "line", linewidth = 1.2) +
     stat_summary(aes(group = groep), fun = median, geom = "point", size = 2.3) +
-    scale_colour_manual(values = c(
-      "regulier" = okabe_ito[1], "minimaal" = okabe_ito[3],
-      "zonder AF" = okabe_ito[1], "met AF" = okabe_ito[6]
-    )) +
+    scale_colour_manual(values = kleuren_basis) +
     facet_wrap(~paneel, scales = "free_y") +
     labs(
       title = "WP2 - Significante verschillen binnen een gebied (p na BH-correctie < 0,05)",
-      subtitle = "Dunne lijn = locatie, dikke lijn = mediaan per groep en jaar.\nToets op de verandering (laatste − eerste meetjaar), sloot als blok.",
+      subtitle = paste0(
+        "Dunne lijn = vak, dikke lijn = mediaan per behandeling en jaar (sloten met beide behandelingen).\n",
+        "Toets: t-toets op het verschil in verandering (laatste − eerste meetjaar) binnen dezelfde sloot."
+      ),
       x = "Jaar", y = "Waarde (eenheid per paneel)", colour = "Groep"
     ) +
     theme_wp2
@@ -3094,11 +3063,17 @@ if (nrow(sign_contrasten) == 0) {
 }
 
 # 14. Afkreeften: Ronde Hoep en Oukoop -------------------------------------------
-# Ronde Hoep: afkreeften (KR) geldt voor de hele sloot (RH_3, RH_5, RH_7), dus
-# het effect is een vergelijking tussen sloten (sloot random), gecorrigeerd
-# voor afrastering.
+# Ronde Hoep: afkreeften (KR) geldt voor de hele sloot, dus het effect is een
+# vergelijking tussen sloten (sloot random), gecorrigeerd voor afrastering.
+# Alle afgekreefte sloten doen mee (RH_3, RH_5 en RH_7), ook RH_5, dat met
+# maar één behandeling buiten de selectie valt; de overige vakken volgen de
+# selectie (sectie 2e).
+verandering_rh_kreeft <- wp2_compleet |>
+  filter(gebied == "RH", MeenemenDataAnalyse_WP2 %in% "ja" | str_detect(Behandeling, "KR")) |>
+  voeg_behandelingsfactoren_toe() |>
+  bereken_verandering_lang(var_lijst, groep_cols)
 resultaten_afkreeften <- toets_per_variabele(
-  filter(wp2_verandering, gebied == "RH"),
+  verandering_rh_kreeft,
   model_termen = "afkreeften", toets_termen = "afkreeften",
   covariaten = "afrastering", random = "(1 | sloot_nummer)"
 ) |>
@@ -3280,8 +3255,7 @@ resultaten_afkreeften <- resultaten_afkreeften |>
 print(resultaten_afkreeften |> select(gebied, naam, schatting, p_waarde, p_bh, n_sloten, opzet), n = 80)
 
 afkreeften_plotdata <- bind_rows(
-  wp2_verandering |>
-    filter(gebied == "RH") |>
+  verandering_rh_kreeft |>
     mutate(gebied_label = "Ronde Hoep", behandeling_label = as.character(behandeling_basis)),
   if (!is.null(oukoop_verandering)) {
     oukoop_verandering |>
@@ -3346,11 +3320,13 @@ for (thema_sel in levels(var_lijst$thema)) {
 }
 
 # 15. Spaarnwoude: nutriënten in de oever bij wel/geen NVO ------------------------
-# Oevermonsters (OR_25 en OR_50) zijn in 2024 en 2026 genomen. Twee toetsen:
-#  - verandering 2024 -> 2026 ~ NVO + afrastering, met sloot als blok
-#  - niveau per jaar ~ NVO x jaar + afrastering, met sloot en locatie random
-# NVO volgt de kolom Behandeling: in SW_3 hebben de locaties met NVO in de
-# SlootID volgens Behandeling geen NVO (R), dus NVO zit alleen in SW_4 en SW_5.
+# Oevermonsters (OR_25 en OR_50) zijn in 2024 en 2026 genomen. NVO volgt de
+# kolom Behandeling en komt alleen voor in SW_4 (M-NVO en M-AF-NVO naast M en
+# M-AF) en SW_5 (R-NVO naast R). Vergelijking alleen binnen de sloot: per sloot
+# de gemiddelde verandering 2024 -> 2026 in de NVO-vakken min die in de vakken
+# zonder NVO (zelfde basisbeheer en afrastering, zie hierboven). Sloten zonder
+# NVO-vak (SW_1, SW_2, SW_3) doen niet mee. Met twee sloten is er geen toets;
+# het verschil per sloot is beschrijvend.
 oever_nutrienten <- tribble(
   ~naam,                  ~kolom,                       ~eenheid,
   "P-AL oever (OR_25)",   "P-AL mg p2o5/100g_OR_25",    "mg P2O5/100g",
@@ -3367,11 +3343,26 @@ oever_nutrienten <- tribble(
   filter(kolom %in% names(wp2)) |>
   mutate(thema = "oevernutriënten", label = paste0(naam, " (", eenheid, ")"))
 
-# SW_5 (alleen contrast NVO / geen NVO) doet hier wel mee, zie sectie 2e; SW_3
-# niet, want daar heeft geen enkel vak NVO.
+sloten_met_nvo <- wp2_compleet |>
+  as_tibble() |>
+  filter(gebied == "SW", str_detect(Behandeling, "NVO")) |>
+  distinct(sloot_nummer) |>
+  pull()
 wp2_sw <- voeg_behandelingsfactoren_toe(wp2_compleet) |>
-  filter(gebied == "SW", !sloot_nummer %in% setdiff(sloten_zonder_contrast, sloten_nvo_contrast))
+  filter(gebied == "SW", sloot_nummer %in% sloten_met_nvo)
 sw_verandering <- bereken_verandering_lang(wp2_sw, oever_nutrienten, groep_cols)
+
+# Verschil NVO - zonder NVO per sloot en variabele
+resultaten_nvo_sw <- sw_verandering |>
+  summarise(
+    .by = c(thema, naam, label, kolom, sloot_nummer),
+    met_nvo = mean(verandering[nvo == "met NVO"]),
+    zonder_nvo = mean(verandering[nvo == "zonder NVO"]),
+    n_vakken_nvo = sum(nvo == "met NVO"), n_vakken_zonder = sum(nvo == "zonder NVO")
+  ) |>
+  filter(is.finite(met_nvo), is.finite(zonder_nvo)) |>
+  mutate(verschil = met_nvo - zonder_nvo)
+print(resultaten_nvo_sw |> select(naam, sloot_nummer, met_nvo, zonder_nvo, verschil), n = 60)
 
 sw_niveau <- wp2_sw |>
   as_tibble() |>
@@ -3382,46 +3373,30 @@ sw_niveau <- wp2_sw |>
   left_join(oever_nutrienten, by = "kolom") |>
   mutate(jaar_f = factor(jaar))
 
-resultaten_nvo_sw <- bind_rows(
-  toets_per_variabele(
-    sw_verandering, model_termen = "nvo", toets_termen = "nvo",
-    covariaten = "afrastering", blok = "sloot_nummer"
-  ) |>
-    mutate(toets = "verandering 2024 -> 2026"),
-  toets_per_variabele(
-    sw_niveau, model_termen = "nvo * jaar_f", toets_termen = c("nvo", "nvo:jaar_f"),
-    covariaten = "afrastering", random = "(1 | sloot_nummer) + (1 | SlootID)", respons = "waarde"
-  ) |>
-    mutate(toets = "niveau per jaar")
-) |>
-  mutate(p_bh = p.adjust(p_waarde, method = "BH"), .by = c(toets, term))
-print(resultaten_nvo_sw |> select(toets, naam, term, schatting, p_waarde, p_bh, opzet), n = 60)
-
 labels_nvo <- resultaten_nvo_sw |>
-  filter(toets == "verandering 2024 -> 2026") |>
-  transmute(
-    kolom,
-    facet = paste0(label, "\n+ = hoger gehalte, − = lager", "\np verandering = ", p_label(p_waarde)),
-    niet_sign = !is.na(p_waarde) & p_waarde >= 0.05
+  summarise(
+    .by = kolom,
+    facet = paste0(label[1], "
+verschil NVO − zonder NVO: ",
+                   paste0(sloot_nummer, " ", nl_getal(verschil, 2), collapse = "; "))
   )
 
 plot_nvo_sw <- sw_niveau |>
   left_join(labels_nvo, by = "kolom") |>
+  filter(!is.na(facet)) |>
   ggplot(aes(x = jaar_f, y = waarde, colour = nvo)) +
-  geom_line(aes(group = SlootID), alpha = 0.35) +
-  geom_point(aes(shape = afrastering), size = 2, alpha = 0.8) +
-  stat_summary(aes(group = nvo), fun = median, geom = "line", linewidth = 1.2) +
-  laag_niet_significant(select(labels_nvo, facet, niet_sign)) +
+  geom_line(aes(group = SlootID), alpha = 0.6) +
+  geom_point(aes(shape = sloot_nummer), size = 2, alpha = 0.8) +
   scale_colour_manual(values = c("zonder NVO" = okabe_ito[1], "met NVO" = okabe_ito[5])) +
   facet_wrap(~facet, scales = "free_y", ncol = 5) +
   labs(
-    title = "Spaarnwoude - nutriënten in de oever bij wel/geen NVO",
+    title = "Spaarnwoude - nutriënten in de oever bij wel/geen NVO (SW_4 en SW_5)",
     subtitle = paste0(
-      "Dunne lijn = locatie, dikke lijn = mediaan per groep. ",
-      "p = NVO-effect op de verandering 2024 → 2026 (lm met sloot als blok, gecorrigeerd voor afrastering)."
+      "Lijn = vak. Verschil = verandering 2024 → 2026 in de NVO-vakken min die in de vakken zonder NVO van dezelfde sloot.
+",
+      "Alleen sloten met een NVO-vak; met twee sloten beschrijvend, zonder toets."
     ),
-    caption = caption_niet_sign,
-    x = "Jaar", y = "Waarde (eenheid per paneel)", colour = "NVO", shape = "Afrastering"
+    x = "Jaar", y = "Waarde (eenheid per paneel)", colour = "NVO", shape = "Sloot"
   ) +
   theme_wp2
 print(plot_nvo_sw)
@@ -3592,10 +3567,11 @@ for (parameter in beheerparameters) {
 }
 
 # 18. Oeverbreedte en breedte zone 2a/2b: niveau per jaar ---------------------------
-# De verandering in oeverbreedte zit al in de thema-figuren (oevermorfologie).
-# Hier ook het niveau per jaar, omdat verschillen tussen behandelingen in de
-# breedte zelf (niet alleen in de verandering) relevant zijn. Toets:
-# breedte ~ basisbeheer x jaar + (1 | gebied) + (1 | sloot) + (1 | locatie).
+# De verandering in oeverbreedte zit al in de thema-figuren (oevermorfologie),
+# met de toets op het verschil binnen de sloot (12b). Hier beschrijvend het
+# niveau per jaar, omdat verschillen tussen behandelingen in de breedte zelf
+# (niet alleen in de verandering) relevant zijn. Geen aparte toets: die zou
+# vakken over sloten heen vergelijken.
 breedte_lang <- wp2 |>
   as_tibble() |>
   select(SlootID, sloot_nummer, gebied, jaar, behandeling_basis, effect_categorie,
@@ -3603,44 +3579,25 @@ breedte_lang <- wp2 |>
          `zone 2a` = oeverzone_2a_breedte_cm, `zone 2b` = oeverzone_2b_breedte_cm) |>
   pivot_longer(c(`oever totaal (2a + 2b)`, `zone 2a`, `zone 2b`), names_to = "naam", values_to = "waarde") |>
   filter(!is.na(waarde)) |>
-  mutate(thema = "oeverbreedte", label = paste0(naam, " (cm)"), kolom = naam, jaar_f = factor(jaar))
-
-resultaten_breedte <- toets_per_variabele(
-  breedte_lang, model_termen = "behandeling_basis * jaar_f",
-  toets_termen = c("behandeling_basis", "behandeling_basis:jaar_f"),
-  random = "(1 | gebied) + (1 | sloot_nummer) + (1 | SlootID)", respons = "waarde"
-)
-print(resultaten_breedte |> select(naam, term, p_waarde, n_locaties))
-
-labels_breedte <- resultaten_breedte |>
-  mutate(term = if_else(term == "behandeling_basis", "basisbeheer", "basisbeheer×jaar")) |>
-  summarise(
-    .by = naam,
-    facet = paste0(naam[1], " (cm)\n", paste0(term, " p = ", p_label(p_waarde), collapse = "; ")),
-    niet_sign = all(!is.na(p_waarde)) & all(p_waarde >= 0.05)
-  )
-
-# "niet significant" alleen in de eerste gebiedskolom (de toets geldt voor alle gebieden samen)
-tekst_breedte <- labels_breedte |>
-  mutate(gebied = sort(unique(breedte_lang$gebied))[1])
+  mutate(thema = "oeverbreedte", label = paste0(naam, " (cm)"), jaar_f = factor(jaar))
 
 plot_breedte <- breedte_lang |>
-  left_join(select(labels_breedte, naam, facet), by = "naam") |>
   ggplot(aes(x = jaar_f, y = waarde, colour = behandeling_basis)) +
   geom_line(aes(group = SlootID, alpha = effect_categorie == "geen effect"), linewidth = 0.4) +
-  laag_niet_significant(tekst_breedte) +
   stat_summary(aes(group = behandeling_basis), fun = median, geom = "line", linewidth = 1.2) +
   stat_summary(aes(group = behandeling_basis), fun = median, geom = "point", size = 2.3) +
   scale_colour_manual(values = kleuren_basis) +
   scale_alpha_manual(values = c(`FALSE` = 0.45, `TRUE` = 0.15), guide = "none") +
-  facet_grid(facet ~ gebied, scales = "free_y") +
+  facet_grid(label ~ gebied, scales = "free_y") +
   labs(
     title = "WP2 - Oeverbreedte en breedte zone 2a/2b per jaar en basisbeheer",
     subtitle = paste0(
-      "Dunne lijn = locatie, dikke lijn = mediaan per gebied en basisbeheer. p uit gemengd model met gebied, sloot en locatie random.\n",
-      "Vage dunne lijn = sloot waar bij de veldbeoordeling in 2026 geen effect is gezien (alleen ter duiding; telt mee in mediaan en toets)."
+      "Dunne lijn = vak, dikke lijn = mediaan per gebied en basisbeheer. Beschrijvend; de toets op de verandering
+",
+      "(verschil binnen dezelfde sloot) staat in de figuur oevermorfologie per basisbeheer.
+",
+      "Vage dunne lijn = sloot waar bij de veldbeoordeling in 2026 geen effect is gezien (alleen ter duiding; telt mee in de mediaan)."
     ),
-    caption = paste(caption_niet_sign, "Toets voor alle gebieden samen; label in de eerste kolom."),
     x = "Jaar", y = "Breedte (cm)", colour = "Basisbeheer"
   ) +
   theme_wp2 +
@@ -3648,9 +3605,78 @@ plot_breedte <- breedte_lang |>
 print(plot_breedte)
 sla_figuur_op(plot_breedte, "oeverbreedte_zone2a_2b", width = 16, height = 10)
 
+# 19. Oevermonsters 2024 en 2026: verschil tussen de meetjaren ---------------------
+# Per vak (selectie) de waarde in 2024 en 2026 voor een aantal oeverparameters
+# (0-25 cm). De XRF-gehalten zijn in data_import_ppr.R gedeeld door de
+# vochtcorrectiefactor (100 + restvocht 105 °C) / 100; hier ook teruggerekend
+# naar droge stof bij 105 °C (x factor), om te zien of een verschil tussen de
+# jaren uit het restvocht komt. Toets: Wilcoxon, gepaard per vak.
+oever_jaar <- as_tibble(wp2) |>
+  filter(jaar %in% c(2024, 2026)) |>
+  transmute(
+    SlootID, jaar,
+    cf = as.numeric(correction_factor_OR_25),
+    restvocht = as.numeric(`Moist 105C (%)_OR_25`),
+    ptot = as.numeric(`P2O5_xrf_g/kg_OR_25`), ptot_105 = ptot * cf,
+    fe = as.numeric(`Fe2O3_xrf_g/kg_OR_25`), fe_105 = fe * cf,
+    al = as.numeric(`Al2O3_xrf_g/kg_OR_25`), al_105 = al * cf,
+    k = as.numeric(`K2O_xrf_g/kg_OR_25`), k_105 = k * cf,
+    toc = as.numeric(`TOC [%]_OR_25`), os = as.numeric(OS_perc_OR_25),
+    cec = as.numeric(`CEC_CO_mmol+/kg_OR_25`), klei = as.numeric(Z_CLAY_SA_OR_25),
+    pal = as.numeric(`P-AL mg p2o5/100g_OR_25`), nmin = as.numeric(N_mineraal_OR_25)
+  ) |>
+  select(-cf) |>
+  pivot_longer(-c(SlootID, jaar), names_to = "naam", values_to = "waarde") |>
+  filter(is.finite(waarde)) |>
+  summarise(.by = c(SlootID, naam, jaar), waarde = mean(waarde)) |>
+  pivot_wider(names_from = jaar, values_from = waarde, names_prefix = "j") |>
+  filter(is.finite(j2024), is.finite(j2026))
+
+#' Samenvatting van het verschil 2026 - 2024 per variabele, gepaard per vak
+#'
+#' @param d Data met de kolommen naam, j2024 en j2026 (één rij per vak).
+#' @return Tibble per naam met n, medianen, procentuele verandering van de
+#'   mediaan, aandeel vakken met een lagere waarde in 2026, p (Wilcoxon) en p (BH).
+vat_jaarverschil_samen <- function(d) {
+  d |>
+    summarise(
+      .by = naam, n = n(), mediaan_2024 = median(j2024), mediaan_2026 = median(j2026),
+      aandeel_lager = mean(j2026 < j2024),
+      p_waarde = if (sd(j2026 - j2024) > 0) {
+        suppressWarnings(wilcox.test(j2026, j2024, paired = TRUE, exact = FALSE)$p.value)
+      } else NA_real_
+    ) |>
+    mutate(verandering_pct = 100 * (mediaan_2026 / mediaan_2024 - 1), p_bh = p.adjust(p_waarde, method = "BH"))
+}
+oevermonsters_jaar <- vat_jaarverschil_samen(oever_jaar)
+print(oevermonsters_jaar)
+
+# Alle XRF-elementen in de oever: hoeveel liggen in 2026 lager?
+xrf_kolommen <- grep("_xrf_.*_OR_25$", names(wp2), value = TRUE)
+oevermonsters_xrf <- as_tibble(wp2) |>
+  filter(jaar %in% c(2024, 2026)) |>
+  select(SlootID, jaar, all_of(xrf_kolommen)) |>
+  mutate(across(all_of(xrf_kolommen), \(x) suppressWarnings(as.numeric(x)))) |>
+  pivot_longer(all_of(xrf_kolommen), names_to = "naam", values_to = "waarde") |>
+  filter(is.finite(waarde)) |>
+  summarise(.by = c(SlootID, naam, jaar), waarde = mean(waarde)) |>
+  pivot_wider(names_from = jaar, values_from = waarde, names_prefix = "j") |>
+  filter(is.finite(j2024), is.finite(j2026)) |>
+  vat_jaarverschil_samen()
+oevermonsters_xrf_samenvatting <- oevermonsters_xrf |>
+  summarise(
+    n_elementen = n(), n_lager = sum(verandering_pct < 0),
+    n_lager_bh = sum(verandering_pct < 0 & p_bh < 0.05),
+    pct_min = min(verandering_pct[verandering_pct < 0 & p_bh < 0.05]),
+    pct_max = max(verandering_pct[verandering_pct < 0 & p_bh < 0.05])
+  )
+print(oevermonsters_xrf_samenvatting)
+
 # Tabellen wegschrijven naast de figuren
 sla_tabel_op(toetsen_thema, "tabel_thema_verandering_toets_paarsgewijs")
 sla_tabel_op(proefopzet_gebied, "tabel_proefopzet_gebied")
+sla_tabel_op(oevermonsters_jaar, "tabel_oevermonsters_2024_2026")
+sla_tabel_op(oevermonsters_xrf_samenvatting, "tabel_oevermonsters_xrf")
 sla_tabel_op(variantie_decompositie, "tabel_niveaus_variantiedecompositie")
 sla_tabel_op(resultaten_sloot_covariaat, "tabel_sloot_covariaten_variantie")
 sla_tabel_op(meet_variantie, "tabel_meetomstandigheden_variantie")
@@ -3670,13 +3696,11 @@ sla_tabel_op(talud_samenhang, "tabel_talud_vernatting_samenhang")
 sla_tabel_op(verruiging_2b, "tabel_verruiging_zone2b")
 sla_tabel_op(zone2a_af, "tabel_zone2a_afrastering")
 sla_tabel_op(behandeling_per_vak, "tabel_behandeling_per_vak")
-sla_tabel_op(uitgang_vergelijking, "tabel_uitgangssituatie_waargenomen_effect")
-sla_tabel_op(uitgang_veentype, "tabel_uitgangssituatie_veentype")
-sla_tabel_op(toets_alles, "tabel_niveau_alles_toets_basisbeheer")
 sla_tabel_op(basisbeheer_schatting, "tabel_basisbeheer_verandering")
 sla_tabel_op(variatie_binnen_sloot, "tabel_niveau_sloot_variatie_binnen_sloot")
 sla_tabel_op(resultaten_hw, "tabel_contrast_hegewarren_factorial")
 sla_tabel_op(draagkracht_laag_gebied, "tabel_draagkracht_laag_gebied")
+sla_tabel_op(draagkracht_diepte_contrasten, "tabel_draagkracht_diepte_binnen_sloot")
 sla_tabel_op(resultaten_contrasten_gebied, "tabel_contrasten_per_gebied")
 sla_tabel_op(resultaten_afkreeften, "tabel_afkreeften_RH_Oukoop")
 if (exists("resultaten_maaimaand_oukoop")) {
@@ -3692,7 +3716,6 @@ sla_tabel_op(resultaten_nvo_sw, "tabel_spaarnwoude_nvo_oevernutrienten")
 sla_tabel_op(resultaten_peil, "tabel_peilverhoging")
 sla_tabel_op(overzicht_beheer, "tabel_beheer_maai_baggermaand")
 sla_tabel_op(resultaten_beheer, "tabel_beheer_toets_maai_baggermaand")
-sla_tabel_op(resultaten_breedte, "tabel_oeverbreedte_niveau")
 
 # =============================================================================
 # Samenvatting van wat dit script oplevert:
@@ -3733,6 +3756,6 @@ sla_tabel_op(resultaten_breedte, "tabel_oeverbreedte_niveau")
 # - resultaten_nvo_sw: oevernutriënten bij wel/geen NVO in Spaarnwoude
 # - resultaten_peil: peilverhoging binnen een gebied (als `Vernat?` gevuld is)
 # - resultaten_beheer: maaimaand oever/sloot en baggermaand als covariaat
-# - resultaten_breedte / plot_breedte: oeverbreedte en zone 2a/2b per jaar
+# - plot_breedte: oeverbreedte en zone 2a/2b per jaar (beschrijvend)
 # Alle tabellen staan ook als csv in figuren_dir.
 # =============================================================================

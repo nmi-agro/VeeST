@@ -1,12 +1,15 @@
 # =============================================================================
 # WP2: waarom reageert de oever wel of niet op minimaal beheer / afrastering?
 # =============================================================================
-# Doel: nagaan bij welke abiotische uitgangssituatie een vak met minimaal beheer
-# en/of afrastering beter (of minder slecht) verandert dan het vak met regulier
-# beheer in dezelfde sloot. Respons per vak = verandering (laatste - eerste
-# meetjaar) in het vak min die in het R-vak van dezelfde sloot; in sloten
-# zonder R-vak (bv. Zegveld) M-AF t.o.v. M (dan alleen het effect van
-# afrastering). Zo valt een trend die voor de hele sloot geldt weg.
+# Doel: nagaan bij welke abiotische uitgangssituatie afrastering of minimaal
+# beheer een groter effect heeft. Effect per vak = verandering (laatste -
+# eerste meetjaar) in het vak min die in het referentievak van dezelfde sloot,
+# apart voor twee vergelijkingen:
+#  - effect afrastering: M-AF t.o.v. het M-vak van dezelfde sloot (alleen
+#    het raster; sloten zonder M-vak, zoals de meeste in Ronde Hoep, doen niet
+#    mee);
+#  - effect minimaal beheer: M t.o.v. het R-vak.
+# Zo valt een trend die voor de hele sloot geldt weg.
 #
 # Responsvariabelen: soortensamenstelling helofyten (EKR), structuur van de
 # oevervegetatie (deelindicator oeverindex) en breedte zone 2a.
@@ -90,33 +93,38 @@ verandering_per_vak <- function(data, kolom) {
     filter(jaar_eerste != jaar_laatste)
 }
 
-#' Relatieve respons: verandering in een M- of AF-vak min die in het
-#' referentievak van dezelfde sloot
+#' Effect van afrastering en van minimaal beheer per vak: verandering in het
+#' vak min die in het referentievak van dezelfde sloot
 #'
-#' Referentie is het gemiddelde van de regulier beheerde vakken (R) in de
-#' sloot. Heeft een sloot geen R-vak (bv. Zegveld), dan is de referentie het
-#' vak met minimaal beheer zonder afrastering (M) en worden alleen de
-#' afgerasterde vakken vergeleken; het verschil meet dan alleen het effect van
-#' afrastering.
+#' Twee vergelijkingen:
+#' - "afrastering": afgerasterde vakken (M-AF) t.o.v. het vak met minimaal
+#'   beheer zonder afrastering (M) in de sloot; alleen sloten met een M-vak.
+#'   Het verschil meet dan alleen het effect van het raster.
+#' - "minimaal beheer": vakken met minimaal beheer zonder afrastering (M)
+#'   t.o.v. het R-vak; alleen sloten met een R-vak.
 #'
 #' @param v Uitvoer van verandering_per_vak().
-#' @return Tibble met de vergeleken vakken, het verschil en de referentie.
+#' @return Tibble met de vergeleken vakken, de vergelijking, het verschil en
+#'   de referentie.
 relatieve_respons <- function(v) {
-  v |>
-    mutate(heeft_r = any(behandeling_x == "regulier"), .by = sloot_nummer) |>
-    mutate(rol = case_when(
-      heeft_r & behandeling_x == "regulier" ~ "referentie",
-      heeft_r ~ "vergelijk",
-      !heeft_r & behandeling_x == "minimaal" ~ "referentie",
-      !heeft_r & behandeling_x == "afrastering" ~ "vergelijk"
-    )) |>
-    mutate(verandering_ref = mean(verandering[rol %in% "referentie"]), .by = sloot_nummer) |>
-    filter(rol %in% "vergelijk", is.finite(verandering_ref)) |>
+  v <- v |>
     mutate(
-      verschil = verandering - verandering_ref,
-      referentie = if_else(heeft_r, "t.o.v. R-vak", "t.o.v. M-vak (geen R-vak)")
-    ) |>
-    select(-heeft_r, -rol)
+      .by = sloot_nummer,
+      heeft_r = any(behandeling_x == "regulier"),
+      verandering_r = mean(verandering[behandeling_x == "regulier"]),
+      verandering_m = mean(verandering[behandeling_x == "minimaal"])
+    )
+  bind_rows(
+    v |>
+      filter(behandeling_x == "afrastering") |>
+      mutate(vergelijking = "afrastering", verandering_ref = verandering_m, referentie = "t.o.v. M-vak"),
+    v |>
+      filter(behandeling_x == "minimaal", heeft_r) |>
+      mutate(vergelijking = "minimaal beheer", verandering_ref = verandering_r, referentie = "t.o.v. R-vak")
+  ) |>
+    filter(is.finite(verandering_ref)) |>
+    mutate(verschil = verandering - verandering_ref) |>
+    select(-heeft_r, -verandering_r, -verandering_m)
 }
 
 respons <- pmap_dfr(respons_vars, \(naam, kolom, eenheid) {
@@ -124,7 +132,9 @@ respons <- pmap_dfr(respons_vars, \(naam, kolom, eenheid) {
     relatieve_respons() |>
     mutate(respons_naam = naam, .before = 1)
 })
-print(count(respons, respons_naam, gebied, referentie))
+print(count(respons, vergelijking, respons_naam, gebied, referentie))
+# Meestal eerste meetjaar 2024; voor de aslabels
+jaar_ref <- names(which.max(table(respons$jaar_eerste)))
 
 # 3. Abiotische uitgangssituatie per vak ---------------------------------------
 # Waarde in het eerste jaar waarin de variabele voor dat vak gemeten is.
@@ -157,28 +167,54 @@ spearman <- function(x, y) {
 
 resultaten_respons <- respons_abiotiek |>
   mutate(
-    .by = c(respons_naam, abiotiek, gebied),
+    .by = c(vergelijking, respons_naam, abiotiek, gebied),
     x_binnen = waarde_start - mean(waarde_start), y_binnen = verschil - mean(verschil)
   ) |>
   summarise(
-    .by = c(respons_naam, abiotiek, abiotiek_label),
+    .by = c(vergelijking, respons_naam, abiotiek, abiotiek_label),
     n_vakken = n(), n_sloten = n_distinct(sloot_nummer), n_gebieden = n_distinct(gebied),
     rho = spearman(waarde_start, verschil)$rho, p_waarde = spearman(waarde_start, verschil)$p,
     rho_binnen = spearman(x_binnen, y_binnen)$rho, p_binnen = spearman(x_binnen, y_binnen)$p
   ) |>
   mutate(
-    .by = respons_naam,
+    .by = c(vergelijking, respons_naam),
     p_bh = p.adjust(p_waarde, method = "BH"), p_bh_binnen = p.adjust(p_binnen, method = "BH")
   ) |>
-  arrange(respons_naam, p_waarde)
+  arrange(vergelijking, respons_naam, p_waarde)
 print(resultaten_respons, n = 80)
 
 # 5. Figuren ------------------------------------------------------------------
-# 5a. Per responsvariabele: relatieve respons tegen de uitgangswaarde
-plot_respons_abiotiek <- function(respons_sel) {
-  d <- respons_abiotiek |> filter(respons_naam == respons_sel)
+# 5a. Per vergelijking en responsvariabele: effect tegen de uitgangswaarde
+# Titel en aslabel per vergelijking
+tekst_vergelijking <- list(
+  afrastering = list(
+    titel = "Effect van afrastering (M-AF t.o.v. M)",
+    y = "Effect afrastering\n(verschil M-AF − M t.o.v. ",
+    uitleg = paste0(
+      "Afgerasterde vakken (M-AF). y = verandering (laatste − eerste meetjaar) in het vak min die in het M-vak van dezelfde sloot\n",
+      "(alleen sloten met een M-vak). Positief = grotere toename (of kleinere afname) dan zonder raster."
+    )
+  ),
+  `minimaal beheer` = list(
+    titel = "Effect van minimaal beheer (t.o.v. regulier beheer)",
+    y = "Effect minimaal beheer\n(verschil minimaal − regulier t.o.v. ",
+    uitleg = paste0(
+      "Vakken met minimaal beheer zonder afrastering (M). y = verandering (laatste − eerste meetjaar) in het vak min die in het R-vak\n",
+      "van dezelfde sloot. Positief = grotere toename (of kleinere afname) dan bij regulier beheer."
+    )
+  )
+)
+
+#' Figuur: effect van een behandeling tegen de abiotische uitgangswaarde
+#'
+#' @param respons_sel Naam van de responsvariabele (respons_vars$naam).
+#' @param vergelijking_sel "afrastering" of "minimaal beheer".
+#' @return Een ggplot-object.
+plot_respons_abiotiek <- function(respons_sel, vergelijking_sel) {
+  d <- respons_abiotiek |> filter(respons_naam == respons_sel, vergelijking == vergelijking_sel)
+  tv <- tekst_vergelijking[[vergelijking_sel]]
   labels <- resultaten_respons |>
-    filter(respons_naam == respons_sel) |>
+    filter(respons_naam == respons_sel, vergelijking == vergelijking_sel) |>
     transmute(abiotiek, facet = paste0(
       abiotiek_label, "\nρ = ", nl_getal(rho, 2), " (p = ", p_label(p_waarde), "); binnen gebied ",
       nl_getal(rho_binnen, 2), " (p = ", p_label(p_binnen), ")"
@@ -190,25 +226,29 @@ plot_respons_abiotiek <- function(respons_sel) {
     geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.4) +
     geom_point(aes(colour = gebied, shape = referentie), size = 2) +
     scale_colour_manual(values = gebied_hoofdkleur) +
-    scale_shape_manual(values = c("t.o.v. R-vak" = 16, "t.o.v. M-vak (geen R-vak)" = 1)) +
+    scale_shape_manual(values = c("t.o.v. R-vak" = 16, "t.o.v. M-vak" = 16), guide = "none") +
     facet_wrap(~facet, scales = "free", ncol = 5) +
     labs(
-      title = paste0("WP2 - Bij welke uitgangssituatie verandert ", respons_sel, " beter dan bij regulier beheer?"),
+      title = paste0("WP2 - ", tv$titel, ": ", respons_sel, " tegen de uitgangssituatie"),
       subtitle = paste0(
-        "Vakken met minimaal beheer en/of afrastering. y = verandering (", eenheid, ", laatste − eerste meetjaar) in het vak min die in het R-vak van dezelfde sloot\n",
-        "(sloten zonder R-vak: M-AF t.o.v. M). Positief = beter of minder slecht dan de referentie. x = abiotische uitgangswaarde (eerste meetjaar).\n",
+        tv$uitleg, " x = abiotische uitgangswaarde (eerste meetjaar).\n",
         "ρ = Spearman over alle vakken en binnen gebieden (verkennend)."
       ),
-      x = "Uitgangswaarde (eenheid per paneel)", y = paste0("Verschil in verandering (", eenheid, ")"),
+      x = "Uitgangswaarde (eenheid per paneel)", y = paste0(tv$y, jaar_ref, ", ", eenheid, ")"),
       colour = "Gebied", shape = "Referentie"
     ) +
     theme_wp2
 }
 
-plots_respons <- set_names(respons_vars$naam) |> map(plot_respons_abiotiek)
-walk(plots_respons, print)
-iwalk(plots_respons, \(p, naam) {
-  sla_figuur_op(p, paste0("respons_abiotiek_", str_replace_all(naam, " ", "_")), width = 18, height = 12)
+respons_figuren <- expand_grid(vergelijking = names(tekst_vergelijking), respons_naam = respons_vars$naam) |>
+  semi_join(distinct(respons_abiotiek, vergelijking, respons_naam), by = c("vergelijking", "respons_naam"))
+pwalk(respons_figuren, \(vergelijking, respons_naam) {
+  p <- plot_respons_abiotiek(respons_naam, vergelijking)
+  print(p)
+  sla_figuur_op(
+    p, paste0("respons_abiotiek_", str_replace_all(paste(word(vergelijking, 1), respons_naam), " ", "_")),
+    width = 18, height = 12
+  )
 })
 
 # 5b. Overzicht: rho over alle vakken en binnen gebieden
@@ -219,20 +259,21 @@ plot_respons_overzicht <- resultaten_respons |>
     p_bh_w = if_else(schaal == "rho", p_bh, p_bh_binnen),
     schaal = factor(if_else(schaal == "rho", "alle vakken", "binnen gebied"), levels = c("alle vakken", "binnen gebied")),
     ster = case_when(p_bh_w < 0.05 ~ "**", p_w < 0.05 ~ "*", TRUE ~ ""),
-    abiotiek_label = fct_rev(factor(abiotiek_label, levels = abiotiek_vars$label))
+    abiotiek_label = fct_rev(factor(abiotiek_label, levels = abiotiek_vars$label)),
+    vergelijking_label = paste("effect", vergelijking)
   ) |>
   ggplot(aes(x = schaal, y = abiotiek_label, fill = rho_w)) +
   geom_tile(colour = "white") +
   geom_text(aes(label = paste0(nl_getal(rho_w, 2), ster)), size = 3.2) +
-  facet_wrap(~respons_naam) +
+  facet_grid(vergelijking_label ~ respons_naam) +
   scale_fill_gradient2(low = okabe_ito[5], mid = "white", high = okabe_ito[6], midpoint = 0,
                        limits = c(-1, 1), na.value = "grey90") +
   labs(
-    title = "WP2 - Abiotische uitgangssituatie en verandering t.o.v. regulier beheer",
+    title = "WP2 - Abiotische uitgangssituatie en effect van afrastering en minimaal beheer",
     subtitle = paste0(
-      "Vakken met minimaal beheer en/of afrastering; respons = verandering in het vak min die in het R-vak van dezelfde sloot\n",
-      "(sloten zonder R-vak: M-AF t.o.v. M). ρ = Spearman tussen uitgangswaarde en die relatieve respons.\n",
-      "Oranje (ρ > 0) = bij een hogere uitgangswaarde verandert het vak beter dan de referentie; blauw (ρ < 0) = slechter.\n",
+      "Effect afrastering = verandering in het M-AF-vak min die in het M-vak van dezelfde sloot;\n",
+      "effect minimaal beheer = verandering in het M-vak min die in het R-vak. ρ = Spearman tussen uitgangswaarde en het effect.\n",
+      "Oranje (ρ > 0) = bij een hogere uitgangswaarde een groter effect; blauw (ρ < 0) = een kleiner of negatiever effect.\n",
       "Binnen gebied = na aftrek van het gebiedsgemiddelde. * p < 0,05; ** p (BH) < 0,05."
     ),
     x = NULL, y = NULL, fill = "ρ"
@@ -240,7 +281,7 @@ plot_respons_overzicht <- resultaten_respons |>
   theme_wp2 +
   theme(panel.grid = element_blank())
 print(plot_respons_overzicht)
-sla_figuur_op(plot_respons_overzicht, "respons_abiotiek_overzicht", width = 9, height = 9)
+sla_figuur_op(plot_respons_overzicht, "respons_abiotiek_overzicht", width = 10, height = 15)
 
 sla_tabel_op(resultaten_respons, "tabel_respons_abiotiek")
 sla_tabel_op(respons, "tabel_respons_per_locatie")

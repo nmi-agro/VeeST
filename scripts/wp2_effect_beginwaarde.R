@@ -3,11 +3,13 @@
 # sloten? Effect per sloot tegen de uitgangssituatie
 # =============================================================================
 # Effect per sloot = verandering (laatste - eerste meetjaar) in het ene vak min
-# die in het andere vak van dezelfde sloot, voor drie contrasten:
-#   M - R     effect van minimaal beheer (sloten met een R- en een M-vak)
+# die in het andere vak van dezelfde sloot, voor twee contrasten:
 #   M-AF - M  effect van afrastering bij minimaal beheer
 #   M-AF - R  minimaal beheer + afrastering samen (vooral Ronde Hoep, waar
 #             geen M-vak is)
+# M - R (minimaal zonder afrastering t.o.v. regulier) is weggelaten: dat
+# contrast komt maar in 5 sloten voor. Met 5 sloten geeft een rangcorrelatie
+# door toeval al snel rho = ±1 en kan p na correctie nooit < 0,05 worden.
 # In de selectie heeft elke sloot één vak per basisbeheer, dus het effect is
 # het verschil tussen twee vakken. Een trend die voor de hele sloot geldt
 # (meetdag, peil) valt zo weg.
@@ -79,7 +81,6 @@ begin_vars <- bind_rows(
 # 2. Effect per sloot -------------------------------------------------------------
 contrasten <- tribble(
   ~contrast,   ~behandeling, ~referentie,
-  "M − R",     "M",          "R",
   "M-AF − M",  "M-AF",       "M",
   "M-AF − R",  "M-AF",       "R"
 ) |>
@@ -219,8 +220,8 @@ interactie_vak <- function(d) {
   d <- mutate(d, y = rank(verandering), x = rank(waarde_begin), sloot_nummer = factor(sloot_nummer))
   fit <- lm(y ~ sloot_nummer + beh * x, data = d)
   co <- summary(fit)$coefficients
-  # Minder dan 4 vrijheidsgraden (M − R: 5 sloten) geeft vrijwel altijd
-  # r = ±1 en is niet te interpreteren.
+  # Minder dan 4 vrijheidsgraden geeft vrijwel altijd r = ±1 en is niet te
+  # interpreteren.
   if (!"beh:x" %in% rownames(co) || fit$df.residual < 4) return(leeg)
   t <- co["beh:x", "t value"]
   mutate(leeg, df = fit$df.residual, r_partieel = t / sqrt(t^2 + fit$df.residual), p_waarde = co["beh:x", "Pr(>|t|)"])
@@ -310,7 +311,7 @@ plot_effect_begin <- plot_heatmap_effect(
   legenda = "ρ"
 )
 print(plot_effect_begin)
-sla_figuur_op(plot_effect_begin, "effect_beginwaarde_overzicht", width = 16, height = 11)
+sla_figuur_op(plot_effect_begin, "effect_beginwaarde_overzicht", width = 12, height = 11)
 
 # 5a2. Zelfde overzicht met de beginwaarde van het vak zelf (sectie 4b)
 plot_effect_begin_vak <- plot_heatmap_effect(
@@ -320,25 +321,34 @@ plot_effect_begin_vak <- plot_heatmap_effect(
     "Rang-ANCOVA per contrast: verandering ~ sloot + behandeling × beginwaarde van het vak zelf (eerste meetjaar).\n",
     "Getal = partiële correlatie van de interactie: hoe sterk het behandelingseffect (kolom) meeloopt met de beginwaarde van het vak (rij).\n",
     "Oranje (> 0) = bij een hogere beginwaarde een groter (positiever) effect; blauw (< 0) = kleiner of negatiever.\n",
-    "* p < 0,05; ** p (BH, per contrast) < 0,05. Grijs: te weinig sloten voor dit model (M − R). Verkennend."
+    "* p < 0,05; ** p (BH, per contrast) < 0,05. Grijs: niet te schatten. Verkennend."
   ),
   legenda = "r (partieel)"
 )
 print(plot_effect_begin_vak)
-sla_figuur_op(plot_effect_begin_vak, "effect_beginwaarde_vak_overzicht", width = 16, height = 11)
+sla_figuur_op(plot_effect_begin_vak, "effect_beginwaarde_vak_overzicht", width = 12, height = 11)
 
 # 5b. Spreidingsplots voor de combinaties met p < 0,05 (zonder correctie),
 # hoogstens de twaalf sterkste, met het gebied als kleur.
+# Per paneel ook de rho van de andere vergelijking voor dezelfde combinatie,
+# zodat te zien is of het verband in beide vergelijkingen dezelfde kant op wijst.
 sterkste <- resultaten_effect_begin |>
   filter(p_waarde < 0.05) |>
-  slice_min(p_waarde, n = 12, with_ties = FALSE)
+  slice_min(p_waarde, n = 12, with_ties = FALSE) |>
+  left_join(
+    resultaten_effect_begin |>
+      transmute(kolom_effect, kolom_begin, contrast_ander = contrast, rho_ander = rho),
+    by = c("kolom_effect", "kolom_begin"), relationship = "many-to-many"
+  ) |>
+  filter(contrast_ander != contrast)
 
 if (nrow(sterkste) > 0) {
   plot_effect_begin_punten <- effect_begin |>
     inner_join(
       transmute(sterkste, contrast, kolom_effect, kolom_begin, facet = paste0(
         contrast, ": ", effect_label, "\ntegen ", begin_label,
-        "\nρ = ", nl_getal(rho, 2), ", p = ", p_label(p_waarde), "; ", n_sloten, " sloten, ", n_gebieden, " gebieden"
+        "\nρ = ", nl_getal(rho, 2), ", p = ", p_label(p_waarde), "; ", n_sloten, " sloten, ", n_gebieden, " gebieden",
+        "\n(", contrast_ander, ": ρ = ", nl_getal(rho_ander, 2), ")"
       )),
       by = c("contrast", "kolom_effect", "kolom_begin")
     ) |>
@@ -350,8 +360,12 @@ if (nrow(sterkste) > 0) {
     scale_colour_manual(values = gebied_hoofdkleur) +
     facet_wrap(~facet, scales = "free", ncol = 4) +
     labs(
-      title = "WP2 - Effect per sloot tegen de beginwaarde (combinaties met p < 0,05 zonder correctie)",
-      subtitle = "Punt = sloot. y = verschil in verandering tussen de twee vakken; x = gemiddelde beginwaarde van beide vakken (eenheid per paneel).",
+      title = "WP2 - Effect per sloot tegen de beginwaarde (combinaties met p < 0,05 zonder BH-correctie)",
+      subtitle = paste0(
+        "Punt = sloot. y = verschil in verandering tussen de twee vakken; x = gemiddelde beginwaarde van beide vakken (eenheid per paneel).\n",
+        "Geselecteerd op p < 0,05 uit ruim 250 combinaties per vergelijking; een deel is door toeval te verwachten. ",
+        "Tussen haakjes: ρ voor de andere vergelijking."
+      ),
       x = "Beginwaarde", y = "Effect (verschil in verandering)", colour = "Gebied"
     ) +
     theme_wp2 +
@@ -363,4 +377,5 @@ if (nrow(sterkste) > 0) {
 sla_tabel_op(resultaten_effect_begin, "tabel_effect_beginwaarde")
 sla_tabel_op(resultaten_effect_begin_vak, "tabel_effect_beginwaarde_vak")
 sla_tabel_op(select(effect_sloot, -vakken), "tabel_effect_per_sloot")
+sla_tabel_op(effect_begin, "tabel_effect_beginwaarde_per_sloot")
 sla_tabel_op(begin_vars, "tabel_effect_beginwaarde_variabelen")
