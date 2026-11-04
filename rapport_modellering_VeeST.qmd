@@ -185,10 +185,10 @@ Berekend als molverhouding.
 
 - Drooglegging oever en perceel: het hoogste punt op de oever respectievelijk het hoogste punt van het profiel (maaiveld) minus het gemeten waterpeil op de meetdag. De drooglegging is daarmee een momentopname tijdens het veldbezoek in het groeiseizoen en geeft geen informatie over het verschil tussen zomer- en winterpeil.
 - Zomerdrooglegging: maaiveld minus zomerpeil (NOBV)
-- Taludhoek boven water rond de waterlijn: tan⁻¹(hoogteverschil oever en waterlijn / horizontale afstand), waarbij van alle oeverpunten die minder dan 35 cm boven de waterlijn liggen het punt wordt genomen dat het verst van de waterlijn af ligt, met de insteek als maximale grens.
-- Taludhoek onder water rond de waterlijn: tan⁻¹(hoogteverschil bovenkant slib op 35 cm verticale afstand onder de waterlijn en waterlijn / horizontale afstand).
-- Taludhoek boven water : tan⁻¹(hoogteverschil oever op 3 meter horizontale afstand van de waterlijn en waterlijn / horizontale afstand). Als de oever minder breed is dan 3 meter dan wordt het oeverpunt dat het verst van de waterlijn ligt genomen, met de insteek als maximale grens.
-- Taludhoek onder water: tan⁻¹(hoogteverschil bovenkant slib op 1 meter horizontale afstand van de waterlijn en waterlijn / horizontale afstand). 
+- Taludhoek boven water rond de waterlijn (`tldk_oevrwtr_perc`): tan⁻¹(hoogteverschil oever en waterlijn / horizontale afstand), waarbij van alle oeverpunten die minder dan 35 cm boven de waterlijn liggen het punt wordt genomen dat het verst van de waterlijn af ligt, met de insteek als maximale grens.
+- Taludhoek onder water rond de waterlijn (`tldk_wtrwtr_perc`): tan⁻¹(hoogteverschil bovenkant slib op 35 cm verticale afstand onder de waterlijn en waterlijn / horizontale afstand).
+- Taludhoek boven water (`tldk_bvwtr_perc`): tan⁻¹(hoogteverschil oever op 3 meter horizontale afstand van de waterlijn en waterlijn / horizontale afstand). Als de oever minder breed is dan 3 meter dan wordt het oeverpunt dat het verst van de waterlijn ligt genomen, met de insteek als maximale grens.
+- Taludhoek onder water (`tldk_ondwtr_perc`): tan⁻¹(hoogteverschil bovenkant slib op 1 meter horizontale afstand van de waterlijn en waterlijn / horizontale afstand). 
 - Breedte oeverzone: breedte van de zone van insteek tot waterlijn.
 
 #### Proxies voor draagkracht van de oever en het perceel
@@ -520,6 +520,43 @@ ggplot(rows_plot, aes(x = bron, y = mediaan, color = bron)) +
   )
 ```
 
+```{r}
+#| label: drooglegging-gepaard
+# Drooglegging veld vs. NOBV op dezelfde locatie (selectie, één rij per locatie).
+# drglg = oeverkruin (max_hgt_or) - gemeten peil; drglg_2 = hoogste punt profiel
+# (perceel) - gemeten peil. NOBV-zomerdrooglegging = maaiveld - zomerpeil, zodat
+# verschil drooglegging = verschil maaiveld - verschil peil.
+nl_m <- function(x, d = 2) sub("-", "−", formatC(round(x, d), format = "f", digits = d, decimal.mark = ","), fixed = TRUE)
+med_bron <- function(var, b) rows_plot[variabele == var & bron == b, mediaan]
+dg_num <- c("drglg", "drglg_2", "wl", "Zomerpeil_m_NAP", "Maaiveld_niveau_m_NAP")
+dg <- as.data.table(abio_proj)[MeenemenDataAnalyse_totaal == "ja"]
+dg[, (dg_num) := lapply(.SD, \(x) suppressWarnings(as.numeric(x))), .SDcols = dg_num]
+dg <- dg[is.finite(drglg) & is.finite(drglg_2) & is.finite(wl) & is.finite(Zomerpeil_m_NAP) & is.finite(Maaiveld_niveau_m_NAP)]
+dg[, `:=`(
+  nobv    = Maaiveld_niveau_m_NAP - Zomerpeil_m_NAP,
+  d_drg   = drglg - (Maaiveld_niveau_m_NAP - Zomerpeil_m_NAP),   # + = veld groter
+  d_drg2  = drglg_2 - (Maaiveld_niveau_m_NAP - Zomerpeil_m_NAP),
+  d_peil  = wl - Zomerpeil_m_NAP,                                 # + = gemeten peil hoger
+  d_mv    = wl + drglg - Maaiveld_niveau_m_NAP                    # + = oeverkruin hoger
+)]
+# Per gebied (gemiddelden, zodat verschil drooglegging = maaiveld - peil)
+dg_gebied <- dg[, .(n = .N, d_drg = mean(d_drg), d_peil = mean(d_peil), d_mv = mean(d_mv)), by = Gebiedsnaam]
+gebieden_tekst <- function(d, kol) {
+  d <- d[order(-abs(get(kol)))]
+  paste0(d$Gebiedsnaam, " (", ifelse(d[[kol]] > 0, "+", "−"), nl_m(abs(d[[kol]])), " m)", collapse = ", ")
+}
+peil_hoger <- dg_gebied[d_drg <= -0.15 & d_peil >= 0.10]
+mv_lager   <- dg_gebied[d_drg <= -0.15 & d_peil < 0.10]
+peil_lager <- dg_gebied[d_drg >= 0.15 & d_peil <= -0.15]
+mv_hoger   <- dg_gebied[d_drg >= 0.15 & d_peil > -0.15]
+# NOBV-zomerpeil op of boven het NOBV-maaiveld: in een bemalen polder niet
+# mogelijk (ontbrekende onderbemaling of verkeerd peilvak)
+nobv_onwaarschijnlijk <- dg[nobv < 0.05]
+# Afwijking t.o.v. de GIS-clustermediaan (fig-cluster-afwijking), per gebied
+afw_drg <- as.data.table(readRDS(paste0(rds_dir, "cluster_afwijking_long.rds")))[
+  variabele == "Drooglegging GIS (m)", .(bias = mean(afwijking, na.rm = TRUE)), by = gebied][order(bias)]
+```
+
 Voor de meeste variabelen (waterbreedte, klei, OS, maaiveld, zomerpeil) verschilt het schaalbereik van de GIS-laag en de veldmeting. Opvallende systematische verschillen:
 
 **Organisch stofgehalte (OS)** is in de VeeST-veldmetingen structureel hoger dan in de GIS-laag: mediaan VeeST 36% vs. GIS 21% (een verschil van +15 procentpunt). Dit is te verwachten: de GIS-laag (obv NMI bodemSchat5) is een bredere representatie van alle bodemtypen, ook bodems met een laag OS gehalte. Het ruimtelijk model waarmee deze kaart is gemaakt is getraind op een dataset die niet specifiek is geselecteerd op veenweidelocaties, waardoor hoge OS-waarden worden onderschat in het model. Daarnaast vlakt BodemSchat als ruimtelijk model extreme waarden af: hoge OS-waarden op een specifieke locatie worden uitgemiddeld met de omgeving.
@@ -528,13 +565,13 @@ Voor de meeste variabelen (waterbreedte, klei, OS, maaiveld, zomerpeil) verschil
 
 **Drooglegging** toont in VeeST een systematisch verschil tussen de drie bronnen:
 
-- GIS-clusteranalyse (drlg): mediaan ~0.49 m, gebaseerd op AHN3 maaiveld minus jaarrondstreefpeil uit NHI.
-- Zomerdrooglegging NOBV: mediaan ~0.47 m, gebaseerd op maaiveld minus zomerpeil.
-- VeeST veldmeting (drglg): mediaan ~0.33 m, berekend als gemeten maaiveld minus gemeten waterpeil tijdens het veldbezoek.
+- GIS-clusteranalyse (drlg): mediaan `r nl_m(med_bron("Drooglegging (m)", "GIS-laag (clusteranalyse)"))` m, gebaseerd op AHN3 maaiveld minus jaarrondstreefpeil uit NHI.
+- Zomerdrooglegging NOBV: mediaan `r nl_m(med_bron("Drooglegging (m)", "GIS-laag (NOBV)"))` m, gebaseerd op maaiveld minus zomerpeil.
+- VeeST veldmeting (drglg): mediaan `r nl_m(med_bron("Drooglegging (m)", "Velddata VeeST"))` m, berekend als het hoogste punt op de oever (oeverkruin) minus het gemeten waterpeil tijdens het veldbezoek.
 
 Het verschil tussen de GIS-clusteranalyse en de Zomerdrooglegging NOBV (~0.02 m) is klein en te verklaren doordat beide methoden vergelijkbare peilen gebruiken; het verschil dat resteert is vooral het gevolg van het gebruik van een jaarrondpeil (GIS-cluster) versus een zomerpeil (NOBV). Een zomerpeil is doorgaans hoger dan het jaargemiddelde, waardoor de zomerdrooglegging iets kleiner uitvalt dan de GIS-clusterdrooglegging.
 
-Het verschil tussen de NOBV zomerdrooglegging (~0.47 m) en de VeeST veldmeting (~0.33 m) bedraagt ~0.14 m. Dit verschil is volledig te herleiden tot de twee onderdelen van de drooglegging (maaiveld minus peil). Het maaiveld ligt in de GIS-laag gemiddeld 0.34 m hoger dan in de veldmeting, en het peil 0.20 m hoger. Het verschil in drooglegging is dan 0.34 − 0.20 = 0.14 m: precies het gevonden verschil. De veldmeting is daarmee intern consistent.
+In @fig-cluster-bereik lopen twee dingen door elkaar. De GIS-verdelingen beschrijven alle veenweidelocaties in de NOBV-laag, de veldverdeling alleen de VeeST-locaties. Dat het maaiveld in de veldmeting mediaan `r nl_m(med_bron("Maaiveld (m NAP)", "GIS-laag (NOBV)") - med_bron("Maaiveld (m NAP)", "Velddata VeeST"))` m en het peil `r nl_m(med_bron("Zomerpeil (m NAP)", "GIS-laag (NOBV)") - med_bron("Zomerpeil (m NAP)", "Velddata VeeST"))` m lager ligt dan in de GIS-laag, zegt daarom vooral iets over welke locaties zijn bemeten (de VeeST-locaties liggen gemiddeld in lagere polders), en weinig over de nauwkeurigheid van de GIS-laag. Een zuivere vergelijking is die op dezelfde locatie (`r nrow(dg)` locaties met veld- en NOBV-gegevens). Daar is de NOBV-zomerdrooglegging mediaan `r nl_m(median(dg$nobv))` m en de gemeten drooglegging `r nl_m(median(dg$drglg))` m (verschil per locatie mediaan `r nl_m(median(dg$d_drg))` m). Dat verschil komt vooral door het maaiveld en niet door het peil. De gemeten drooglegging loopt tot de oeverkruin, en die ligt mediaan `r nl_m(abs(median(dg$d_mv)))` m lager dan het NOBV-maaiveld (bij `r round(100 * mean(dg$d_mv < 0))` % van de locaties lager). Gemeten tot het hoogste punt van het profiel (het perceel) is de drooglegging mediaan `r nl_m(median(dg$drglg_2))` m, vrijwel gelijk aan het NOBV (verschil `r nl_m(median(dg$d_drg2))` m). Het gemeten peil ligt mediaan `r nl_m(abs(median(dg$d_peil)))` m `r if (median(dg$d_peil) < 0) "onder" else "boven"` het NOBV-zomerpeil en ligt bij `r round(100 * mean(dg$d_peil > 0))` % van de locaties hoger. Het verschil in peil spreidt wel sterker dan dat in maaiveld (standaardafwijking `r nl_m(sd(dg$d_peil))` tegen `r nl_m(sd(dg$d_mv))` m), en bepaalt daardoor de grootste afwijkingen per gebied (zie hieronder).
 
 De spreiding (P10–P90) in de VeeST-veldmeting van drooglegging (0.32 m) is opvallend veel kleiner dan de spreiding in maaiveld (~1.86 m) en zomerpeil (~1.77 m) afzonderlijk. Dit is wiskundig te verwachten: maaiveld en waterpeil covariëren sterk (r = 0.98 in VeeST). Binnen individuele peilgebieden volgt het peil het maaiveld grotendeels, waardoor hun verschil (de drooglegging) weinig varieert. De variatie die wel bestaat in maaiveld en peil is grotendeels gedeelde regionale variatie die wegvalt bij aftrekking. De NOBV-zomerdrooglegging heeft een grotere spreiding (0.68 m) dan de VeeST-meting (0.32 m), omdat de NOBV-dataset een groter geografisch bereik dekt en de correlatie tussen maaiveld en peil iets lager is in deze NOBV-dataset (r = 0.95) dan de dataset van VeeST (r = 0.98). Dit kleine correlatieverschil leidt tot een substantieel grotere spreiding in het verschil; In de VeeST-dataset bewegen waterpeil en maaiveld perfect met elkaar mee, terwijl in de NOBV-dataset het waterpeil het maaiveld iets minder goed volgt, waardoor er meer spreiding in het verschil (drooglegging) ontstaat. In de NOBV-dataset kan het maaiveld binnen één peilvak behoorlijk variëren, terwijl het op papier vastgestelde peil gelijk is in ruimte en tijd en niet gelijk hoeft te zijn aan het werkelijke gemiddelde peil.
 
@@ -579,7 +616,7 @@ if (file.exists(cluster_afwijking_rds)) {
 
 De afwijkingen per gebied zijn niet gelijkmatig verdeeld over de clusters: sommige gebieden wijken systematisch af voor drooglegging (negatieve bias: veldmeting lager dan GIS), wat wijst op (lokale) peilafwijkingen of peilwijzigingen die niet in de GIS-laag met peilvakken staan.
 
-De drooglegging-bias is voor de meeste gebieden negatief: de VeeST-veldmeting geeft een kleinere drooglegging dan de GIS-clusterwaarde. De sterkste negatieve bias zit bij Idzegea (IG, −0.42 m), gevolgd door Hegewarren (HW, −0.41 m) en Blesdijke (BD, −0.27 m). In Hegewarren en Stein Noord is de oorzaak dat de gemeten waterpeilen hoger zijn dan het mediane zomerpeil van het veenslootype (waterpeilen zijn hier recent verhoogd en deze verhoging staat nog niet geregistreerd in de gebruikte ruimtelijke bestanden van het NOBV). Ook in veel andere gebieden is het gemeten peil hoger dan de mediane peilwaarde van het GIS-cluster; in de meeste gevallen is de afwijking echter klein (−0.05 tot −0.15 m) en hangt dit samen met de variatie in het waterpeil binnen het GIS-cluster (deze variatie is niet te zien in bovenstaand figuur). Het maaiveld is in de meeste gebieden juist lager dan het GIS-clustermediaan. De combinatie van een hoger peil en een lager maaiveld leidt tot een grotere negatieve bias in de drooglegging.
+De drooglegging-bias ten opzichte van de clustermediaan is voor de meeste gebieden negatief: de VeeST-veldmeting geeft een kleinere drooglegging dan de GIS-clusterwaarde. De sterkste negatieve bias zit bij `r paste0(afw_drg$gebied[1:3], " (", nl_m(afw_drg$bias[1:3]), " m)", collapse = ", ")`. Die bias zegt nog niet of het peil of het maaiveld afwijkt, omdat de clustermediaan een typische sloot uit dat cluster beschrijft en niet de locatie zelf. Dat blijkt uit de vergelijking met het NOBV op dezelfde locatie (gemiddeld per gebied). `r if (nrow(peil_hoger) > 0) paste0("Een hoger gemeten peil dan het NOBV-zomerpeil verklaart de kleinere drooglegging in ", gebieden_tekst(peil_hoger, "d_peil"), "; van een deel van deze gebieden is bekend dat het peil recent is verhoogd en dat die verhoging nog niet in de ruimtelijke bestanden van het NOBV staat.") else ""` `r if (nrow(mv_lager) > 0) paste0("In de andere gebieden met een duidelijk kleinere drooglegging (", paste(mv_lager[order(d_drg)]$Gebiedsnaam, collapse = ", "), ") ligt het gemeten peil binnen 0,10 m van het NOBV-zomerpeil en komt het verschil vooral door de lager liggende oeverkruin.") else ""` `r if (nrow(peil_lager) > 0) paste0("Omgekeerd is de gemeten drooglegging groter dan volgens het NOBV in ", paste(peil_lager[order(-d_drg)]$Gebiedsnaam, collapse = ", "), ", omdat het gemeten peil daar lager ligt dan het NOBV-zomerpeil (", gebieden_tekst(peil_lager, "d_peil"), "; zie @fig-peil-vergelijk).") else ""` `r if (nrow(mv_hoger) > 0) paste0("In ", paste(mv_hoger$Gebiedsnaam, collapse = ", "), " is de drooglegging groter door een hoger liggende oeverkruin.") else ""` Bij `r nrow(nobv_onwaarschijnlijk)` locaties (`r paste(unique(nobv_onwaarschijnlijk$Gebiedsnaam), collapse = ", ")`) ligt het NOBV-zomerpeil op of boven het NOBV-maaiveld (zomerdrooglegging kleiner dan 5 cm). In een bemalen polder kan dat niet: daar ontbreekt een onderbemaling in de NOBV-laag of is de locatie aan het verkeerde peilvak gekoppeld. Op die locaties klopt het NOBV-peil niet en is het gemeten peil de betere maat; het verschil in drooglegging ten opzichte van het NOBV zegt daar vooral iets over de NOBV-laag. Zo ligt het NOBV-zomerpeil bij twee van de vier locaties in Blesdijke op +0,10 m NAP, 0,47 m boven het maaiveld. GPS-metingen van het slootpeil bij deze locaties (op 55–140 m afstand) gaven −0,59 en −0,62 m NAP in juli 2024 en −0,67 en −0,84 m NAP in oktober 2025, in lijn met het in juni 2025 gemeten peil (−0,66 tot −0,83 m NAP). Het verschil in Blesdijke komt dus door het NOBV-peil en niet door het gemeten peil.
 
 Het maaiveld verschilt sterk in Aarlanderveen (AR), Assendelft (AD) en Akkerdijkse polder (DP): het gemeten maaiveld aan de slootkant (~−3.2 tot −4.3 m NAP) ligt ~2 m lager dan de clustermediaan (~−1 tot −1.9 m NAP). Belangrijk hierbij is dat de clustermediaan de **mediane waarde van alle locaties in dat GIS-cluster** is, verspreid over het hele veenweidegebied (er zit dus ook spreiding in de GIS-data zelf). De grote afwijking voor AD en AR betekent niet per se dat de GIS-laag fout is, maar dat deze locaties aan de onderkant van de spreiding van hun cluster vallen: ze liggen in diepere polders of onderbemalingen. Zowel maaiveld als peil zijn ~2 m lager dan de clustermediaan, waardoor de twee afwijkingen elkaar grotendeels compenseren en de drooglegging-bias klein blijft (−0.03 tot −0.16 m). 
 
@@ -1073,6 +1110,40 @@ Dat P-AL slib bij alle drie waterplant-doelvariabelen als belangrijkste, negatie
 **Waterdiepte** speelt een verbindende rol tussen meerdere doelvariabelen: een grotere maximale waterdiepte hangt samen met minder slib (belangrijkste voorspeller van slibdikte), een hogere redox van het slib en een gunstiger soortensamenstelling helofyten. Bij de helofyten zijn drooglegging (negatief) en de draagkracht van het perceel (positief) wel belangrijker dan de waterdiepte. Bij P-AL slib en de bedekking ondergedoken planten komt waterdiepte niet in de top-10 voor. Ook de breedte van de oevervegetatiezone is groter bij grotere waterdiepte, wat kan wijzen op een bredere overgangszone bij minder steile, diepere profielen (*PM verwijzen naar correlatieplot/ tabel*).
 
 De verhouding **doorzicht/waterdiepte** (een maat voor de helderheid van de waterkolom) is bij de soortensamenstelling hydrofyten de op één na belangrijkste voorspeller: een hogere ratio (relatief helderder water) gaat samen met een betere soortensamenstelling, wat past bij het directe belang van licht voor ondergedoken waterplanten. Ook bij het aantal waterplantensoorten (zevende plaats) en de bedekking ondergedoken planten (vijfde plaats) is het verband positief, met een lager belang. Bij de oeverindex komt doorzicht/waterdiepte niet in de top-10 voor; een trade-off tussen heldere, plantrijke waterkolommen en soortenrijke oevervegetatie wordt daarmee niet ondersteund.
+
+### Belang per groep samenhangende voorspellers
+
+```{r}
+#| label: perm-groep-cijfers
+# Permutation importance per groep (Analyses_dev_db.R): alle voorspellers van
+# een groep samen geschud; ter vergelijking de som van de losse waarden.
+pg_bestand <- paste0(rds_dir, "all_perm_group_importance.rds")
+pg <- if (file.exists(pg_bestand)) as.data.table(readRDS(pg_bestand)) else data.table()
+if (nrow(pg) > 0) {
+  # Aantal oeversoorten valt af, net als in de VIP-figuur (model niet robuust)
+  pg <- pg[target_var != "n_soorten_oev_zone2"]
+  pg[, doel := fifelse(is.na(rf_target_names_dutch[target_var]), target_var, rf_target_names_dutch[target_var])]
+  pg[, groep_kort := sub(" \\(.*$", "", groep)]
+  pg_n <- nrow(pg)
+  pg_groter <- pg[delta_r2 > som_los_delta_r2 + 0.02, .N]
+}
+pct1 <- function(x) formatC(100 * x, format = "f", digits = 1, decimal.mark = ",")
+```
+
+Permutation importance meet het belang van één voorspeller tegelijk. Hangen voorspellers samen, dan haalt het model bij het schudden van één ervan de informatie uit de andere. Zo verliest het model weinig als alleen organische stof wordt geschud, omdat CEC en klei een deel van die informatie ook bevatten. De losse waarden in @fig-vip-xgb onderschatten dan het belang van zo'n groep. Daarom is het belang ook per groep berekend: alle voorspellers van een groep worden tegelijk geschud, met dezelfde volgorde, op dezelfde validatieset en met dezelfde vijf herhalingen (@tbl-perm-groep). De groepen bestaan uit voorspellers die onderling met |ρ| ≥ 0,5 samenhangen (Spearman, WP1 en WP2): bodemsamenstelling van de oever (organische stof, CEC en klei), diepte (maximale waterdiepte en taludhoek onder de waterlijn), fosfor en ijzer in de waterbodem (P-AL slib en Fe/P in het poriewater), baggeren (frequentie en moment), oeverstabiliteit (onderholling en afscheurende oever) en oevervorm (taludhoek van de oever en oeverbreedte). `r if (nrow(pg) > 0) paste0("Bij ", pg_groter, " van de ", pg_n, " combinaties van doelvariabele en groep is het groepsbelang meer dan 2 procentpunt groter dan de som van de losse waarden; daar delen de voorspellers informatie en is de groep belangrijker dan de losse balken in @fig-vip-xgb suggereren.") else ""` De validatieset is klein (ongeveer een vijfde van de sloten), dus ook deze waarden zijn indicatief. [TODO: duiden.]
+
+```{r}
+#| label: tbl-perm-groep
+#| tbl-cap: "Permutation importance per groep samenhangende voorspellers (XGBoost, validatieset): daling van R² in procentpunten als alle voorspellers van de groep samen worden geschud. Tussen haakjes de som van de losse dalingen (zoals in de VIP-figuur). Een groepswaarde die duidelijk groter is dan de som wijst op gedeelde informatie tussen de voorspellers."
+if (nrow(pg) > 0) {
+  pg[, cel := paste0(pct1(delta_r2), " (", pct1(som_los_delta_r2), ")")]
+  w <- dcast(pg, doel ~ groep_kort, value.var = "cel", fill = "–")
+  setnames(w, "doel", "Doelvariabele")
+  knitr::kable(w, align = c("l", rep("r", ncol(w) - 1)))
+} else {
+  cat("De groepsresultaten ontbreken; draai eerst Analyses_dev_db.R.")
+}
+```
 
 ## ALE-kantelpunten van de meest betrouwbare modellen
 
@@ -1830,7 +1901,7 @@ if (is.null(huidig) || nrow(afwijkingen) > 0) {
 
 Voor de **erosieindex** wordt de verklaarde deviantie (`r dev_full("erosieindex")`%) grotendeels gedragen door de ruimtelijke term (edf ≈ `r edf_full(ero, ruimte)`, `r p_full(ero, ruimte)`). Geen van de zes beheervariabelen is significant op 5%-niveau. Baggermoment (`r p_full(ero, bagm)`) en de maaifrequentie van de bemestingsvrije zone (`r p_full(ero, maai_bvz)`) zijn grensgevallen. Methode van mesttoediening (`r p_full(ero, mest)`), koebelasting door drinkende koeien (`r p_full(ero, koe)`) en de overige beheertermen worden door `select = TRUE` grotendeels weggepenaliseerd (p > 0,15). Erosie hangt in deze dataset dus vooral samen met locatie/gebied.
 
-Voor de **vernattingsrisico-index** hebben drie beheervariabelen een aantoonbaar effect: koebelasting door drinkende koeien (`r p_full(ver, koe)`), methode van mesttoediening (`r p_full(ver, mest)`) en baggermoment (`r p_full(ver, bagm)`). Opvallend is de richting van het koebelastingseffect: een hogere koebelasting gaat samen met een *lager* vernattingsrisico. Dit effect wordt vooral bepaald door de circa 10% waarnemingen met de hoogste koebelasting (meer dan circa 0,75 koeien per 100 m oever, waaronder Mijnden 2024). Een mogelijke verklaring is dat vertrapping de oever vlakker maakt (een steil talud is een van de componenten van de index), maar dat is met deze data niet te toetsen. De ruimtelijke term is ook hier significant (edf ≈ `r edf_full(ver, ruimte)`, `r p_full(ver, ruimte)`): voor vernattingsrisico spelen zowel beheer als locatie een rol.
+Voor de **vernattingsrisico-index** zijn er aanwijzingen voor een effect van beheer: koebelasting door drinkende koeien (`r p_full(ver, koe)`) en baggermoment (`r p_full(ver, bagm)`), met de methode van mesttoediening (`r p_full(ver, mest)`) als grensgeval. Deze p-waarden zijn niet gecorrigeerd voor meervoudig toetsen (zie hieronder). Opvallend is de richting van het koebelastingseffect: een hogere koebelasting gaat samen met een *lager* vernattingsrisico. Dit effect wordt vooral bepaald door de circa 10% waarnemingen met de hoogste koebelasting (meer dan circa 0,75 koeien per 100 m oever, waaronder Mijnden 2024). Een mogelijke verklaring is dat vertrapping de oever vlakker maakt (een steil talud is een van de componenten van de index), maar dat is met deze data niet te toetsen. De ruimtelijke term is ook hier significant (edf ≈ `r edf_full(ver, ruimte)`, `r p_full(ver, ruimte)`): voor vernattingsrisico spelen zowel beheer als locatie een rol.
 
 Deze resultaten zijn gebaseerd op een beperkt aantal complete waarnemingen (n = `r n_beheer`, na uitval door ontbrekende beheerdata) en de gerapporteerde p-waarden zijn niet gecorrigeerd voor de twaalf uitgevoerde smooth-term-toetsen (zes voorspellers × twee doelvariabelen); de bevindingen moeten dan ook als indicatief worden gelezen, niet als bevestigd bewijs van causale sturing door beheer. Daarnaast liggen sloten met bepaald beheer geclusterd in de ruimte, waardoor het ruimtelijke oppervlak een variabele als bagger- of maaifrequentie zou kunnen verklaren.
 

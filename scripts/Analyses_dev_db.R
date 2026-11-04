@@ -1576,8 +1576,59 @@ calculate_permutation_importance <- function(model, X_val, y_val, n_rep = 5) {
   results[order(-delta_rmse)]
 }
 
+## Permutation importance per groep samenhangende voorspellers ----------------
+# Bij gecorreleerde voorspellers onderschat de losse permutation importance het
+# belang: schud je er één, dan haalt het model de informatie uit de andere.
+# Daarom ook per groep: alle kolommen van een groep worden samen geschud (met
+# dezelfde rijvolgorde, zodat de samenhang binnen de groep blijft). Groepen op
+# basis van |Spearman rho| >= 0,5 tussen de voorspellers (WP1 + WP2).
+predictor_groepen <- list(
+  "Bodemsamenstelling oever (organische stof, CEC, klei)" = c("OS_perc_OR_25", "CEC_CO_mmol+/kg_OR_25", "Z_CLAY_SA_OR_25"),
+  "Diepte (waterdiepte, taludhoek onder water)"           = c("max_wtd", "tldk_wtrwtr_perc"),
+  "Fosfor/ijzer waterbodem (P-AL slib, Fe/P poriewater)"  = c("P-AL mg p2o5/100g_SB", "feP_PW"),
+  "Baggeren (frequentie, moment)"                          = c("Baggerfrequentie_per_jaar", "Baggermoment_maand"),
+  "Oeverstabiliteit (onderholling, afscheurende oever)"   = c("holleoever", "afscheur_opp"),
+  "Oevervorm (taludhoek oever, oeverbreedte)"             = c("tldk_oevrwtr_perc", "oevbte")
+)
+
+#' Permutation importance per groep voorspellers
+#'
+#' @param model Getraind xgboost-model.
+#' @param X_val Matrix met de voorspellers van de validatieset.
+#' @param y_val Waargenomen waarden van de validatieset.
+#' @param groepen Benoemde lijst met per groep de kolomnamen.
+#' @param n_rep Aantal herhalingen van de permutatie.
+#' @return data.table per groep met de gebruikte kolommen, delta_rmse en delta_r2.
+#'   Groepen met minder dan twee kolommen in X_val vallen af. De toestand van
+#'   de toevalsgenerator wordt na afloop hersteld, zodat de rest van het script
+#'   niet verandert.
+calculate_group_permutation_importance <- function(model, X_val, y_val, groepen, n_rep = 5) {
+  oude_seed <- if (exists(".Random.seed", envir = globalenv())) get(".Random.seed", envir = globalenv()) else NULL
+  on.exit(if (!is.null(oude_seed)) assign(".Random.seed", oude_seed, envir = globalenv()), add = TRUE)
+  set.seed(2026)
+  baseline_pred <- predict(model, X_val)
+  baseline_rmse <- sqrt(mean((y_val - baseline_pred)^2))
+  baseline_r2   <- cor(y_val, baseline_pred)^2
+  rbindlist(lapply(names(groepen), function(g) {
+    kol <- intersect(groepen[[g]], colnames(X_val))
+    if (length(kol) < 2) return(NULL)
+    reps <- vapply(seq_len(n_rep), function(r) {
+      X_perm <- X_val
+      X_perm[, kol] <- X_perm[sample(nrow(X_perm)), kol, drop = FALSE]
+      pred_perm <- predict(model, X_perm)
+      c(sqrt(mean((y_val - pred_perm)^2)), tryCatch(cor(y_val, pred_perm)^2, error = function(e) NA_real_))
+    }, numeric(2))
+    data.table(
+      groep = g, kolommen = paste(kol, collapse = ", "), n_kolommen = length(kol),
+      delta_rmse = mean(reps[1, ], na.rm = TRUE) - baseline_rmse,
+      delta_r2   = baseline_r2 - mean(reps[2, ], na.rm = TRUE)
+    )
+  }))
+}
+
 # Loop over alle getrainde modellen
 perm_importance_all <- list()
+perm_group_importance_all <- list()
 
 for (target in names(xgb_models)) {
   if (!target %in% colnames(abio_proj)) next
@@ -1615,9 +1666,19 @@ for (target in names(xgb_models)) {
   pi_dt[, target_var := target]
 
   perm_importance_all[[target]] <- pi_dt
+
+  # per groep, met ter vergelijking de som van de losse waarden
+  gp_dt <- calculate_group_permutation_importance(xgb_models[[target]], X_val, y_val, predictor_groepen)
+  if (nrow(gp_dt) > 0) {
+    gp_dt[, som_los_delta_r2 := vapply(strsplit(kolommen, ", "), function(k) sum(pi_dt[Feature %in% k, delta_r2]), numeric(1))]
+    gp_dt[, target_var := target]
+    perm_group_importance_all[[target]] <- gp_dt
+  }
 }
 
 all_perm_importance <- rbindlist(perm_importance_all)
+all_perm_group_importance <- rbindlist(perm_group_importance_all)
+print(all_perm_group_importance[, .(target_var, groep, delta_r2, som_los_delta_r2)])
 # Combine and visualize feature importance
 all_importance <- rbindlist(feature_importance_all)
 # Add Dutch target names and performance metrics to importance data
@@ -4970,6 +5031,7 @@ saveRDS(performance_summary,paste0(rds_dir, "performance_summary.rds"))
 saveRDS(all_rf_importance,  paste0(rds_dir, "all_rf_importance.rds"))
 saveRDS(all_importance,     paste0(rds_dir, "all_importance.rds"))
 saveRDS(all_xgb_importance, paste0(rds_dir, "all_xgb_importance.rds"))
+saveRDS(all_perm_group_importance, paste0(rds_dir, "all_perm_group_importance.rds"))
 saveRDS(plot_vip_compare,   paste0(rds_dir, "plot_vip_compare.rds"))
 saveRDS(rf_target_names_dutch, paste0(rds_dir, "rf_target_names_dutch.rds"))
 saveRDS(rf_rmse_units,      paste0(rds_dir, "rf_rmse_units.rds"))
