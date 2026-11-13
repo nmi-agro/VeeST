@@ -8,9 +8,11 @@
 # benodigde dataframes abio_proj, penmerge en melt al in de environment staan.
 # Het rapport zelf source't dit script niet: het leest alleen de acht .rds-bestanden
 # hieronder in vanuit rds_dir.
-# Output: acht ggplot-objecten (p_bodemtype_classificatie,
+# Output: dertien ggplot-objecten (p_bodemtype_classificatie,
 # p_bodemfractie_gebied, p_ir_egv, p_draagkracht_diepte_veentype,
 # p_doorzicht_waterdiepte_slib, p_redox_slib_water, p_ammonium_toxiciteit,
+# p_ammonium_toxiciteit_regio, p_pal_slib_gebied, p_pal_slib_regio, p_pal_oever_slib,
+# p_pal_ammonium_regio,
 # p_p_nalevering_gebied), telkens direct opgeslagen als .rds in rds_dir.
 
 library(data.table)
@@ -193,8 +195,17 @@ p_draagkracht_diepte_veentype
 saveRDS(p_draagkracht_diepte_veentype, paste0(rds_dir, "p_draagkracht_diepte_veentype.rds"))
 
 ## 3. Basis voor bodemtype classificatie sloot + fractiebalk per gebied ------
+# Organische stof voor de bodemindeling wordt hier opnieuw uit TOC berekend
+# met factor 1,5 (advies lab voor veenrijke oevers) i.p.v. 1,72 (58% C in OS,
+# bedoeld voor minerale gronden), zoals in OS_perc_OR_25 (data_import_ppr.R).
+# Alleen voor deze indeling; OS_perc_OR_25 in abio_proj (en dus de modellen)
+# blijft ongewijzigd. Ontbreekt TOC, dan valt de berekening terug op OS_perc_OR_25.
+os_factor_bodemindeling <- 1.5
 bodem_long <- melt(
-  unique(abio_proj[, .(SlootID_kort, Gebiedsnaam, Z_CLAY_SA_OR_25, OS_perc_OR_25,
+  unique(abio_proj[, .(SlootID_kort, Gebiedsnaam, Z_CLAY_SA_OR_25,
+                        OS_perc_OR_25 = fifelse(!is.na(`TOC [%]_OR_25`),
+                                                os_factor_bodemindeling * `TOC [%]_OR_25`,
+                                                OS_perc_OR_25),
                         Z_SAND_SA_OR_25, Z_SILT_SA_OR_25)]),
   id.vars       = c("SlootID_kort", "Gebiedsnaam"),
   measure.vars  = c("Z_CLAY_SA_OR_25", "OS_perc_OR_25", "Z_SAND_SA_OR_25", "Z_SILT_SA_OR_25"
@@ -203,8 +214,8 @@ bodem_long <- melt(
   value.name    = "value"
 )
 bodem_long[, bodem_label := fcase(
-  bodem_var == "Z_CLAY_SA_OR_25", "Kleigehalte (%)",
-  bodem_var == "OS_perc_OR_25",   "Organisch stofgehalte (%)",
+  bodem_var == "Z_CLAY_SA_OR_25", "Kleigehalte (% van minerale delen)",
+  bodem_var == "OS_perc_OR_25",   "Organisch stofgehalte (%, 1,5 × TOC)",
   bodem_var == "Z_SAND_SA_OR_25", "Zandgehalte (%)",
   bodem_var == "Z_SILT_SA_OR_25", "Siltgehalte (%)"
 )]
@@ -215,7 +226,10 @@ bodem_wide <- dcast(
   value.var = "value",
   fun.aggregate = function(x) mean(x, na.rm = TRUE)
 )
-bodem_wide[, totaal := Z_CLAY_SA_OR_25 + OS_perc_OR_25 + Z_SAND_SA_OR_25 + Z_SILT_SA_OR_25]
+# Klei (en zand/silt) is gemeten als % van de minerale delen, OS als % van de
+# totale bodem; die twee kun je dus niet optellen tot een totaal. De
+# classificatie hieronder gebruikt klei van de minerale delen, net als de
+# Nederlandse bodemclassificatie (lutum in % van de minerale delen).
 bodem_wide <- bodem_wide[!is.na(OS_perc_OR_25) & !is.na(Z_CLAY_SA_OR_25),]
 bodem_wide[, bodemtype := fcase(
   Z_CLAY_SA_OR_25 <  17 & OS_perc_OR_25 >= 16, "Veen",
@@ -291,8 +305,8 @@ p_bodemtype_classificatie <- ggplot(bodem_wide_lbl,
   # plotrand vallen.
   scale_x_continuous(expand = expansion(mult = c(0.08, 0.05))) +
   labs(
-    x     = "Kleigehalte (%)",
-    y     = "Organisch stofgehalte (%)",
+    x     = "Kleigehalte (% van minerale delen)",
+    y     = "Organisch stofgehalte (% van totale bodem, 1,5 × TOC)",
     color = "Bodemtype",
     title = "Basis voor bodemtype classificatie per sloot"
   ) +
@@ -343,21 +357,32 @@ gebied_levels_fractie <- c(
   veen_order$Gebiedsnaam,
   setdiff(unique(bodem_fractie_gebied$Gebiedsnaam), veen_order$Gebiedsnaam)
 )
-bodem_fractie_gebied[, Gebiedsnaam := factor(Gebiedsnaam, levels = gebied_levels_fractie)]
+# Liggende balken (zoals ammonium/P-AL): eerste factorniveau komt onderaan, dus
+# de volgorde omdraaien zodat het gebied met het meeste veen bovenaan staat
+bodem_fractie_gebied[, Gebiedsnaam := factor(Gebiedsnaam, levels = rev(gebied_levels_fractie))]
 
 p_bodemfractie_gebied <- ggplot(bodem_fractie_gebied,
-       aes(x = Gebiedsnaam, y = fractie, fill = bodemfractie_klasse)) +
+       aes(y = Gebiedsnaam, x = fractie, fill = bodemfractie_klasse)) +
   geom_col(width = 0.8) +
-  scale_y_continuous(labels = scales::percent_format(), expand = c(0, 0)) +
+  scale_x_continuous(labels = scales::percent_format(), expand = c(0, 0)) +
   scale_fill_manual(values = bodemfractie_klasse_colors, name = "Bodemklasse") +
   labs(
-    x = "Gebiedsnaam",
-    y = "Fractie sloten",
-    title = "Bodemsamenstelling per gebied (klei / klei-in-veen / veen / zand / moerig / overig)",
-    caption = "Fractie sloten per gebied o.b.v. bodemtype-classificatie per sloot (gemiddelde klei%/OS% per sloot)."
+    y = "Gebied",
+    x = "Fractie sloten",
+    title = "Bodemsamenstelling per gebied",
+    caption = paste0("Fractie sloten per gebied o.b.v. bodemtype-classificatie per sloot
+",
+                     "(gemiddelde klei% van minerale delen en OS% = 1,5 × TOC per sloot).")
   ) +
   theme_figuur +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+        # onderschrift links uitlijnen over de hele figuurbreedte, zodat het
+        # niet buiten de figuur valt
+        plot.caption = element_text(hjust = 0, size = 11, lineheight = 1.1),
+        plot.caption.position = "plot",
+        legend.position = "bottom",
+        # extra ruimte rechts zodat het aslabel "100%" niet wordt afgesneden
+        plot.margin = margin(5.5, 25, 5.5, 5.5))
 
 p_bodemfractie_gebied
 saveRDS(p_bodemfractie_gebied, paste0(rds_dir, "p_bodemfractie_gebied.rds"))
@@ -420,7 +445,22 @@ p_ir_egv <- ggplot(
   scale_color_manual(values = gebied_kleuren, name = "Gebied") +
   scale_shape_manual(values = c(16, 17), name = "Compartiment",
                      labels = c("Oppervlaktewater", "Poriewater")) +
-  theme_minimal(base_size = 15)
+  # Legenda's onder het diagram, zodat het diagram de volle breedte krijgt
+  guides(
+    shape = guide_legend(order = 1, title.position = "top", nrow = 1,
+                         override.aes = list(size = 3.5)),
+    colour = guide_legend(order = 2, title.position = "top", ncol = 4,
+                          override.aes = list(size = 3, alpha = 1))
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.box.just = "left",
+    legend.text = element_text(size = 11),
+    legend.key.height = unit(0.45, "cm"),
+    legend.spacing.y = unit(0.1, "cm")
+  )
 
 p_ir_egv
 saveRDS(p_ir_egv, paste0(rds_dir, "p_ir_egv.rds"))
@@ -531,65 +571,259 @@ ggplot() +
 p_redox_slib_water
 saveRDS(p_redox_slib_water, paste0(rds_dir, "p_redox_slib_water.rds"))
 
-## 6. Ammoniumtoxiciteit per gebied -------------------------------------------
-ammonium <- data.frame(xmin = -Inf,
-                    xmax = Inf,
-                    ymin = c(0,100,400,750,5000),
-                    ymax = c(100,400,750,5000,Inf),
-                    fill = c("green","yellow", "orange","red","purple"),
-                    label = c("niet", "voor gevoelige soorten","voor veel soorten","voor bijna alle soorten","voor alle soorten"))
-
-legend_colors <- setNames(c("green","yellow", "orange","red","purple"), ammonium$label)
+## 6. Boxplots per gebied: ammonium (poriewater) en P-AL (slib) ---------------
+# Per variabele twee varianten: alle gebieden in één paneel (gesorteerd op
+# mediaan) en gesplitst naar regio (westelijk veenweidegebied vs. noordoosten,
+# bepaal_regio() uit functions_veest.R). De regio wordt hier aangevuld als de
+# kolom (nog) niet in abio_proj staat.
+if (!exists("bepaal_regio")) source("scripts/functions/functions_veest.R")
 setDT(abio_proj)
-ammonium_summary <- abio_proj[
-  !is.na(Gebiedsnaam) & !is.na(`NH4_µmol/l_PW`),
-  .(
-    mean_nh4 = median(`NH4_µmol/l_PW`, na.rm = TRUE),
-    sd_nh4   = sd(`NH4_µmol/l_PW`, na.rm = TRUE)
-  ),
-  by = Gebiedsnaam
-]
+if (!"regio" %in% names(abio_proj)) abio_proj[, regio := bepaal_regio(waterschap)]
 
-sort_order <- ammonium_summary[order(mean_nh4)]
-abio_proj[, Gebiedsnaam := factor(Gebiedsnaam, levels = unique(sort_order$Gebiedsnaam))]
+#' Boxplot van een variabele per gebied, optioneel gesplitst naar regio
+#'
+#' @param dt data.table met kolommen Gebiedsnaam, regio en `var`.
+#' @param var Naam van de te plotten kolom.
+#' @param x_lab Astitel van de waarde-as.
+#' @param titel Plottitel.
+#' @param regio_split TRUE = panelen per regio (westelijk veenweidegebied /
+#'   noordoosten), FALSE = alle gebieden in één paneel.
+#' @param banden Optioneel data.frame met xmin, xmax, fill en label voor
+#'   achtergrondklassen (bv. toxiciteitsklassen).
+#' @param banden_titel Legendatitel voor de achtergrondklassen.
+#' @param lijnen Optioneel data.frame met x, label, kleur en lijntype voor
+#'   verticale referentielijnen (bv. grenswaarden).
+#' @param log_x Logaritmische waarde-as (TRUE/FALSE).
+#' @param x_breaks,x_labels Breaks en labels van de waarde-as.
+#' @param volgorde Optionele vector met gebiedsnamen in de gewenste volgorde
+#'   (eerste = onderaan); gebieden die er niet in staan vallen weg. Standaard
+#'   gesorteerd op de mediaan van `var`.
+#' @param legend_pos Positie van de legenda ("right" of "bottom").
+#' @return ggplot-object.
+plot_box_gebied <- function(dt, var, x_lab, titel, regio_split = FALSE,
+                            banden = NULL, banden_titel = NULL, lijnen = NULL,
+                            log_x = FALSE, x_breaks = waiver(), x_labels = waiver(),
+                            volgorde = NULL, legend_pos = "right") {
+  d <- dt[!is.na(get(var)) & !is.na(Gebiedsnaam)]
+  d[, waarde := get(var)]
+  d[, Gebiedsnaam := as.character(Gebiedsnaam)]
+  if (is.null(volgorde)) {
+    volgorde <- d[, .(med = median(waarde)), by = Gebiedsnaam][order(med), Gebiedsnaam]
+  }
+  d <- d[Gebiedsnaam %in% volgorde]
+  d[, Gebiedsnaam := factor(Gebiedsnaam, levels = volgorde)]
+  onder <- identical(legend_pos, "bottom")
 
-ggplot() +
-  geom_rect(data = ammonium, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = fill),
-            inherit.aes = FALSE, alpha = 0.25) +
-  scale_fill_identity('Giftig:', breaks = legend_colors,
-                     labels = c("niet", "voor gevoelige soorten", "voor veel soorten",
-                               "voor bijna alle soorten", "voor alle soorten"),
-                     guide = guide_legend(override.aes = list(alpha = 0.15))) +
-  geom_boxplot(data = abio_proj[!is.na(`NH4_µmol/l_PW`),],
-               aes(x = Gebiedsnaam, y = `NH4_µmol/l_PW`),
-               outlier.shape = NA, width=0.6, fill="#1B9E77", alpha=0.7) +
-  coord_flip() +
-  scale_y_log10(
-    name = "Ammonium concentratie (µmol/l)",
-    breaks = c(1,10,100,250,500,1000,5000,10000),
-    labels = c(1,10,100,250,500,1000,5000,10000)
-  ) +
-  theme_minimal(base_size = 15) +
-  theme(
-    strip.background = element_blank(),
-    strip.text.y = element_text(size = 12),
-    axis.text.x = element_text(size = 14),
-    axis.text.y = element_text(size = 14),
-    axis.title = element_text(size = 14),
-    axis.ticks = element_line(colour = "black"),
-    axis.line = element_line(colour = 'black'),
-    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-    panel.background = element_blank(),
-    panel.border = element_rect(colour = 'black', fill = NA),
-    plot.background = element_blank(),
-    legend.position = "right",
-    legend.box.just = "center"
-  ) +
-  ggtitle('Ammonium concentratie per gebied') +
-  labs(x = 'Gebied', y = 'µmol/l') -> p_ammonium_toxiciteit
+  if (regio_split) {
+    d <- d[!is.na(regio)]
+    d[, regio := factor(as.character(regio), levels = levels(bepaal_regio(character(0))))]
+    d[, box_fill := kleuren_regio[as.character(regio)]]
+  } else {
+    d[, box_fill := "#1B9E77"]
+  }
+
+  p <- ggplot()
+  if (!is.null(banden)) {
+    p <- p +
+      geom_rect(data = banden, aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = fill),
+                inherit.aes = FALSE, alpha = 0.25)
+  }
+  # box_fill valt buiten de breaks: alleen de achtergrondklassen in de legenda
+  p <- p +
+    scale_fill_identity(
+      banden_titel,
+      breaks = if (is.null(banden)) NULL else banden$fill,
+      labels = if (is.null(banden)) NULL else banden$label,
+      guide = if (is.null(banden)) "none" else
+        guide_legend(override.aes = list(alpha = 0.15), order = 1,
+                     ncol = if (onder) 2 else 1, title.position = "top")
+    ) +
+    geom_boxplot(data = d, aes(y = Gebiedsnaam, x = waarde, fill = box_fill),
+                 outlier.shape = NA, width = 0.6, alpha = 0.8, colour = "grey20")
+
+  if (!is.null(lijnen)) {
+    p <- p +
+      geom_vline(data = lijnen, aes(xintercept = x, colour = label, linetype = label),
+                 linewidth = 0.9, key_glyph = "path") +
+      scale_colour_manual("Grenswaarden", values = setNames(lijnen$kleur, lijnen$label)) +
+      scale_linetype_manual("Grenswaarden", values = setNames(lijnen$lijntype, lijnen$label)) +
+      guides(colour = guide_legend(ncol = 1, title.position = "top"),
+             linetype = guide_legend(ncol = 1, title.position = "top"))
+  }
+
+  p <- p + if (log_x) {
+    scale_x_log10(name = x_lab, breaks = x_breaks, labels = x_labels)
+  } else {
+    scale_x_continuous(name = x_lab, breaks = x_breaks, labels = x_labels)
+  }
+
+  if (regio_split) {
+    n_regio <- d[, .N, keyby = regio]
+    regio_labels <- setNames(sprintf("%s\n(n = %d metingen)", n_regio$regio, n_regio$N),
+                             as.character(n_regio$regio))
+    p <- p + facet_grid(regio ~ ., scales = "free_y", space = "free_y",
+                        labeller = as_labeller(regio_labels))
+  }
+
+  p +
+    theme_minimal(base_size = 15) +
+    theme(
+      strip.background = element_rect(fill = "grey95", colour = "black"),
+      strip.text.y = element_text(size = 11, face = "bold", angle = -90, lineheight = 0.9),
+      axis.text.x = element_text(size = 14),
+      axis.text.y = element_text(size = 14),
+      axis.title = element_text(size = 14),
+      axis.ticks = element_line(colour = "black"),
+      axis.line = element_line(colour = 'black'),
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      panel.background = element_blank(),
+      panel.border = element_rect(colour = 'black', fill = NA),
+      plot.background = element_blank(),
+      legend.position = legend_pos,
+      legend.box.just = "left",
+      legend.justification = if (onder) "left" else "center"
+    ) +
+    ggtitle(titel) +
+    labs(y = 'Gebied')
+}
+
+### 6a. Ammoniumtoxiciteit -----------------------------------------------------
+ammonium <- data.frame(xmin = c(0,100,400,750,5000),
+                       xmax = c(100,400,750,5000,Inf),
+                       fill = c("green","yellow", "orange","red","purple"),
+                       label = c("niet", "voor gevoelige soorten","voor veel soorten","voor bijna alle soorten","voor alle soorten"))
+nh4_args <- list(
+  dt = abio_proj, var = "NH4_µmol/l_PW",
+  x_lab = "Ammonium concentratie (µmol/l)", titel = "Ammonium concentratie per gebied",
+  banden = ammonium, banden_titel = "Giftig:", log_x = TRUE,
+  x_breaks = c(1, 10, 100, 1000, 10000), x_labels = c("1", "10", "100", "1.000", "10.000")
+)
+p_ammonium_toxiciteit       <- do.call(plot_box_gebied, c(nh4_args, regio_split = FALSE))
+p_ammonium_toxiciteit_regio <- do.call(plot_box_gebied, c(nh4_args, regio_split = TRUE))
 
 p_ammonium_toxiciteit
-saveRDS(p_ammonium_toxiciteit, paste0(rds_dir, "p_ammonium_toxiciteit.rds"))
+p_ammonium_toxiciteit_regio
+saveRDS(p_ammonium_toxiciteit,       paste0(rds_dir, "p_ammonium_toxiciteit.rds"))
+saveRDS(p_ammonium_toxiciteit_regio, paste0(rds_dir, "p_ammonium_toxiciteit_regio.rds"))
+
+### 6b. P-AL slib ---------------------------------------------------------------
+# Rode lijn: P-AL 50 mg P2O5/100 g = grens naar klasse "hoog" in de
+# fosfaattoestand van grasland (bemestingsadvies CBGV en klassen
+# fosfaatgebruiksnormen). Let op: die klassen zijn voor landbouwbodem; P-AL in
+# slib is hiermee alleen indicatief te vergelijken.
+# Stippellijn: ALE-kantelpunt (steilste helling) van P-AL slib voor de
+# soortensamenstelling hydrofyten, uit ALE_tipping_points_summary.csv
+# (Analyses_dev_db.R); 22,8 als terugvaloptie als het bestand ontbreekt.
+ale_csv <- paste0(workspace, "output/AlleGebieden/Tussenrapportage/ALE_tipping_points_summary.csv")
+kp_hydro <- if (file.exists(ale_csv)) {
+  fread(ale_csv, encoding = "UTF-8")[
+    target == "Soortensamenstelling Hydrofyten" & predictor == "P-AL mg p2o5/100g_SB" &
+      type == "Steilste helling", x_waarde][1]
+} else NA_real_
+if (is.na(kp_hydro)) kp_hydro <- 22.8
+
+pal_lijnen <- data.frame(
+  x = c(kp_hydro, 50),
+  label = c(sprintf("ALE-kantelpunt hydrofyten (%s)", format(round(kp_hydro, 1), decimal.mark = ",")),
+            "P-AL 50: klasse 'hoog' grasland"),
+  kleur = c("grey15", "#C00000"),
+  lijntype = c("dashed", "solid")
+)
+pal_args <- list(
+  dt = abio_proj, var = "P-AL mg p2o5/100g_SB",
+  x_lab = expression("P-AL slib (mg P"[2]*"O"[5]*" per 100 g)"), titel = "P-AL in slib per gebied",
+  lijnen = pal_lijnen, x_breaks = seq(0, 200, 25)
+)
+p_pal_slib_gebied <- do.call(plot_box_gebied, c(pal_args, regio_split = FALSE))
+p_pal_slib_regio  <- do.call(plot_box_gebied, c(pal_args, regio_split = TRUE))
+
+p_pal_slib_gebied
+p_pal_slib_regio
+saveRDS(p_pal_slib_gebied, paste0(rds_dir, "p_pal_slib_gebied.rds"))
+saveRDS(p_pal_slib_regio,  paste0(rds_dir, "p_pal_slib_regio.rds"))
+
+### 6c. P-AL oever (0-25 cm) en slib naast elkaar per gebied ---------------------
+# Twee boxplots per gebied; gebieden gesorteerd op mediane P-AL in het slib.
+# Rode lijn: P-AL 50 = klasse 'hoog' grasland (zie 6b); stippellijn: ALE-kantelpunt
+# hydrofyten (geldt voor slib).
+pal_os <- melt(
+  abio_proj[!is.na(Gebiedsnaam),
+            .(Gebiedsnaam = as.character(Gebiedsnaam),
+              `Oever (0-25 cm)` = `P-AL mg p2o5/100g_OR_25`,
+              Slib = `P-AL mg p2o5/100g_SB`)],
+  id.vars = "Gebiedsnaam", variable.name = "compartiment", value.name = "pal",
+  variable.factor = TRUE
+)[!is.na(pal)]
+pal_os_volgorde <- pal_os[compartiment == "Slib", .(med = median(pal)), by = Gebiedsnaam][order(med), Gebiedsnaam]
+pal_os_volgorde <- c(setdiff(unique(pal_os$Gebiedsnaam), pal_os_volgorde), pal_os_volgorde)
+pal_os[, Gebiedsnaam := factor(Gebiedsnaam, levels = pal_os_volgorde)]
+# Volgorde binnen een gebied: slib boven, oever onder
+pal_os[, compartiment := factor(compartiment, levels = c("Oever (0-25 cm)", "Slib"))]
+
+p_pal_oever_slib <- ggplot(pal_os, aes(y = Gebiedsnaam, x = pal, fill = compartiment)) +
+  geom_boxplot(position = position_dodge(width = 0.8), width = 0.7,
+               outlier.shape = NA, alpha = 0.85, colour = "grey20", linewidth = 0.4) +
+  geom_vline(data = pal_lijnen, aes(xintercept = x, colour = label, linetype = label),
+             linewidth = 0.9, key_glyph = "path") +
+  scale_fill_manual("P-AL in", values = c("Oever (0-25 cm)" = "#009E73", "Slib" = "#E69F00"),
+                    breaks = c("Slib", "Oever (0-25 cm)")) +
+  scale_colour_manual("Grenswaarden", values = setNames(pal_lijnen$kleur, pal_lijnen$label)) +
+  scale_linetype_manual("Grenswaarden", values = setNames(pal_lijnen$lijntype, pal_lijnen$label)) +
+  scale_x_continuous(name = expression("P-AL (mg P"[2]*"O"[5]*" per 100 g)"),
+                     breaks = seq(0, 200, 25), expand = expansion(mult = c(0.01, 0.03))) +
+  coord_cartesian(xlim = c(0, NA)) +
+  # grenswaarden onder elkaar (ncol = 1), anders valt de legenda rechts buiten de figuur
+  guides(fill = guide_legend(order = 1), colour = guide_legend(order = 2, ncol = 1),
+         linetype = guide_legend(order = 2, ncol = 1)) +
+  labs(y = "Gebied", title = "P-AL in oever en slib per gebied") +
+  theme_minimal(base_size = 15) +
+  theme(
+    axis.text = element_text(size = 13),
+    axis.title = element_text(size = 14),
+    axis.ticks = element_line(colour = "black"),
+    axis.line = element_line(colour = "black"),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    panel.border = element_rect(colour = "black", fill = NA),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = "bottom",
+    legend.box = "vertical",
+    legend.box.just = "left",
+    legend.text = element_text(size = 12)
+  )
+
+p_pal_oever_slib
+saveRDS(p_pal_oever_slib, paste0(rds_dir, "p_pal_oever_slib.rds"))
+
+### 6d. P-AL slib en ammonium poriewater naast elkaar, per regio ---------------
+# Zelfde gebiedsvolgorde in beide panelen: gesorteerd op mediane P-AL in het slib
+# (hoogste bovenaan). Alleen gebieden met zowel P-AL slib als ammonium, zodat de
+# rijen van de twee panelen precies naast elkaar liggen. Legenda's onder de plots.
+volgorde_pal <- abio_proj[!is.na(`P-AL mg p2o5/100g_SB`) & !is.na(Gebiedsnaam),
+                          .(med = median(`P-AL mg p2o5/100g_SB`)),
+                          by = .(Gebiedsnaam = as.character(Gebiedsnaam))][order(med), Gebiedsnaam]
+gebieden_nh4 <- abio_proj[!is.na(`NH4_µmol/l_PW`) & !is.na(Gebiedsnaam), unique(as.character(Gebiedsnaam))]
+volgorde_pal <- volgorde_pal[volgorde_pal %in% gebieden_nh4]
+
+p_combi_pal <- do.call(plot_box_gebied, c(pal_args, list(
+  regio_split = TRUE, volgorde = volgorde_pal, legend_pos = "bottom"
+))) +
+  ggtitle("P-AL in slib") +
+  # regionamen alleen rechts tonen (bij het ammoniumpaneel)
+  theme(strip.text.y = element_blank(), strip.background = element_blank())
+
+p_combi_nh4 <- do.call(plot_box_gebied, c(nh4_args, list(
+  regio_split = TRUE, volgorde = volgorde_pal, legend_pos = "bottom"
+))) +
+  ggtitle("Ammonium in poriewater slib") +
+  # gebiedsnamen alleen links tonen (bij het P-AL-paneel)
+  theme(axis.text.y = element_blank(), axis.title.y = element_blank(),
+        axis.ticks.y = element_blank())
+
+p_pal_ammonium_regio <- p_combi_pal + p_combi_nh4 + plot_layout(ncol = 2, guides = "keep")
+
+p_pal_ammonium_regio
+saveRDS(p_pal_ammonium_regio, paste0(rds_dir, "p_pal_ammonium_regio.rds"))
 
 ## 7. P-nalevering uit slib naar water en Fe-ratio's per gebied ---------------
 abio_proj[, `:=`(
@@ -606,7 +840,9 @@ abio_proj[, O2_category := fifelse(
   "Zuurstofrijk (>2.5 mg/l)",
   "Zuurstofarm (≤2.5 mg/l)"
 )]
-p_nalevering_summary <- abio_proj[!is.na(P_nalevering_formule1) & !is.na(P_nalevering_formule2) & !is.na(P_nalevering_baggernut) & !is.na(Gebiedsnaam), .(
+# Alleen de twee B-ware-formules (anaeroob/aeroob) worden getoond; BaggerNut
+# wordt nog wel berekend (kolom P_nalevering_baggernut), maar niet geplot.
+p_nalevering_summary <- abio_proj[!is.na(P_nalevering_formule1) & !is.na(P_nalevering_formule2) & !is.na(Gebiedsnaam), .(
   mean_f1 = mean(P_nalevering_formule1, na.rm = TRUE),
   mean_f2 = mean(P_nalevering_formule2, na.rm = TRUE),
   mean_baggernut = mean(P_nalevering_baggernut, na.rm = TRUE),
@@ -685,26 +921,26 @@ sort_order <- p_nalevering_summary[order(mean_f1)]
 p_nalevering_long <- melt(p_nalevering_summary,
                          id.vars = c("Gebiedsnaam_marked", "is_zuurstofarm", "n_obs"),
                          measure.vars = list(
-                           mean = c("mean_f1", "mean_f2", "mean_baggernut"),
-                           whisker_lower = c("whisker_lower_f1", "whisker_lower_f2", "whisker_lower_baggernut"),
-                           whisker_upper = c("whisker_upper_f1", "whisker_upper_f2", "whisker_upper_baggernut")
+                           mean = c("mean_f1", "mean_f2"),
+                           whisker_lower = c("whisker_lower_f1", "whisker_lower_f2"),
+                           whisker_upper = c("whisker_upper_f1", "whisker_upper_f2")
                          ),
                          variable.name = "formule")
 
-p_nalevering_long[, formule_label := fifelse(formule == 1, "BWare - anaeroob",
-                                     fifelse(formule == 2, "BWare - aeroob", "BaggerNut - aeroob"))]
+p_nalevering_long[, formule_label := factor(fifelse(formule == 1, "B-ware - anaeroob", "B-ware - aeroob"),
+                                     levels = c("B-ware - anaeroob", "B-ware - aeroob"))]
 p_nalevering_long[, Gebiedsnaam_marked := factor(Gebiedsnaam_marked, levels = sort_order$Gebiedsnaam_marked)]
 fe_ratio_long <- melt(fe_ratio_summary,
                      id.vars = c("Gebiedsnaam_marked", "is_zuurstofarm", "n_obs"),
                      measure.vars = list(
-                       median = c("median_feP_PW", "median_feS_SB", "median_feS_PW"),
-                       whisker_lower = c("whisker_lower_feP_PW", "whisker_lower_feS_SB", "whisker_lower_feS_PW"),
-                       whisker_upper = c("whisker_upper_feP_PW", "whisker_upper_feS_SB", "whisker_upper_feS_PW")
+                       median = c("median_feP_PW", "median_feS_SB"),
+                       whisker_lower = c("whisker_lower_feP_PW", "whisker_lower_feS_SB"),
+                       whisker_upper = c("whisker_upper_feP_PW", "whisker_upper_feS_SB")
                      ),
                      variable.name = "ratio_type")
 
-fe_ratio_long[, ratio_label := fifelse(ratio_type == 1, "Fe:P poriewater",
-                              fifelse(ratio_type == 2, "Fe:S sediment", "Fe:S poriewater"))]
+fe_ratio_long[, ratio_label := factor(fifelse(ratio_type == 1, "Fe:P poriewater", "Fe:S sediment"),
+                              levels = c("Fe:P poriewater", "Fe:S sediment"))]
 fe_ratio_long[, Gebiedsnaam_marked := factor(Gebiedsnaam_marked, levels = sort_order$Gebiedsnaam_marked)]
 fe_ratio_long <- fe_ratio_long[Gebiedsnaam_marked %in% sort_order$Gebiedsnaam_marked]
 
@@ -715,7 +951,7 @@ p1 <- ggplot(p_nalevering_long, aes(x = Gebiedsnaam_marked, y = mean, fill = for
                 position = position_dodge(width = 0.8),
                 width = 0.2, color = "black", size = 0.5) +
   scale_fill_manual(
-    values = c("BWare - anaeroob" = "#D55E00", "BWare - aeroob" = "#0072B2", "BaggerNut - aeroob" = "#56B4E9"),
+    values = c("B-ware - anaeroob" = "#D55E00", "B-ware - aeroob" = "#0072B2"),
     name = "Nalevering"
   ) +
   coord_flip() +
@@ -749,7 +985,7 @@ max_x_value <- 10
 fe_ratio_long[, `:=`(
   median_capped = pmin(median, max_x_value),
   is_capped = median > max_x_value,
-  median_text = fifelse(median > max_x_value, as.character(round(median, 1)), ""),
+  median_text = fifelse(median > max_x_value, format(round(median, 1), decimal.mark = ",", trim = TRUE), ""),
   whisker_lower_capped = pmin(whisker_lower, max_x_value),
   whisker_upper_capped = pmin(whisker_upper, max_x_value)
 )]
@@ -768,7 +1004,8 @@ p2 <- ggplot(fe_ratio_long, aes(x = Gebiedsnaam_marked, y = median_capped, fill 
             position = position_dodge(width = 1.5),
             size = 4, color = "black", fontface = "bold") +
   scale_fill_manual(
-    values = c("Fe:P poriewater" = "#0072B2", "Fe:S sediment" = "#D55E00", "Fe:S poriewater" = "#56B4E9"),
+    # andere kleuren dan aeroob/anaeroob in het linkerpaneel, om verwarring te voorkomen
+    values = c("Fe:P poriewater" = "#009E73", "Fe:S sediment" = "#CC79A7"),
     name = ""
   ) +
   scale_y_continuous(limits = c(0, max_x_value), expand = c(0, 0)) +
@@ -802,10 +1039,37 @@ p2 <- ggplot(fe_ratio_long, aes(x = Gebiedsnaam_marked, y = median_capped, fill 
 combined_plot <- p1 + p2 + plot_layout(ncol = 2, guides = 'keep')
 combined_plot <- combined_plot +
   plot_annotation(
-    subtitle = "Markering gebieden:\n * = Fe/P ≥ 3\nvetgedrukt = zuurstofarm water (<2.5 mg/l)",
+    subtitle = "* = Fe/P ≥ 3",
     theme = theme(plot.subtitle = element_text(size = 14, hjust = 0.5))
   )
 
 print(combined_plot)
 p_p_nalevering_gebied <- combined_plot
 saveRDS(p_p_nalevering_gebied, paste0(rds_dir, "p_p_nalevering_gebied.rds"))
+
+## 8. Losse PNG-export van alle figuren ----------------------------------------
+# Zelfde afmetingen (inch) als de chunks in rapport_modellering_VeeST.qmd.
+png_dir <- "output/AlleGebieden/Eindrapportage/gebiedseigenschappen"
+dir.create(png_dir, showWarnings = FALSE, recursive = TRUE)
+png_formaat <- list(
+  p_bodemtype_classificatie     = c(9, 7),
+  p_bodemfractie_gebied         = c(9, 10),
+  p_ir_egv                      = c(10, 11),
+  p_draagkracht_diepte_veentype = c(11, 8),
+  p_doorzicht_waterdiepte_slib  = c(11, 7),
+  p_redox_slib_water            = c(11, 8),
+  p_ammonium_toxiciteit         = c(9, 7),
+  p_ammonium_toxiciteit_regio   = c(9, 9),
+  p_pal_slib_gebied             = c(9, 7),
+  p_pal_slib_regio              = c(9, 9),
+  p_pal_oever_slib              = c(9, 13),
+  p_pal_ammonium_regio          = c(15, 11),
+  p_p_nalevering_gebied         = c(14, 13)
+)
+for (naam in names(png_formaat)) {
+  if (!exists(naam)) next
+  ggsave(file.path(png_dir, paste0(naam, ".png")), get(naam),
+         width = png_formaat[[naam]][1], height = png_formaat[[naam]][2],
+         units = "in", dpi = 300, bg = "white")
+}
+rm(naam)

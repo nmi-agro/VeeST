@@ -5188,61 +5188,112 @@ okabe_ito_colors <- c(
 n_areas <- length(unique(gebiedkop$Gebiedsnaam[!is.na(gebiedkop$Gebiedsnaam)]))
 okabe_colors_subset <- rep(okabe_ito_colors, length.out = n_areas)
 
-# deelkaart met waterschappen
-deelkaart <- c("09", "14", "15", "39", "13", "31", "12", "59", "02")
-# deelkaart <- c("14", "15", "39", "13", "31")
-# deelkaart <- c("12","31") #HHNK #AGV
-# deelkaart <- c("31") #AGV
-# deelkaart <- c("59", "02")
-bbox <- st_bbox(waterschappen[waterschappen$wbh_code_objectidentificatie %in% deelkaart,])
+# Kaart in twee delen (westelijk veenweidegebied / noordoosten), elk ingezoomd op
+# de eigen gebieden. Gebieden worden met een label benoemd (geen kleurlegenda per
+# gebied); de kleur geeft aan of er alleen inventarisatiesloten (WP1), alleen
+# beheerexperimenten (WP2) of beide in het gebied liggen.
+# Regio-indeling: bepaal_regio() in scripts/functions/functions_veest.R.
+# Nodig in de sessie: gebiedkop, waterschappen, locaties (sf) en abio_proj.
+if (!exists("bepaal_regio")) source("scripts/functions/functions_veest.R")
+library(patchwork)
+kaart_osm <- TRUE   # FALSE = zonder achtergrondkaart (bv. zonder internet)
 
-ggplot() +
-   ggspatial::annotation_map_tile(type= "osm", cachedir =  '/osm_cache',
-                                   zoomin = 1, progress = c("none"),
-                                   quiet = TRUE) +
-  # Gebiedkop areas with labels
-  geom_sf(data = st_crop(gebiedkop[!is.na(gebiedkop$Gebiedsnaam),],bbox), aes(fill = Gebiedsnaam, label = Gebiedsnaam), alpha = 0.6, color = "black", size = 0.2, show.legend = TRUE) +
-  # Waterschapsgrenzen (waterboard boundaries)
-  geom_sf(data = waterschappen[waterschappen$wbh_code_objectidentificatie %in% deelkaart,], fill = NA, color = "blue", alpha = 0.3, size = 0.2) +
-  facet_wrap(~WP, labeller = labeller(WP = c(
-    "WP1" = "Inventarisatiesloten",
-    "WP2" = "Inventarisatiesloten en beheerexperimenten"
-  ))) +
-  # Add labels for gebiedsnaam
-  geom_label_repel(
-    data = st_crop(gebiedkop_labels,bbox),
-    aes(label = Gebiedsnaam, geometry = geometrie2d),
-    stat = "sf_coordinates",
-    size = 4,                    # Grotere tekst
-    max.overlaps = 5,           # Meer labels tonen
-    force = 2,                   # Krachtiger uit elkaar duwen
-    force_pull = 1,              # Aantrekkingskracht naar punten
-    box.padding = 0.4,           # Meer ruimte rond labels
-    point.padding = 0.5,
-    min.segment.length = 0,
-    segment.size = 1,          # Dunnere verbindingslijnen
-    segment.alpha = 0.8          # Transparantere lijnen
-  )+
-  # Okabe-Ito kleuren toevoegen
-  scale_fill_manual(values = okabe_colors_subset) +
-  theme_minimal() +
-  theme(
-    axis.text = element_blank(),
-    axis.title = element_blank(),
-    axis.labels = element_blank(),
-    axis.ticks = element_blank(),
-    panel.grid = element_blank(),
-    legend.position = "bottom",
-    legend.title = element_blank(),
-    legend.text = element_text(size = 12),
-    strip.text = element_text(size = 14, face = "bold"),
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
-  ) +
-  labs(title = "Bemonsterde gebieden met inventarisatie- en proefslootlocaties") +
-  coord_sf(
-    crs = 28992,
-    expand = FALSE
-  )
+# WP-status en regio per gebied, op basis van de meetdata
+kleuren_wp_status <- c(
+  "Alleen inventarisatie (WP1)"            = "#56B4E9",
+  "Inventarisatie en beheerexperiment"     = "#009E73",
+  "Alleen beheerexperiment (WP2)"          = "#E69F00"
+)
+wp_status <- as.data.table(abio_proj)[
+  !is.na(Gebiedsnaam) & WP %in% c("WP1", "WP2"),
+  .(wp1 = any(WP == "WP1"), wp2 = any(WP == "WP2"),
+    waterschap = first(na.omit(waterschap))),
+  by = .(Gebiedsnaam = as.character(Gebiedsnaam))
+]
+wp_status[, status := factor(
+  fcase(wp1 & wp2, "Inventarisatie en beheerexperiment",
+        wp1,       "Alleen inventarisatie (WP1)",
+        wp2,       "Alleen beheerexperiment (WP2)"),
+  levels = names(kleuren_wp_status)
+)]
+wp_status[, regio := bepaal_regio(waterschap)]
+
+# Gebiedsvlakken: samengevoegd per gebied, met WP-status. NB: het afvoergebied
+# "Assendelft (ZO)" staat in gebiedkop alleen als Zuiderveen; Olde Maten heeft
+# geen vlak. Die gebieden krijgen hieronder een punt op de ligging van de sloten.
+kaart_vlak <- gebiedkop[!is.na(gebiedkop$Gebiedsnaam), ] |>
+  st_make_valid() |>
+  group_by(Gebiedsnaam) |>
+  summarise(.groups = "drop") |>
+  inner_join(as.data.frame(wp_status[, .(Gebiedsnaam, status, regio)]), by = "Gebiedsnaam")
+
+# Labelpositie per gebied: midden van de bemonsterde sloten (locaties); trajecten
+# zonder coördinaten (0,0) en punten buiten Nederland vallen weg.
+kaart_sloten <- st_transform(st_as_sf(locaties), 28992)
+kaart_sloten <- kaart_sloten[!st_is_empty(kaart_sloten) & !is.na(kaart_sloten$Gebiedsnaam), ]
+kaart_xy <- st_coordinates(st_centroid(st_geometry(kaart_sloten)))
+kaart_sloten <- kaart_sloten[kaart_xy[, 1] > 0 & kaart_xy[, 1] < 300000 &
+                             kaart_xy[, 2] > 300000 & kaart_xy[, 2] < 625000, ]
+kaart_labels <- kaart_sloten |>
+  group_by(Gebiedsnaam) |>
+  summarise(.groups = "drop") |>
+  st_centroid() |>
+  inner_join(as.data.frame(wp_status[, .(Gebiedsnaam, status, regio)]), by = "Gebiedsnaam")
+kaart_labels$heeft_vlak <- kaart_labels$Gebiedsnaam %in% kaart_vlak$Gebiedsnaam
+st_geometry(kaart_labels) <- "geometry"  # vaste naam voor aes(geometry = geometry)
+
+kaart_ws <- st_transform(waterschappen, 28992)
+
+#' Kaart van de bemonsterde gebieden in één regio
+#'
+#' @param r Regio, zoals gegeven door bepaal_regio().
+#' @param buffer Marge rond de gebieden in meter.
+#' @return ggplot-object.
+maak_kaart_regio <- function(r, buffer = 3000) {
+  vlak <- kaart_vlak[kaart_vlak$regio == r, ]
+  lab  <- kaart_labels[kaart_labels$regio == r, ]
+  bb   <- st_bbox(st_buffer(st_union(c(st_geometry(vlak), st_geometry(lab))), buffer))
+  p <- ggplot()
+  if (kaart_osm) {
+    p <- p + ggspatial::annotation_map_tile(type = "osm", cachedir = "osm_cache",
+                                            zoomin = 0, progress = "none", quiet = TRUE)
+  }
+  p +
+    geom_sf(data = kaart_ws, fill = NA, colour = "grey45", linewidth = 0.3, linetype = "dashed") +
+    geom_sf(data = vlak, aes(fill = status), alpha = 0.75, colour = "grey15", linewidth = 0.3) +
+    # gebieden zonder vlak: punt op de ligging van de sloten
+    geom_sf(data = lab[!lab$heeft_vlak, ], aes(fill = status), shape = 21, size = 4,
+            colour = "grey15", stroke = 0.5, show.legend = FALSE) +
+    ggrepel::geom_label_repel(
+      data = lab, aes(label = Gebiedsnaam, geometry = geometry),
+      stat = "sf_coordinates", size = 3.4, fill = alpha("white", 0.85),
+      label.size = 0.2, label.padding = 0.15, box.padding = 0.35,
+      min.segment.length = 0, segment.colour = "grey30", segment.size = 0.3,
+      max.overlaps = Inf, seed = 42
+    ) +
+    scale_fill_manual(values = kleuren_wp_status, drop = FALSE, name = NULL,
+                      guide = guide_legend(override.aes = list(alpha = 0.75))) +
+    coord_sf(crs = 28992, xlim = bb[c("xmin", "xmax")], ylim = bb[c("ymin", "ymax")],
+             expand = FALSE, datum = NA) +
+    labs(title = r) +
+    theme_void(base_size = 12) +
+    theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+          panel.border = element_rect(colour = "grey40", fill = NA, linewidth = 0.4))
+}
+
+p_kaart_gebieden <- maak_kaart_regio("Westelijk veenweidegebied") +
+  # legenda maar één keer tonen (bij de westelijke kaart)
+  (maak_kaart_regio("Noordoosten") + guides(fill = "none")) +
+  plot_layout(ncol = 2, guides = "collect") +
+  plot_annotation(
+    title = "Bemonsterde gebieden: inventarisatie (WP1) en beheerexperimenten (WP2)",
+    theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+  ) &
+  theme(legend.position = "bottom", legend.text = element_text(size = 12))
+
+p_kaart_gebieden
+ggsave("output/AlleGebieden/Eindrapportage/kaart_gebieden_wp_regio.png", p_kaart_gebieden,
+       width = 14, height = 9, units = "in", dpi = 300, bg = "white")
 
 
 ### Kaart meetlocaties--------------------------------------------

@@ -74,6 +74,8 @@ beheer_gam_plots         <- if (file.exists(paste0(rds_dir, "beheer_gam_plots.rd
 beheer_gam_nospatial_summary <- if (file.exists(paste0(rds_dir, "beheer_gam_nospatial_summary.rds"))) readRDS(paste0(rds_dir, "beheer_gam_nospatial_summary.rds")) else NULL
 beheer_gam_nospatial_stable  <- if (file.exists(paste0(rds_dir, "beheer_gam_nospatial_stable.rds")))  readRDS(paste0(rds_dir, "beheer_gam_nospatial_stable.rds"))  else NULL
 beheer_gam_terms             <- if (file.exists(paste0(rds_dir, "beheer_gam_terms.rds")))             readRDS(paste0(rds_dir, "beheer_gam_terms.rds"))             else NULL
+# Vergelijking taludhoeken rond de waterlijn vs. over 3 m / 1 m (scripts/taludhoek_vergelijking.R)
+taludhoek_vergelijking       <- if (file.exists(paste0(rds_dir, "taludhoek_vergelijking.rds")))       readRDS(paste0(rds_dir, "taludhoek_vergelijking.rds"))       else NULL
 
 # Clusteranalyse abiotische variabelen (Analyses_dev_db.R, sectie 2): bevat
 # o.a. de parametertabel voor de bijlage, de manual_exclude-redenen, de
@@ -91,14 +93,15 @@ clusteranalyse_veest <- if (file.exists(clusteranalyse_veest_rds)) {
 # Figuren voor de bijlage "Gebiedseigenschappen sloten": worden gegenereerd door
 # scripts/gebiedseigenschappen_sloten.R, dat je vóór het renderen van dit rapport
 # los draait (na main_veest.R en Analyses_dev_db.R, met abio_proj/penmerge/melt
-# in de sessie). Dat script schrijft de acht ggplot-objecten hieronder direct weg
+# in de sessie). Dat script schrijft de ggplot-objecten hieronder direct weg
 # als .rds in rds_dir; dit rapport laadt ze alleen in en source't dus niets zelf.
 # Ontbreekt een bestand (script nog niet gedraaid), dan blijft het betreffende
 # plotobject NULL en toont de bijbehorende chunk een melding i.p.v. de figuur.
 gebiedseigenschappen_plotnamen <- c(
   "p_bodemtype_classificatie", "p_bodemfractie_gebied", "p_ir_egv",
   "p_draagkracht_diepte_veentype", "p_doorzicht_waterdiepte_slib",
-  "p_redox_slib_water", "p_ammonium_toxiciteit", "p_p_nalevering_gebied"
+  "p_redox_slib_water", "p_ammonium_toxiciteit", "p_ammonium_toxiciteit_regio",
+  "p_pal_slib_gebied", "p_pal_slib_regio", "p_pal_oever_slib", "p_pal_ammonium_regio", "p_p_nalevering_gebied"
 )
 for (naam in gebiedseigenschappen_plotnamen) {
   pad <- paste0(rds_dir, naam, ".rds")
@@ -185,10 +188,36 @@ Berekend als molverhouding.
 
 - Drooglegging oever en perceel: het hoogste punt op de oever respectievelijk het hoogste punt van het profiel (maaiveld) minus het gemeten waterpeil op de meetdag. De drooglegging is daarmee een momentopname tijdens het veldbezoek in het groeiseizoen en geeft geen informatie over het verschil tussen zomer- en winterpeil.
 - Zomerdrooglegging: maaiveld minus zomerpeil (NOBV)
-- Taludhoek boven water rond de waterlijn (`tldk_oevrwtr_perc`): tan⁻¹(hoogteverschil oever en waterlijn / horizontale afstand), waarbij van alle oeverpunten die minder dan 35 cm boven de waterlijn liggen het punt wordt genomen dat het verst van de waterlijn af ligt, met de insteek als maximale grens.
-- Taludhoek onder water rond de waterlijn (`tldk_wtrwtr_perc`): tan⁻¹(hoogteverschil bovenkant slib op 35 cm verticale afstand onder de waterlijn en waterlijn / horizontale afstand).
-- Taludhoek boven water (`tldk_bvwtr_perc`): tan⁻¹(hoogteverschil oever op 3 meter horizontale afstand van de waterlijn en waterlijn / horizontale afstand). Als de oever minder breed is dan 3 meter dan wordt het oeverpunt dat het verst van de waterlijn ligt genomen, met de insteek als maximale grens.
-- Taludhoek onder water (`tldk_ondwtr_perc`): tan⁻¹(hoogteverschil bovenkant slib op 1 meter horizontale afstand van de waterlijn en waterlijn / horizontale afstand). 
+- Taludhoek boven water rond de waterlijn (`tldk_oevrwtr_perc`): 100 × hoogteverschil oever en waterlijn / horizontale afstand, waarbij van alle oeverpunten die minder dan 35 cm boven de waterlijn liggen het punt wordt genomen dat het verst van de waterlijn af ligt, met de insteek als maximale grens.
+- Taludhoek onder water rond de waterlijn (`tldk_wtrwtr_perc`): 100 × hoogteverschil bovenkant slib op 35 cm verticale afstand onder de waterlijn en waterlijn / horizontale afstand.
+- Als de taludhoek rond de waterlijn niet te berekenen is, is de taludhoek over een grotere afstand gebruikt. Boven water is dat 100 × hoogteverschil tussen de oever op 3 meter horizontale afstand van de waterlijn en de waterlijn / horizontale afstand (`tldk_bvwtr_perc`). Als de oever smaller is dan 3 meter, wordt het oeverpunt genomen dat het verst van de waterlijn ligt, met de insteek als maximale grens. Onder water is dat 100 × hoogteverschil tussen de bovenkant van het slib op 1 meter horizontale afstand van de waterlijn en de waterlijn / horizontale afstand (`tldk_ondwtr_perc`).
+- De taludhoeken zijn uitgedrukt als hellingspercentage. Een helling van 100% komt overeen met 45°; de hoek in graden is tan⁻¹(percentage / 100). De relatie is niet lineair: 10% ≈ 5,7°, 50% ≈ 26,6° en 200% ≈ 63,4°.
+
+Voor de modellen is gekozen voor de taludhoeken rond de waterlijn en niet voor die over 3 meter en 1 meter. De zone rond de waterlijn is de zone waar het waterpeil schommelt en waar de oevervegetatie (zone 2a en 2b), vertrapping en afkalving zich afspelen. Vaak ligt juist precies op de waterlijn een steil, onbegroeid oeverdeel, dat met een hoek over een korte afstand beter in beeld komt. Een hoek over 3 meter beschrijft vooral de vorm van het hele profiel en loopt bij smalle oevers door tot de insteek, waardoor de waarde mede afhangt van de oeverbreedte. Daarnaast zijn de berekende hoeken vergeleken met de getekende dwarsprofielen; de hoeken rond de waterlijn kwamen visueel het best overeen met het getekende profiel.
+
+```{r}
+#| label: taludhoek-vergelijking
+tv <- taludhoek_vergelijking
+# Getal met decimale komma en echt minteken
+nl_tv <- function(x, d = 2) sub("-", "−", formatC(round(x, d), format = "f", digits = d, decimal.mark = ","), fixed = TRUE)
+tv_q <- function(var, k) if (is.null(tv)) NA else round(tv$verdeling[kwantiel == k][[var]])
+tv_rho <- function(tab, rij) if (is.null(tv)) NA else nl_tv(tv[[tab]][rij, "rho"])
+```
+
+`r if (is.null(tv)) "*Resultaten van scripts/taludhoek_vergelijking.R ontbreken; draai dat script vóór het renderen.*" else ""`
+Om de keuze te controleren zijn beide varianten vergeleken over alle `r tv$n_secties` gemeten profielsecties (één oever van één profiel in één jaar; `scripts/taludhoek_vergelijking.R`):
+
+- **Boven water** maakt de keuze weinig uit. De hoek rond de waterlijn en de hoek over 3 meter hangen vrijwel volledig samen (Spearman ρ = `r tv_rho("samenhang", "boven")`) en hebben een vergelijkbare mediaan (`r tv_q("tldk_oevrwtr_perc", "P50")`% en `r tv_q("tldk_bvwtr_perc", "P50")`%). Alleen bij de steilste oevers geeft de hoek rond de waterlijn hogere waarden (90e percentiel `r tv_q("tldk_oevrwtr_perc", "P90")`% tegen `r tv_q("tldk_bvwtr_perc", "P90")`%), wat past bij een steil oeverdeel direct op de waterlijn.
+- **Onder water** verschillen de varianten meer (ρ = `r tv_rho("samenhang", "onder")`). De hoek rond de waterlijn heeft een lagere mediaan (`r tv_q("tldk_wtrwtr_perc", "P50")`% tegen `r tv_q("tldk_ondwtr_perc", "P50")`%), maar meer uitschieters naar steile waarden (90e percentiel `r tv_q("tldk_wtrwtr_perc", "P90")`% tegen `r tv_q("tldk_ondwtr_perc", "P90")`%).
+- **Stabiliteit tussen meetjaren.** Van de `r tv$n_secties_herhaald` profielsecties die in meer dan één jaar zijn gemeten, blijft de volgorde tussen de eerste en de laatste meting boven water redelijk behouden, en voor beide varianten even goed (ρ = `r tv_rho("stabiliteit", "tldk_oevrwtr_perc")` rond de waterlijn en `r tv_rho("stabiliteit", "tldk_bvwtr_perc")` over 3 meter). Onder water is de stabiliteit voor beide varianten laag (ρ = `r tv_rho("stabiliteit", "tldk_wtrwtr_perc")` en `r tv_rho("stabiliteit", "tldk_ondwtr_perc")`). Dat komt deels door echte veranderingen (onder meer door de proefbehandelingen) en deels door meetvariatie: het profiel ligt niet elk jaar op precies dezelfde plek en de waterlijn verschuift met het peil. De taludhoek onder water is daarmee een minder betrouwbare voorspeller, ongeacht de gekozen afstand.
+- **Grillige oeverlijn.** Er is geen aanwijzing dat de hoek rond de waterlijn minder of juist meer gevoelig is voor een grillige oever. Het verschil tussen de hoek rond de waterlijn en de hoek over 3 of 1 meter hangt niet samen met de grilligheid van oeverzone 2b (ρ = `r tv_rho("grillig_verschil", "boven")` boven en `r tv_rho("grillig_verschil", "onder")` onder water). De verandering tussen meetjaren hangt evenmin aantoonbaar samen met de grilligheid; alleen voor de hoek onder water rond de waterlijn is er een zwakke, niet significante aanwijzing dat die op grilliger oevers meer schommelt (ρ = `r tv_rho("grillig_verandering", "tldk_wtrwtr_perc")`, p = `r if (is.null(tv)) NA else nl_tv(tv$grillig_verandering["tldk_wtrwtr_perc", "p"])`). Dit is getoetst op maar `r if (is.null(tv)) NA else tv$grillig_verandering["tldk_oevrwtr_perc", "n"]` profielsecties met meerdere meetjaren en een grilligheidsscore.
+
+De taludhoeken zijn als volgt in de analyses gebruikt:
+
+- Als voorspellers in XGBoost en Random Forest (`tldk_oevrwtr_perc` en `tldk_wtrwtr_perc`), en daarmee ook in de ALE-plots en de kantelpuntanalyse. In de GAM's zitten ze alleen als ze bij de vijf belangrijkste voorspellers (permutation importance) van de betreffende doelvariabele horen. Voor de boommodellen maakt het niet uit of de hoek in procenten of graden is uitgedrukt, omdat de volgorde van de waarden gelijk blijft; kantelpunten en ALE-assen staan in procenten.
+- Bij het groepsbelang (permutation importance per groep) valt de taludhoek onder water samen met de maximale waterdiepte in de groep *diepte*, en de taludhoek boven water samen met de oeverbreedte in de groep *oevervorm*.
+- In de vernattingsrisico-index als component *steilheid van de oever*: de taludhoek boven water rond de waterlijn gedeeld door 100 en afgekapt op 1. Hellingen van 100% (45°) en steiler tellen dus even zwaar.
+- In de modeldata is de hoek rond de waterlijn aangevuld met de hoek over 3 of 1 meter bij `r if (is.null(tv)) NA else tv$aanvulling$n_boven` (boven water) en `r if (is.null(tv)) NA else tv$aanvulling$n_onder` (onder water) van de `r if (is.null(tv)) NA else tv$aanvulling$n_gekoppeld` sloot-jaarcombinaties met een gekoppeld profiel.
 - Breedte oeverzone: breedte van de zone van insteek tot waterlijn.
 
 #### Proxies voor draagkracht van de oever en het perceel
@@ -394,6 +423,7 @@ De implementatie maakt gebruik van gradient boosting (XGBoost) in R met de volge
 - Maximale boostronden: 500; leersnelheid (eta): 0.05; maximale boomdiepte: 4
 - Regularisatie: L2 (lambda = 2), minimaal bladgewicht (min_child_weight = 5), minimale splitwinst (gamma = 0.1)
 - Subsampling: 80% rijen en kolommen per boom
+- Robuustheid: met circa 135 sloten bestaat de testset uit maar circa 27 sloten, waardoor de testset-R² sterk afhangt van welke sloten toevallig in de testset vallen. Elk model is daarom ook getraind op tien verschillende willekeurige splitsingen. Naast de R² van de splitsing waarop de figuren zijn gebaseerd, worden de mediaan en het bereik over deze tien splitsingen gerapporteerd (@tbl-performance). Voor de kantelpunten is per splitsing de ALE-curve opnieuw berekend en geteld hoe vaak het kantelpunt terugkomt (@tbl-xgb-kantelpunten).
 
 Deze hyperparameters zijn niet via een formele tuning-procedure (bijvoorbeeld grid search met kruisvalidatie) geoptimaliseerd, maar vooraf vastgezet op waarden die conservatief zijn afgestemd op de relatief kleine datasetomvang van VeeST (circa 110-130 sloten na filtering, zie Methoden). Een uitgebreide hyperparameter-tuning met kruisvalidatie zou bij deze n al snel zelf overfitten op de validatieset: met zo weinig sloten is de kans groot dat een tuning-procedure een combinatie van instellingen "vindt" die toevallig goed past bij de specifieke train/validatie-split, zonder dat dit een echt beter generaliserend model oplevert. In plaats daarvan is gekozen voor instellingen die de modelcomplexiteit uit voorzorg beperken: een lage leersnelheid (eta = 0.05) met veel mogelijke boostronden (tot 500) in combinatie met early stopping laat het model voorzichtig en incrementeel leren, een beperkte boomdiepte (4) en hoog minimaal bladgewicht (min_child_weight = 5) voorkomen dat individuele bomen te veel op kleine subgroepen sloten worden toegesneden, en de toegevoegde L2- en gamma-regularisatie ontmoedigen splitsingen die weinig aan de voorspelkracht toevoegen. Dit is een bewuste, behoudende keuze om overfitting te beperken gegeven de beperkte steekproefomvang, ten koste van mogelijk iets minder scherp afgestemde prestaties per doelvariabele dan een volledige tuning-procedure zou opleveren.
 
@@ -699,41 +729,57 @@ if (!is.null(clusteranalyse_veest) && !is.null(clusteranalyse_veest$plot_box)) {
 
 Wat opvalt is dat de variabelen die het meest onderscheidend zijn (hoogste eta²) vooral chemische eigenschappen en vegetatie in de sloot (niet op de oever) betreffen, terwijl de oeverstructuur- en vegetatie op de oever relatief weinig bijdragen aan het onderscheid tussen clusters. 
 
-Trofie veen is lager in cluster 3, 4, 6 en 8 (laagste trofiegehalte in veen) dan in de overige clusters. Cluster 3, 4 en 6 hebben ook de hoogste aantallen soorten waterplanten (zie @fig-clusteranalyse-boxplot), P-AL in slib is het laagst en Fe-P is het hoogst in deze clusters. Totaal-P in de oever is wel lager in cluster 3 en 4, maar juist niet in cluster 6. De relatie tussen de hoeveelheid P in de oever en de hoeveelheid P in het slib is zeer zwak (@fig-pfe-matrix) en dus niet eenduidig. 
-
 ```{r}
-#| label: fig-clusteranalyse-kaart-158
-#| fig-cap: "Ruimtelijke spreiding van de abiotische clusters 3, 4 en 6."
-#| fig-height: 8
-#| fig-width: 10
-if (!is.null(clusteranalyse_veest) && !is.null(clusteranalyse_veest$plot_kaart_clusters_3_4_6)) {
-  print(clusteranalyse_veest$plot_kaart_clusters_3_4_6)
+#| label: check-clusterindeling
+#| output: asis
+# De clusterbeschrijvingen hieronder zijn handmatig geschreven bij de run met
+# k = 7 (clusteranalyse_veest.rds van 3-11-2026). Als de indeling verandert
+# (ander k, andere data of variabelen), verschijnt hier een waarschuwing in het
+# rapport, zodat de tekst niet ongemerkt bij een andere indeling komt te staan.
+n_cl_verwacht <- c(17L, 56L, 30L, 26L, 27L, 23L, 14L)
+n_cl <- if (!is.null(clusteranalyse_veest)) {
+  setNames(
+    clusteranalyse_veest$gebieden_per_cluster$n_sloten,
+    clusteranalyse_veest$gebieden_per_cluster$cluster_abio
+  )
 } else {
-  cat("Kaart niet gevonden in clusteranalyse_veest.rds.")
+  setNames(rep(NA_integer_, length(n_cl_verwacht)), seq_along(n_cl_verwacht))
+}
+if (!is.null(clusteranalyse_veest) &&
+    (clusteranalyse_veest$qc$k_used != length(n_cl_verwacht) ||
+     !identical(as.integer(unname(n_cl)), n_cl_verwacht))) {
+  cat(
+    "\n\n**LET OP: de clusterindeling in clusteranalyse_veest.rds wijkt af van",
+    "de indeling waarop de clusterbeschrijvingen hieronder zijn gebaseerd",
+    sprintf("(k = %d, clustergroottes %s).", length(n_cl_verwacht), paste(n_cl_verwacht, collapse = "/")),
+    "Werk de tekst bij voordat dit rapport wordt verspreid.**\n\n"
+  )
 }
 ```
 
+<!-- CONCEPT (13-11-2026): trofie-alinea en clusterbeschrijvingen herschreven op basis van de medianen per cluster in de huidige run (k = 7). Interpretatie (kwel, kleimineralen, verzuring) nog laten controleren door het modelleringsteam. -->
+
+Het veen is het minst voedselrijk in cluster 1 (oligotroof), cluster 6 (meso-oligotroof) en cluster 5 en 7 (mesotroof); cluster 2, 3 en 4 liggen overwegend op eutroof veen. Cluster 1, 5 en 7 hebben ook de meeste waterplantensoorten in zone 1 (mediaan 7–12,5 soorten, tegen 1–3 in de overige clusters; zie @fig-clusteranalyse-boxplot) en het laagste P-AL in het slib. De Fe/P-verhouding in het poriewater is het hoogst in cluster 7 en 1. Cluster 6 wijkt af: ondanks relatief voedselarm veen is P-AL in het slib hier het hoogst. Totaal-P in de oever is het laagst in cluster 1, maar juist het hoogst in cluster 7. De relatie tussen de hoeveelheid P in de oever en de hoeveelheid P in het slib is zeer zwak (@fig-pfe-matrix) en dus niet eenduidig.
+
 ```{r}
-#| label: fig-clusteranalyse-kaart-23467
-#| fig-cap: "Ruimtelijke spreiding van de abiotische clusters 1, 2, 5, 7 en 8."
+#| label: fig-clusteranalyse-kaart
+#| fig-cap: "Ruimtelijke spreiding van de abiotische clusters. Elk paneel toont één cluster in kleur; de overige VeeST-locaties staan in grijs."
 #| fig-height: 8
-#| fig-width: 10
-if (!is.null(clusteranalyse_veest) && !is.null(clusteranalyse_veest$plot_kaart_clusters_1_2_5_7_8)) {
-  print(clusteranalyse_veest$plot_kaart_clusters_1_2_5_7_8)
+#| fig-width: 12
+if (!is.null(clusteranalyse_veest) && !is.null(clusteranalyse_veest$plot_kaart_clusters)) {
+  print(clusteranalyse_veest$plot_kaart_clusters)
 } else {
-  cat("Kaart niet gevonden in clusteranalyse_veest.rds.")
+  cat("Kaart niet gevonden in clusteranalyse_veest.rds — voer Analyses_dev_db.R opnieuw uit.")
 }
 ```
 
-- **Cluster 1** is het grootste cluster (58 sloten) en neemt qua bijna alle variabelen een tussenpositie in tussen 2 en 4, met relatief het hoogste fosforgehalte in het slib (P_CC).
-- **Cluster 2** heeft relatief hoog trofiegehalte in het veen én het soortenarmst (mediaan 1 soort). Ook de hoogste Ga/MgO (vaak gepaard met kleiafzettingen) en het laagst in chlorideconcentratie.
-- **Cluster 3** (Eempolder en Idzegea) valt op door de relatief laagste P-totaal in de oever en Barium in het slib.
-- **Cluster 4** springt er sterk uit door een zeer hoog opgelost ijzergehalte in de oever gecombineerd met een lage pH (3.76; een indicatie van zure, ijzerrijke omstandigheden, verzuurde/geoxideerde veenbodem), terwijl dit tegelijk een van de clusters is met de meest soortenrijke sloten met relatief voedselarm slib (lage P-AL in slib).
-- **Cluster 5** zijn enkele locaties in Assendelft met een zeer hoge P-AL in het slib, een hoog gehalte P-totaal in de oever, zeer hoge concentratie chloride in het poriewater (mediane concentratie 34 mg/l), lagere opgelost ijzergehalte (calciumchloride) en een veel hogere pH (calciumchloride) in de toplaag van de oever.
-- **Cluster 5 en 8** vallen op met relatief hoge magnesium en chlorideconcentraties in poriewater (chloride is respectievelijk 34 en 16 mg/l, terwijl dit in de overige clusters < 3 mg/l is), al is chloride zelf geen top-16 eta²-variabele in de boxplot (na logtransformatie verliest hij onderscheidend vermogen). Totaal magnesium in de oever is niet sterk verhoogd in deze clusters; het verschil tussen poriewater en vaste matrix indiceert hier dus een andere bron (kwel) van magnesium (en chloride) in het poriewater dan de waterbodem of oever.
-- **Cluster 6** (vooral locaties in Staphosterveen en Olde Maten) valt op door de veel lagere P-AL en een reeks kalium-, magnesium- en galliumgerelateerde variabelen die stuk voor stuk het laagst zijn van alle clusters: K2O-totaalgehalte in de vaste matrix van het slib (K2O_xrf_g/kg_SB), Ga-totaalgehalte in de vaste matrix van het slib (Ga_xrf_mg/kg_SB), MgO-totaalgehalte in de vaste matrix van de oever (MgO_xrf_g/kg_OR_25), opgelost magnesium in het poriewater (Mg_umol/l_PW) en uitwisselbaar (CaCl2-extraheerbaar) magnesium in het slib (Mg_CC_mg/kg_SB). De eerste drie (K2O-, Ga- en MgO-totaalgehalte) zijn alle drie XRF-totalen in de vaste matrix en hangen sterk samen met weinig aluminium en titanium: samen wijzen ze op weinig kleimineralen in de vaste matrix. Het opgeloste en het uitwisselbare magnesium (poriewater resp. CaCl2-slib) meten een ander, chemisch proces (beschikbaarheid/mobiliteit van Mg) en geven een aanvullend, niet-redundant onderscheid. Cluster 6 heeft daarnaast hoge ijzergehaltes, waarschijnlijk worden deze locaties beïnvloed door voedselarme en ijzerrijke kwel, terwijl cluster 5 (Assendelft) juist voedselrijk (mariene) kwelwater ontvangt.
-- **Cluster 7** (vooral zuidwestelijk veenweidegebied, maar niet de Krimpenerwaard) heeft net als cluster 1 en 2 relatief hoge P-AL in het slib, maar relatief lage P-totaal in de oever en een lage Fe/P-verhouding.
-- **Cluster 8** valt op door de hoge P-AL in het slib, maar juist gemiddelde P-totaal in de oever en een lage Fe/P-verhouding.
+- **Cluster 1** (`r n_cl["1"]` sloten, vrijwel alleen Idzega en Eemland) is het enige cluster op oligotroof veen. Het slib is na cluster 7 het voedselarmst (P-AL mediaan 19 mg P~2~O~5~/100 g) en totaal-P in de oever is het laagst van alle clusters. De Fe/S-verhouding (slib en oever) en de Fe/P-verhouding in het poriewater zijn hoog. De oever heeft het laagste organischestofgehalte (mediaan 19%) en het hoogste MgO-totaalgehalte, wat wijst op een kleiiger profiel (klei-op-veen). Met mediaan 10 soorten in zone 1 is dit een van de soortenrijkste clusters.
+- **Cluster 2** is het grootste cluster (`r n_cl["2"]` sloten, verspreid over het westelijk veenweidegebied, o.a. Krimpenerwaard, Ronde Hoep, Zegveld en Demmerik). Het ligt op eutroof veen met het hoogste organischestofgehalte in de oever (mediaan 47%). Het slib is fosfaatrijk (P-AL mediaan 68 mg P~2~O~5~/100 g en het hoogste P-CaCl~2~), terwijl de Fe/P- en Fe/S-verhoudingen en het opgelost ijzer in het poriewater het laagst zijn. Dit cluster is soortenarm in zone 1 (mediaan 2 soorten).
+- **Cluster 3** (`r n_cl["3"]` sloten, vooral Krimpenerwaard-Nesse en Mijnden) ligt op eutroof veen en heeft de laagste chlorideconcentratie in het poriewater (mediaan 37 mg/l) en het laagste aantal soorten in zone 1 (mediaan 1). P-AL in het slib is gemiddeld (44 mg P~2~O~5~/100 g).
+- **Cluster 4** (`r n_cl["4"]` sloten, o.a. Lange Weide, de Tol, Landgoed Guntherstein en Zegveld) ligt op eutroof veen en heeft de hoogste Ga-, Ni-, Ba- en K~2~O-totaalgehalten in het slib en een hoog MgO-gehalte in de oever. Dat wijst op relatief veel kleimineralen. P-AL in het slib is relatief hoog (52 mg P~2~O~5~/100 g).
+- **Cluster 5** (`r n_cl["5"]` sloten, o.a. Akkerdijkse polder, Poppenhuizen, Blesdijke en Hegewarren) valt op door een zeer hoog CaCl~2~-extraheerbaar ijzergehalte in de oever (mediaan 37 mg/kg, tegen 2–5 mg/kg in de overige clusters) gecombineerd met de laagste pH-CaCl~2~ in de oever (3,8). Dit wijst op zure, ijzerrijke omstandigheden in een verzuurde/geoxideerde veenbodem. Het slib is relatief voedselarm (P-AL 29 mg P~2~O~5~/100 g) en het aantal soorten in zone 1 is relatief hoog (mediaan 7).
+- **Cluster 6** (`r n_cl["6"]` sloten, vooral Noord-Holland: Assendelft, Wormer- en Jisperveld, Eilandspolder, Spaarnwoude, Zuiderveen en Polder Westzaan) heeft veruit de hoogste chloride- en magnesiumconcentraties in het poriewater (chloride mediaan 563 mg/l, ongeveer 16 mmol/l, tegen 37–131 mg/l in de overige clusters) en het hoogste uitwisselbaar magnesium in het slib. P-AL is hier het hoogst, zowel in het slib (71 mg P~2~O~5~/100 g) als in de oever, terwijl het veen meso-oligotroof is. De combinatie van chloride, magnesium en fosfaat wijst op aanvoer van brak, voedselrijk water (mariene kwel of inlaatwater) en niet op nalevering uit het veen zelf.
+- **Cluster 7** (`r n_cl["7"]` sloten, vrijwel alleen Staphorsterveld en Olde Maten) heeft de laagste MgO-, K~2~O-, Ga- en Ni-totaalgehalten en het laagste magnesium in slib en poriewater, wat wijst op weinig kleimineralen. Het slib is het voedselarmst van alle clusters (laagste P-AL, mediaan 9 mg P~2~O~5~/100 g), terwijl de Fe/P-verhouding (mediaan 20, tegen 0,1–1,7 elders) en het opgelost ijzer in het poriewater het hoogst zijn. Dit is het soortenrijkste cluster (mediaan 12,5 soorten in zone 1). Waarschijnlijk worden deze locaties beïnvloed door voedselarme, ijzerrijke kwel, terwijl cluster 6 juist brak, voedselrijk water ontvangt.
 
 @tbl-gebieden-per-cluster geeft per abiotisch cluster het aantal sloten en de meest voorkomende gebieden weer, ter aanvulling op de inhoudelijke kenmerken hierboven.
 
@@ -755,7 +801,7 @@ if (!is.null(clusteranalyse_veest) && !is.null(clusteranalyse_veest$gebieden_per
 
 ```{r}
 #| label: tbl-performance
-#| tbl-cap: "Testset R² (%) en ruimtelijke CV-R² (%) voor XGBoost en Random Forest per doelvariabele. CV-R² is het gemiddelde over leave-one-waterschap-out folds met \u2265 4 testlocaties (zie @tbl-cv-compare); NA betekent dat de doelvariabele niet in de ruimtelijke CV is meegenomen."
+#| tbl-cap: "Testset R² (%) en ruimtelijke CV-R² (%) voor XGBoost en Random Forest per doelvariabele. 'R² XGBoost (%)' is de R² van de splitsing waarop de figuren zijn gebaseerd; 'R² XGBoost 10 splitsingen' is de mediaan (en het bereik) over tien willekeurige train/validatie/test-splitsingen. CV-R² is het gemiddelde over leave-one-waterschap-out folds met \u2265 4 testlocaties (zie @tbl-cv-compare); NA betekent dat de doelvariabele niet in de ruimtelijke CV is meegenomen."
 min_n_test_cv_perf <- 4
 
 rf_cv_perf  <- rf_cv_results[!is.na(r2) & n_test >= min_n_test_cv_perf, .(
@@ -768,10 +814,20 @@ xgb_cv_perf <- cv_results[!is.na(r2) & n_test >= min_n_test_cv_perf, .(
 perf_tbl <- rf_vs_xgb[!is.na(target_nl)]
 perf_tbl <- merge(perf_tbl, rf_cv_perf,  by = "target", all.x = TRUE)
 perf_tbl <- merge(perf_tbl, xgb_cv_perf, by = "target", all.x = TRUE)
+# Spreiding over meerdere splitsingen (Analyses_dev_db.R, sectie "Robuustheid
+# over meerdere train/validatie/test-splitsingen"); leeg bij een oudere run.
+ms_cols <- c("r2_test_mediaan", "r2_test_min", "r2_test_max")
+if (all(ms_cols %in% names(performance_summary))) {
+  perf_tbl <- merge(perf_tbl, performance_summary[, c("target", ms_cols), with = FALSE], by = "target", all.x = TRUE)
+} else {
+  perf_tbl[, (ms_cols) := NA_real_]
+}
 
 perf_tbl <- perf_tbl[, .(
   target_nl,
   `R² XGBoost (%)`    = round(r2_xgb * 100),
+  `R² XGBoost 10 splitsingen` = fifelse(is.na(r2_test_mediaan), "–",
+    sprintf("%d%% (%d–%d%%)", round(r2_test_mediaan * 100), round(r2_test_min * 100), round(r2_test_max * 100))),
   `RMSE XGBoost`      = signif(rmse_xgb, 3),
   `R² RF (%)`         = round(r2_rf * 100),
   `RMSE RF`           = signif(rmse_rf, 3),
@@ -1093,7 +1149,7 @@ if (nrow(afw_xgb) > 0) {
 }
 ```
 
-**Draagkracht oever** wordt overwegend bepaald door fysieke kenmerken. Onderholling (negatief) en de diepte van de laagst gemeten draagkracht zijn de belangrijkste voorspellers. Meer onderholling maakt de oever slapper, wat een fysisch aannemelijk verband is; een diepere ligging van het zwakste punt gaat samen met een hogere draagkracht aan het oppervlak. Daarna volgen drooglegging (negatief) en waterbreedte (positief). Dat een grotere drooglegging samengaat met een lagere draagkracht van de oever, is tegen de verwachting in en mogelijk een gebiedseffect. Organisch stofgehalte en maximale slibdikte zijn zwakker en negatief gerelateerd.
+**Draagkracht oever** wordt overwegend bepaald door fysieke kenmerken. Onderholling (negatief) en de diepte van de laagst gemeten draagkracht zijn de belangrijkste voorspellers. Meer onderholling maakt de oever slapper, wat een fysisch aannemelijk verband is; een diepere ligging van het zwakste punt gaat samen met een hogere draagkracht aan het oppervlak. Daarna volgen drooglegging (negatief) en waterbreedte (positief). Dat een grotere drooglegging samengaat met een lagere draagkracht van de oever, is tegen de verwachting in en mogelijk een gebiedseffect. Organisch stofgehalte en maximale slibdikte zijn zwakker en negatief gerelateerd. De verbanden met draagkracht moeten echter voorzichtig worden geïnterpreteerd: bij sloten die in meerdere jaren zijn gemeten, verschilt de draagkracht van dezelfde sloot tussen jaren ongeveer even veel als tussen sloten. Eén meting per sloot geeft dus geen betrouwbaar beeld van de draagkracht, en dat beperkt hoe sterk een verband met andere kenmerken kan uitvallen.
 
 **Slibdikte** is na de correctie van de dwarsprofielen matig voorspelbaar (testset-R² XGBoost `r r2x("max_slib")`%, Random Forest `r r2rf("max_slib")`%); de rangorde van de voorspellers is daardoor onzeker. Bij Gain is de maximale waterdiepte de belangrijkste voorspeller (negatief: ondieper water gaat samen met meer slib), bij permutation importance de breedte van oeverzone 2b (positief). Dat laatste verband is zwak en vooral een verschil tussen gebieden: over alle sloten is de rangcorrelatie tussen de breedte van zone 2b en de slibdikte `r nl_d(slib_2b$rho, 2)`, binnen gebieden `r nl_d(slib_2b$rho_binnen, 2)` (p = `r nl_d(slib_2b$p_binnen, 2)`). Alleen sloten met een zeer smalle zone 2b (hoogstens 20 cm) hebben duidelijk minder slib. Het model gebruikt de breedte van zone 2b dus vooral als aanwijzing voor het gebied; een bredere oeverzone leidt niet tot meer slib. Daarna volgen P-AL slib (positief), de taludhoek onder de waterlijn (negatief: een flauwere oever onder water gaat samen met meer slib) en onderholling (positief). Een mogelijke verklaring voor het verband met de taludhoek is stroming: stroming kan steile kanten veroorzaken door afkalving en voert tegelijk slib af. Dat meer slib samengaat met een hogere fosfaatstatus, is uit deze analyse niet als oorzaak of gevolg te duiden. Het is mogelijk dat een grote slibdikte bepalend is voor de mobilisatie van fosfaat als gevolg van redoxprocessen. Anderzijds is het mogelijk dat een hoge fosfaatbeschikbaarheid het gevolg is van intensief agrarisch beheer en relatief diepe ontwatering in het verleden. Met een lager belang is organische stof in de oever positief gerelateerd, en drooglegging, de draagkracht van oever en perceel en de redox van het slib negatief. Veentype komt alleen bij permutation importance in de top-10 voor; waterbreedte en koebelasting niet.
 
@@ -1161,6 +1217,11 @@ opsomming <- function(x) if (length(x) <= 1) x else paste(paste(head(x, -1), col
 kp <- as.data.table(xgb_kantelpunt_tbl)
 if (!"richting" %in% names(kp)) kp[, richting := NA_character_]
 if (!"n_valtest_bij_omslag" %in% names(kp)) kp[, n_valtest_bij_omslag := NA_integer_]
+# Stabiliteit over meerdere splitsingen (leeg bij een oudere run van Analyses_dev_db.R)
+for (k in c("kantel_stabiel_n", "n_splits", "r2_test_mediaan", "r2_test_min", "r2_test_max")) {
+  if (!k %in% names(kp)) kp[, (k) := NA_real_]
+}
+rm(k)
 # aanvullende voorspellers (naast de automatische top-2), zie kantelpunt_extra in Analyses_dev_db.R
 kp_extra <- list(max_slib = c("zichtdiepte", "tldk_wtrwtr_perc"))
 kp[, extra := mapply(function(t, p) p %in% kp_extra[[t]], target, predictor)]
@@ -1178,7 +1239,7 @@ kp[, tegengesteld := !is.na(richting) & !is.na(richting_vip) & richting != richt
 kp[, weinig_valtest := !is.na(n_valtest_bij_omslag) & n_valtest_bij_omslag < 10]
 kp[weinig_valtest == TRUE, betrouwbaarheid := "Beperkt betrouwbaar"]
 kp[tegengesteld == TRUE, betrouwbaarheid := "Onbetrouwbaar"]
-kp_doelen <- unique(kp[, .(target, target_nl, r2_test)])[order(-r2_test)]
+kp_doelen <- unique(kp[, .(target, target_nl, r2_test, r2_test_mediaan)])[order(-r2_test)]
 pct <- function(x) paste0(round(100 * x), "%")
 kp_doelen_zin <- opsomming(paste0("**", kp_doelen$target_nl, "** (", pct(kp_doelen$r2_test), ")"))
 fx <- function(x) f1(x, if (abs(x) >= 10) 0 else 2)
@@ -1216,12 +1277,15 @@ print(xgb_kantelpunt_plot)
 
 ```{r}
 #| label: tbl-xgb-kantelpunten
-#| tbl-cap: "Betrouwbaarheid van de kantelpunten in fig-xgb-kantelpunten. 'Richting' = + als het effect op de doelvariabele rond het omslagpunt toeneemt bij een hogere predictorwaarde, − als het afneemt. 'Sloten bij omslag' = aantal modelrijen (sloot × jaar) met een predictorwaarde binnen 8% van de x-range rond het omslagpunt; 'waarvan val/test' = het deel daarvan in de validatie- en testset. 'SD-ratio' = spreiding van het residu bij die validatie- en testrijen t.o.v. de residu-spreiding over alle validatie- en testrijen (>1 betekent dat de voorspelling rond dit punt onzekerder is dan gemiddeld voor dit model; leeg bij minder dan 5 rijen). Een kantelpunt is 'onbetrouwbaar' als de richting tegengesteld is aan het totale verband in fig-vip-xgb, en hooguit 'beperkt betrouwbaar' bij minder dan 10 validatie- en testrijen rond het omslagpunt."
+#| tbl-cap: "Betrouwbaarheid van de kantelpunten in fig-xgb-kantelpunten. 'Richting' = + als het effect op de doelvariabele rond het omslagpunt toeneemt bij een hogere predictorwaarde, − als het afneemt. 'Sloten bij omslag' = aantal modelrijen (sloot × jaar) met een predictorwaarde binnen 8% van de x-range rond het omslagpunt; 'waarvan val/test' = het deel daarvan in de validatie- en testset. 'SD-ratio' = spreiding van het residu bij die validatie- en testrijen t.o.v. de residu-spreiding over alle validatie- en testrijen (>1 betekent dat de voorspelling rond dit punt onzekerder is dan gemiddeld voor dit model; leeg bij minder dan 5 rijen). 'R² 10 splitsingen' = mediaan (en bereik) van de testset-R² over tien willekeurige splitsingen; 'Terug in splitsingen' = in hoeveel van die splitsingen het kantelpunt terugkomt (binnen 8% van de x-range en met dezelfde richting). 'Redelijk betrouwbaar' vraagt een mediane R² van minstens 50% en een kantelpunt dat in minstens 8 van de 10 splitsingen terugkomt; bij een mediane R² onder 30% of een kantelpunt dat in minder dan de helft van de splitsingen terugkomt, is het kantelpunt hooguit 'beperkt betrouwbaar'. Een kantelpunt is 'onbetrouwbaar' als de richting tegengesteld is aan het totale verband in fig-vip-xgb, en hooguit 'beperkt betrouwbaar' bij minder dan 10 validatie- en testrijen rond het omslagpunt."
 kantel_tbl_out <- kp[, .(
   Doelvariabele        = target_nl,
   Voorspeller          = pred_nl,
   `R² model (test)`    = paste0(round(r2_test * 100, 0), "%"),
+  `R² 10 splitsingen`  = fifelse(is.na(r2_test_mediaan), "–",
+    sprintf("%d%% (%d–%d%%)", round(r2_test_mediaan * 100), round(r2_test_min * 100), round(r2_test_max * 100))),
   `Omslagpunt`         = x_omslag,
+  `Terug in splitsingen` = fifelse(is.na(kantel_stabiel_n), "–", paste0(kantel_stabiel_n, "/", n_splits)),
   Type                 = vorm,
   Richting             = sub("^-$", "−", richting),
   `Sloten bij omslag`  = paste0(n_sloten_bij_omslag, " / ", n_sloten_totaal),
@@ -1232,7 +1296,7 @@ kantel_tbl_out <- kp[, .(
 kable(kantel_tbl_out)
 ```
 
-Twee zaken bepalen hoe betrouwbaar zo'n kantelpunt is. Ten eerste: hoeveel sloten hebben een waarde dichtbij het kantelpunt (kolom "Sloten bij omslag")? Als dat er maar een paar zijn, is het omslagpunt op weinig informatie gebaseerd en dus minder zeker. Ten tweede: hoe groot is de "lokale spreiding" (SD-ratio) bij de sloten die rond het kantelpunt liggen? Dit is de spreiding in de voorspelfout van het model bij sloten rond het kantelpunt, vergeleken met de spreiding in de voorspelfout van het model over alle sloten samen; beide zijn berekend op de sloten in de validatie- en testset, die het model niet heeft gebruikt om te trainen (zie "Validatie XGBoost-model"). Een SD-ratio rond 1 betekent dat het model bij deze sloten niet onzekerder voorspelt dan gemiddeld; een SD-ratio duidelijk boven 1 betekent dat het model juist bij déze sloten minder goed voorspelt, wat erop wijst dat het gevonden kantelpunt zelf ook minder precies is vastgesteld. Kantelpunten die op veel sloten zijn gebaseerd én een normale (niet-verhoogde) lokale spreiding hebben, zijn dus het meest betrouwbaar. Daarnaast is gecontroleerd of de richting van het effect rond het omslagpunt overeenkomt met het totale verband tussen voorspeller en doelvariabele (de +/− in @fig-vip-xgb). Is die tegengesteld, dan beschrijft het kantelpunt een lokale knik in een niet-monotone ALE-curve en niet een drempelwaarde waarboven het verwachte effect optreedt; zo'n kantelpunt wordt als onbetrouwbaar aangemerkt. Liggen er minder dan 10 validatie- en testsloten rond het omslagpunt, dan is de SD-ratio te onzeker en is het kantelpunt hooguit beperkt betrouwbaar.
+Twee zaken bepalen hoe betrouwbaar zo'n kantelpunt is. Ten eerste: hoeveel sloten hebben een waarde dichtbij het kantelpunt (kolom "Sloten bij omslag")? Als dat er maar een paar zijn, is het omslagpunt op weinig informatie gebaseerd en dus minder zeker. Ten tweede: hoe groot is de "lokale spreiding" (SD-ratio) bij de sloten die rond het kantelpunt liggen? Dit is de spreiding in de voorspelfout van het model bij sloten rond het kantelpunt, vergeleken met de spreiding in de voorspelfout van het model over alle sloten samen; beide zijn berekend op de sloten in de validatie- en testset, die het model niet heeft gebruikt om te trainen (zie "Validatie XGBoost-model"). Een SD-ratio rond 1 betekent dat het model bij deze sloten niet onzekerder voorspelt dan gemiddeld; een SD-ratio duidelijk boven 1 betekent dat het model juist bij déze sloten minder goed voorspelt, wat erop wijst dat het gevonden kantelpunt zelf ook minder precies is vastgesteld. Kantelpunten die op veel sloten zijn gebaseerd én een normale (niet-verhoogde) lokale spreiding hebben, zijn dus het meest betrouwbaar. Daarnaast is gecontroleerd of de richting van het effect rond het omslagpunt overeenkomt met het totale verband tussen voorspeller en doelvariabele (de +/− in @fig-vip-xgb). Is die tegengesteld, dan beschrijft het kantelpunt een lokale knik in een niet-monotone ALE-curve en niet een drempelwaarde waarboven het verwachte effect optreedt; zo'n kantelpunt wordt als onbetrouwbaar aangemerkt. Liggen er minder dan 10 validatie- en testsloten rond het omslagpunt, dan is de SD-ratio te onzeker en is het kantelpunt hooguit beperkt betrouwbaar. Tot slot is gecontroleerd of het kantelpunt terugkomt als het model op een andere willekeurige verdeling van de sloten over train-, validatie- en testset wordt getraind (tien splitsingen). Een kantelpunt dat maar in een deel van de splitsingen terugkomt, hangt af van welke sloten toevallig in de trainingsset zaten en is daarmee geen robuuste drempelwaarde.
 
 ```{r}
 #| results: asis
@@ -1245,11 +1309,15 @@ spreiding_zin <- function(r) {
   if (r <= 1.1) return(paste0("een spreiding dicht bij gemiddeld (SD-ratio ", f1(r, 2), ")"))
   paste0("een spreiding ", round(100 * (r - 1)), "% hoger dan gemiddeld (SD-ratio ", f1(r, 2), ")")
 }
+stab_zin <- function(k, n) {
+  if (is.na(k) || is.na(n)) return("")
+  paste0(", en komt in ", k, " van de ", n, " splitsingen terug")
+}
 kp_zin <- function(i) with(kp[i], paste0(
   "het kantelpunt bij ", pred_nl, " ≈ ", fx(x_omslag), " is een ", tolower(vorm),
   if (!is.na(richting)) paste0(" (boven het omslagpunt is het effect ", if (richting == "+") "hoger" else "lager", ")") else "",
   ", gebaseerd op ", n_sloten_bij_omslag, " van de ", n_sloten_totaal, " sloten, met ",
-  spreiding_zin(ratio_sd_lokaal_vs_globaal), ": ", tolower(betrouwbaarheid),
+  spreiding_zin(ratio_sd_lokaal_vs_globaal), stab_zin(kantel_stabiel_n, n_splits), ": ", tolower(betrouwbaarheid),
   if (tegengesteld) paste0(", omdat het effect rond dit omslagpunt tegengesteld is aan het totale verband tussen ",
                            pred_nl, " en ", target_nl, " (", if (richting_vip == "+") "positief" else "negatief",
                            ", zie @fig-vip-xgb); de ALE-curve is hier niet monotoon en dit omslagpunt is geen robuuste drempelwaarde")
@@ -1261,7 +1329,8 @@ for (j in seq_len(nrow(kp_doelen))) {
   extra_rijen <- kp[target == tgt & extra, which = TRUE]
   zinnen <- vapply(rijen, kp_zin, "")
   if (length(zinnen) > 1) zinnen[-1] <- sub("^het", "Het", zinnen[-1])
-  cat(sprintf("**%s** (testset-R² XGBoost = %s): %s", kp_doelen$target_nl[j], pct(kp_doelen$r2_test[j]),
+  r2_ms <- if (is.na(kp_doelen$r2_test_mediaan[j])) "" else paste0("; mediaan over tien splitsingen ", pct(kp_doelen$r2_test_mediaan[j]))
+  cat(sprintf("**%s** (testset-R² XGBoost = %s%s): %s", kp_doelen$target_nl[j], pct(kp_doelen$r2_test[j]), r2_ms,
               paste(zinnen, collapse = " ")))
   if (length(extra_rijen)) {
     ez <- vapply(extra_rijen, kp_zin, "")
@@ -2028,7 +2097,7 @@ Deze bijlage geeft een overzicht van gebiedskenmerken en kwaliteitsindices van d
 
 ```{r}
 #| label: fig-bodemtype-classificatie
-#| fig-cap: "Basis voor bodemtype classificatie per sloot (kleigehalte vs. organisch stofgehalte), met labels voor gebieden dicht bij een classificatiegrens."
+#| fig-cap: "Basis voor bodemtype classificatie per sloot (kleigehalte als % van de minerale delen vs. organisch stofgehalte als % van de totale bodem, berekend als 1,5 × TOC), met labels voor gebieden dicht bij een classificatiegrens."
 #| fig-height: 7
 #| fig-width: 9
 if (!is.null(p_bodemtype_classificatie)) {
@@ -2042,9 +2111,9 @@ if (!is.null(p_bodemtype_classificatie)) {
 
 ```{r}
 #| label: fig-bodemfractie-gebied
-#| fig-cap: "Fractie sloten per bodemklasse (klei/veen/zand/moerig/overig) per gebied."
-#| fig-height: 7
-#| fig-width: 10
+#| fig-cap: "Fractie sloten per bodemklasse (klei/veen/zand/moerig/overig) per gebied; organische stof berekend als 1,5 × TOC."
+#| fig-height: 10
+#| fig-width: 9
 if (!is.null(p_bodemfractie_gebied)) {
   print(p_bodemfractie_gebied)
 } else {
@@ -2059,8 +2128,8 @@ if (!is.null(p_bodemfractie_gebied)) {
 ```{r}
 #| label: fig-ir-egv
 #| fig-cap: "IR-EGV diagram per gebied (oppervlaktewater en poriewater), afgezet tegen het LAT-referentiekader."
-#| fig-height: 7
-#| fig-width: 9
+#| fig-height: 11
+#| fig-width: 10
 if (!is.null(p_ir_egv)) {
   print(p_ir_egv)
 } else {
@@ -2127,7 +2196,7 @@ if (!is.null(p_redox_slib_water)) {
 
 ### Ammoniumtoxiciteit
 
-@fig-ammonium-toxiciteit toont de ammoniumconcentratie in poriewater per gebied, afgezet tegen toxiciteitsdrempels voor verschillende soortgroepen.
+@fig-ammonium-toxiciteit toont de ammoniumconcentratie in poriewater per gebied, afgezet tegen toxiciteitsdrempels voor verschillende soortgroepen; @fig-ammonium-toxiciteit-regio toont hetzelfde, apart voor het westelijk veenweidegebied en het noordoosten.
 
 ```{r}
 #| label: fig-ammonium-toxiciteit
@@ -2141,14 +2210,82 @@ if (!is.null(p_ammonium_toxiciteit)) {
 }
 ```
 
+```{r}
+#| label: fig-ammonium-toxiciteit-regio
+#| fig-cap: "Ammoniumconcentratie in poriewater per gebied, met toxiciteitsklassen, gesplitst naar westelijk veenweidegebied en noordoosten (Fryslân en WDOD)."
+#| fig-height: 9
+#| fig-width: 9
+if (!is.null(p_ammonium_toxiciteit_regio)) {
+  print(p_ammonium_toxiciteit_regio)
+} else {
+  cat("Figuur p_ammonium_toxiciteit_regio ontbreekt; draai eerst scripts/gebiedseigenschappen_sloten.R.")
+}
+```
+
+### P-AL in slib
+
+@fig-pal-slib-gebied toont P-AL in het slib per gebied; @fig-pal-slib-regio toont hetzelfde, apart voor het westelijk veenweidegebied en het noordoosten. De rode lijn geeft P-AL 50 mg P~2~O~5~/100 g aan: de grens naar de klasse "hoog" in de fosfaattoestand van grasland. Deze klassen gelden voor landbouwbodems; voor slib is de vergelijking indicatief. De stippellijn is het ALE-kantelpunt van P-AL voor de soortensamenstelling hydrofyten.
+
+```{r}
+#| label: fig-pal-slib-gebied
+#| fig-cap: "P-AL in slib per gebied, met de grens voor de klasse 'hoog' bij grasland (P-AL 50, rode lijn) en het ALE-kantelpunt voor de soortensamenstelling hydrofyten (stippellijn)."
+#| fig-height: 7
+#| fig-width: 9
+if (!is.null(p_pal_slib_gebied)) {
+  print(p_pal_slib_gebied)
+} else {
+  cat("Figuur p_pal_slib_gebied ontbreekt; draai eerst scripts/gebiedseigenschappen_sloten.R.")
+}
+```
+
+```{r}
+#| label: fig-pal-slib-regio
+#| fig-cap: "P-AL in slib per gebied, gesplitst naar westelijk veenweidegebied en noordoosten (Fryslân en WDOD), met de grens voor de klasse 'hoog' bij grasland (P-AL 50, rode lijn) en het ALE-kantelpunt voor de soortensamenstelling hydrofyten (stippellijn)."
+#| fig-height: 9
+#| fig-width: 9
+if (!is.null(p_pal_slib_regio)) {
+  print(p_pal_slib_regio)
+} else {
+  cat("Figuur p_pal_slib_regio ontbreekt; draai eerst scripts/gebiedseigenschappen_sloten.R.")
+}
+```
+
+@fig-pal-oever-slib zet P-AL in de oever (0–25 cm) en in het slib per gebied naast elkaar.
+
+```{r}
+#| label: fig-pal-oever-slib
+#| fig-cap: "P-AL in de oever (0–25 cm) en in het slib per gebied, gesorteerd op de mediaan in het slib, met de grens voor de klasse 'hoog' bij grasland (P-AL 50, rode lijn) en het ALE-kantelpunt voor de soortensamenstelling hydrofyten (stippellijn, geldt voor slib)."
+#| fig-height: 13
+#| fig-width: 9
+if (!is.null(p_pal_oever_slib)) {
+  print(p_pal_oever_slib)
+} else {
+  cat("Figuur p_pal_oever_slib ontbreekt; draai eerst scripts/gebiedseigenschappen_sloten.R.")
+}
+```
+
+@fig-pal-ammonium-regio zet P-AL in het slib en ammonium in het poriewater van het slib per gebied naast elkaar, gesplitst naar westelijk veenweidegebied en noordoosten en gesorteerd op P-AL in het slib.
+
+```{r}
+#| label: fig-pal-ammonium-regio
+#| fig-cap: "P-AL in slib (links) en ammonium in poriewater van het slib (rechts) per gebied, gesplitst naar westelijk veenweidegebied en noordoosten (Fryslân en WDOD) en gesorteerd op mediane P-AL in het slib."
+#| fig-height: 11
+#| fig-width: 15
+if (!is.null(p_pal_ammonium_regio)) {
+  print(p_pal_ammonium_regio)
+} else {
+  cat("Figuur p_pal_ammonium_regio ontbreekt; draai eerst scripts/gebiedseigenschappen_sloten.R.")
+}
+```
+
 ### P-nalevering
 
 @fig-p-nalevering-gebied toont de berekende P-nalevering uit slib naar oppervlaktewater (drie formules) en de bijbehorende Fe-ratio's per gebied.
 
 ```{r}
 #| label: fig-p-nalevering-gebied
-#| fig-cap: "Berekende P-nalevering naar oppervlaktewater en Fe-ratio's per gebied."
-#| fig-height: 8
+#| fig-cap: "Berekende P-nalevering naar oppervlaktewater (B-ware, anaeroob en aeroob) en Fe:P-verhouding in poriewater en Fe:S-verhouding in sediment per gebied."
+#| fig-height: 13
 #| fig-width: 14
 if (!is.null(p_p_nalevering_gebied)) {
   print(p_p_nalevering_gebied)

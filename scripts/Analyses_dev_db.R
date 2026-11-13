@@ -618,6 +618,12 @@ if (length(logi_cols) > 0L) {
 
 is_num <- vapply(abio_proj_clean, function(x) is.numeric(x) || is.integer(x), logical(1))
 candidate_vars <- setdiff(names(abio_proj_clean)[is_num], id_exclude)
+# Methaanrisico-index en componenten (main_veest.R) zijn afgeleid van redox,
+# waterdiepte en plantenbedekking en horen niet in de clusteranalyse; uitsluiten
+# zodat de clusters gelijk blijven aan de versie zonder deze index.
+candidate_vars <- setdiff(candidate_vars, c(
+  "methaan_redox_norm", "methaan_diepte_norm", "methaan_planten_norm", "methaanrisico_index"
+))
 
 coverage_dt <- data.table(
   variable = candidate_vars,
@@ -726,14 +732,20 @@ if (nrow(X_km) < 3L) {
   stop("Te weinig complete rijen voor clustering.")
 }
 
-k <- if ("clusters" %in% names(abio_proj_clean) && any(!is.na(abio_proj_clean$clusters))) {
-  uniqueN(as.character(abio_proj_clean[!is.na(clusters), clusters]))
-} else {
-  6L
+## Aantal clusters staat vast. Voorheen werd k afgeleid van het aantal
+## ruimtelijke clusters (verkenningsfase) dat in de data voorkwam; daardoor
+## veranderde k ongemerkt van 8 naar 7 toen ruimtelijk cluster 7 uit de
+## selectie viel (abio_proj.rds van 3-11-2026). De clusterbeschrijvingen in
+## rapport_modellering_VeeST.qmd horen bij k = 7 (seed 123, nstart = 100):
+## wijzig k_vast alleen samen met die tekst.
+k_vast <- 7L
+k_use <- max(2L, min(k_vast, nrow(X_km) - 1L))
+if (k_use != k_vast) {
+  warning(sprintf(
+    "k verlaagd van %d naar %d: te weinig complete rijen (%d) voor clustering.",
+    k_vast, k_use, nrow(X_km)
+  ))
 }
-k <- as.integer(max(2L, k))
-k_use <- min(k, nrow(X_km) - 1L)
-k_use <- max(2L, k_use)
 
 set.seed(123)
 km <- kmeans(X_km, centers = k_use, nstart = 100)
@@ -1005,53 +1017,46 @@ ylim <- c(bb["ymin"] - pad, bb["ymax"] + pad)
 
 loc_mid <- st_point_on_surface(loc_cl)
 
-## Kaart wordt gesplitst in twee panelen (i.p.v. één kaart met alle 8
-## clusters) omdat de clusters ruimtelijk sterk overlappen en clusters
-## 1/5/8 anders moeilijk te onderscheiden zijn van de rest op één kaart.
-kaart_groepen <- list(
-  groep_a = c("3", "4", "6"),
-  groep_b = c("1", "2", "5", "7", "8")
+## Eén paneel per cluster: de clusters overlappen ruimtelijk sterk, dus op
+## één kaart zijn ze slecht te onderscheiden. Per paneel staat het cluster in
+## kleur en staan alle overige locaties in grijs als referentie. De panelen
+## volgen automatisch uit de clusterniveaus, zodat de kaart bij elke k klopt
+## (eerder waren de groepen 3/4/6 en 1/2/5/7/8 vast in de code gezet).
+n_per_cluster <- abio_sid[!is.na(cluster_abio), .N, by = cluster_abio]
+paneel_labels <- setNames(
+  sprintf("Cluster %s (n = %d)", n_per_cluster$cluster_abio, n_per_cluster$N),
+  as.character(n_per_cluster$cluster_abio)
 )
+loc_mid_alle <- loc_mid |> dplyr::select(-cluster_abio)
 
-maak_cluster_kaart <- function(clusters_subset, titel) {
-  loc_cl_sub <- loc_cl |> filter(cluster_abio %in% clusters_subset)
-  loc_mid_sub <- loc_mid |> filter(cluster_abio %in% clusters_subset)
-  ggplot() +
-    ggspatial::annotation_map_tile(
-      type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",
-      cachedir = "/osm_cache",
-      zoomin = 1,
-      progress = "none",
-      quiet = TRUE
-    ) +
-    geom_sf(data = loc_cl_sub, color = "grey60", linewidth = 0.6, alpha = 0.35) +
-    geom_sf(
-      data = loc_mid_sub,
-      aes(fill = cluster_abio),
-      shape = 21,
-      size = 6,
-      color = "black",
-      stroke = 0.4,
-      alpha = 0.95
-    ) +
-    coord_sf(crs = st_crs(28992), xlim = xlim, ylim = ylim, expand = FALSE) +
-    scale_fill_manual(
-      values = cluster_kleuren[clusters_subset],
-      guide = guide_legend(title = "Clusters abiotisch"),
-      drop = TRUE
-    ) +
-    labs(title = titel) +
-    theme_minimal(base_size = 14)
-}
-
-p_clusters_nl_a <- maak_cluster_kaart(
-  kaart_groepen$groep_a,
-  "Clusters berekend op basis van gemeten abiotische variabelen (clusters 3, 4, 6)"
-)
-p_clusters_nl_b <- maak_cluster_kaart(
-  kaart_groepen$groep_b,
-  "Clusters berekend op basis van gemeten abiotische variabelen (clusters 1, 2, 5, 7, 8)"
-)
+p_kaart_abio <- ggplot() +
+  ggspatial::annotation_map_tile(
+    type = "https://service.pdok.nl/brt/achtergrondkaart/wmts/v2_0/grijs/EPSG:3857/${z}/${x}/${y}.png",
+    cachedir = "/osm_cache",
+    zoomin = 0,
+    progress = "none",
+    quiet = TRUE
+  ) +
+  geom_sf(data = loc_mid_alle, color = "grey55", size = 1.2, alpha = 0.6) +
+  geom_sf(
+    data = loc_mid,
+    aes(fill = cluster_abio),
+    shape = 21,
+    size = 3,
+    color = "black",
+    stroke = 0.3,
+    alpha = 0.95
+  ) +
+  facet_wrap(~cluster_abio, ncol = 4, labeller = as_labeller(paneel_labels)) +
+  coord_sf(crs = st_crs(28992), xlim = xlim, ylim = ylim, expand = FALSE) +
+  scale_fill_manual(values = cluster_kleuren, guide = "none") +
+  labs(title = "Clusters berekend op basis van gemeten abiotische variabelen") +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text = element_blank(),
+    panel.grid = element_blank(),
+    strip.text = element_text(size = 13, face = "bold")
+  )
 
 print(p_box)
 ggsave(
@@ -1060,18 +1065,11 @@ ggsave(
   width = 35, height = 25, units = "cm", dpi = 300
 )
 
-print(p_clusters_nl_a)
+print(p_kaart_abio)
 ggsave(
-  "output/AlleGebieden/Tussenrapportage/Clusteranalyse_kaart_clusters_3_4_6.png",
-  plot = p_clusters_nl_a,
-  width = 30, height = 25, units = "cm", dpi = 300
-)
-
-print(p_clusters_nl_b)
-ggsave(
-  "output/AlleGebieden/Tussenrapportage/Clusteranalyse_kaart_clusters_1_2_5_7_8.png",
-  plot = p_clusters_nl_b,
-  width = 30, height = 25, units = "cm", dpi = 300
+  "output/AlleGebieden/Tussenrapportage/Clusteranalyse_kaart_clusters.png",
+  plot = p_kaart_abio,
+  width = 36, height = 24, units = "cm", dpi = 300
 )
 
 ## 9) output ----------
@@ -1149,8 +1147,7 @@ clusteranalyse_veest <- list(
     by = cluster_abio
   ][order(cluster_abio)],
   plot_box = p_box,
-  plot_kaart_clusters_3_4_6 = p_clusters_nl_a,
-  plot_kaart_clusters_1_2_5_7_8 = p_clusters_nl_b,
+  plot_kaart_clusters = p_kaart_abio,
   qc = list(
     n_cols_orig = ncol(abio_base),
     n_cols_clean = ncol(abio_proj_clean),
@@ -1388,7 +1385,12 @@ create_xgb_model <- function(target_var, predictors, data,
                              colsample_bytree  = 0.8,
                              min_child_weight  = 5,   # min obs per blad; hoger = minder overfit
                              gamma             = 0.1, # min gain voor split; hoger = conservatiever
-                             lambda            = 2    # L2 regularisatie op gewichten
+                             lambda            = 2,   # L2 regularisatie op gewichten
+                             # seed voor de train/validatie/test-splitsing; 123 = de splitsing
+                             # waarop de rapportfiguren zijn gebaseerd (zie ook sectie
+                             # "Robuustheid over meerdere splitsingen" hieronder)
+                             seed              = 123,
+                             verbose           = 2
                              ) {
   # Select variables for model
   model_vars <- c("SlootID", target_var, predictors)
@@ -1416,7 +1418,7 @@ create_xgb_model <- function(target_var, predictors, data,
   predictors_clean <- predictors[!predictors %in% target_var]
 
   # Three-way split: train / validatie / test
-  set.seed(123)
+  set.seed(seed)
   n <- nrow(model_data)
   idx <- sample(n)
   train_end <- floor(train_frac * n)
@@ -1471,7 +1473,7 @@ create_xgb_model <- function(target_var, predictors, data,
     nrounds               = nrounds,
     watchlist             = list(train = dtrain, val = dval),
     early_stopping_rounds = early_stopping,
-    verbose               = 2
+    verbose               = verbose
   )
 
   # Feature importance
@@ -2926,16 +2928,24 @@ for (tgt in names(kantelpunt_predictors)) {
 # kantelpunt: een "sprong" (>= 50% van het totale effectbereik verandert
 # binnen één segment dat < 10% van de x-range beslaat) versus een
 # "geleidelijke" overgang (effect bouwt over een breder segment op).
-classify_ale_shape <- function(tgt, feat, jump_threshold = 0.5, width_threshold = 0.10) {
-  ld <- layer_data(all_ale_plots[[tgt]][[feat]], 2)[, c("x", "y")]
-  names(ld) <- c("x", "ale")
+#' Typeer het kantelpunt van een ALE-curve
+#'
+#' @param x Numerieke vector met predictorwaarden (middens van de ALE-intervallen).
+#' @param ale Numerieke vector met het (gecentreerde) ALE-effect bij `x`.
+#' @param jump_threshold Minimaal aandeel van het totale effectbereik in één
+#'   segment om van een "plotselinge omslag" te spreken.
+#' @param width_threshold Maximale breedte van dat segment als aandeel van de x-range.
+#' @return Lijst met `vorm`, `x_omslag`, `jump_frac` en `richting` ("+" of "-").
+classify_ale_xy <- function(x, ale, jump_threshold = 0.5, width_threshold = 0.10) {
+  leeg <- list(vorm = NA_character_, x_omslag = NA_real_, jump_frac = NA_real_, richting = NA_character_)
+  ok <- is.finite(x) & is.finite(ale)
+  if (sum(ok) < 2L) return(leeg)
+  ld <- data.frame(x = x[ok], ale = ale[ok])
   ld <- ld[order(ld$x), ]
   dx <- diff(ld$x); dy <- diff(ld$ale)
   x_range   <- diff(range(ld$x, na.rm = TRUE))
   eff_range <- diff(range(ld$ale, na.rm = TRUE))
-  if (eff_range <= 0 || x_range <= 0 || length(dy) == 0) {
-    return(list(vorm = NA_character_, x_omslag = NA_real_, jump_frac = NA_real_))
-  }
+  if (eff_range <= 0 || x_range <= 0 || length(dy) == 0) return(leeg)
   i_max <- which.max(abs(dy))
   jump_frac   <- abs(dy[i_max]) / eff_range
   xwidth_frac <- dx[i_max] / x_range
@@ -2947,6 +2957,10 @@ classify_ale_shape <- function(tgt, feat, jump_threshold = 0.5, width_threshold 
   list(vorm = vorm, x_omslag = round((ld$x[i_max] + ld$x[i_max + 1]) / 2, 3), jump_frac = round(jump_frac, 2),
        # richting van het effect bij toenemende predictorwaarde rond het omslagpunt
        richting = if (dy[i_max] > 0) "+" else "-")
+}
+classify_ale_shape <- function(tgt, feat, jump_threshold = 0.5, width_threshold = 0.10) {
+  ld <- layer_data(all_ale_plots[[tgt]][[feat]], 2)[, c("x", "y")]
+  classify_ale_xy(ld$x, ld$y, jump_threshold, width_threshold)
 }
 
 # Betrouwbaarheid rond het kantelpunt, op basis van de modeldata (zelfde
@@ -3021,6 +3035,118 @@ for (tgt in kantelpunt_targets) {
 }
 kantelpunt_tbl <- rbindlist(kantelpunt_records, fill = TRUE)
 print(kantelpunt_tbl)
+
+## Robuustheid over meerdere train/validatie/test-splitsingen -------------------
+# Met ~135 sloten hangt de testset-R² sterk af van welke ~27 sloten toevallig
+# in de testset vallen, en de ligging van een ALE-kantelpunt van het model dat
+# op die ene splitsing is getraind. Daarom wordt elk XGBoost-model opnieuw
+# getraind op n_splits verschillende splitsingen (seed 123 = de splitsing
+# waarop de rapportfiguren zijn gebaseerd; dat model wordt hergebruikt) en
+# wordt per doelvariabele de mediaan en het bereik van de testset-R² bewaard.
+# Voor de uitgelichte kantelpunten wordt per splitsing de ALE-curve opnieuw
+# berekend (zelfde ALE-data en K als hierboven) en geteld in hoeveel
+# splitsingen het omslagpunt terugkomt: binnen 8% van de x-range van het
+# omslagpunt uit de rapportsplitsing (zelfde venster als
+# reliability_near_point) én met dezelfde richting.
+n_splits            <- 10L
+split_seeds         <- c(123L, seq_len(n_splits - 1L))
+kantel_venster_frac <- 0.08
+
+#' Bouw de ALE-predictormatrix voor een doelvariabele
+#'
+#' Identiek aan de opbouw van `X_data` in de ALE-sectie hierboven (alle
+#' volledige rijen van `abio_proj`, factoren en tekst numeriek gemaakt), zodat
+#' de kantelpunten per splitsing vergelijkbaar zijn met `kantelpunt_tbl`.
+#'
+#' @param tgt Naam van de doelvariabele.
+#' @return Numerieke matrix met de voorspellers in de volgorde van `cols_corr`.
+build_ale_X <- function(tgt) {
+  mv <- c("SlootID", tgt, cols_corr)
+  mv <- mv[mv %in% colnames(abio_proj)]
+  md <- copy(abio_proj[complete.cases(abio_proj[, ..mv]), ..mv])
+  fc <- setdiff(names(md)[vapply(md, function(x) is.character(x) || is.factor(x), logical(1))], "SlootID")
+  if (length(fc) > 0) {
+    md[, (fc) := lapply(.SD, as.factor), .SDcols = fc]
+    md[, (fc) := lapply(.SD, as.numeric), .SDcols = fc]
+  }
+  preds <- colnames(md)[!colnames(md) %in% c("SlootID", tgt)]
+  as.matrix(md[, ..preds])
+}
+
+multisplit_records   <- list()
+kantel_split_records <- list()
+for (target in names(xgb_models)) {
+  predictors_ms <- cols_corr[!cols_corr %in% target & cols_corr %in% colnames(abio_proj)]
+  kp_feats <- unique(kantelpunt_tbl$predictor[kantelpunt_tbl$target == target])
+  X_ale <- if (length(kp_feats) > 0) build_ale_X(target) else NULL
+  for (sd_i in split_seeds) {
+    res_i <- if (sd_i == 123L) {
+      list(model = xgb_models[[target]], performance = model_performance[[target]])
+    } else {
+      create_xgb_model(target, predictors_ms, abio_proj[MeenemenDataAnalyse_totaal == 'ja', ],
+                       seed = sd_i, verbose = 0)
+    }
+    multisplit_records[[length(multisplit_records) + 1L]] <- data.table(
+      target    = target,
+      seed      = sd_i,
+      r2_test   = res_i$performance$r2_test,
+      rmse_test = res_i$performance$rmse_test
+    )
+    for (feat in intersect(kp_feats, colnames(X_ale))) {
+      j     <- which(colnames(X_ale) == feat)
+      ale_i <- calculate_ale_manual(res_i$model, X_ale, j, K = 30)
+      sh_i  <- classify_ale_xy(ale_i$x_values, ale_i$ale_effects)
+      kantel_split_records[[length(kantel_split_records) + 1L]] <- data.table(
+        target    = target,
+        predictor = feat,
+        seed      = sd_i,
+        x_omslag  = sh_i$x_omslag,
+        vorm      = sh_i$vorm,
+        richting  = sh_i$richting,
+        x_range   = diff(range(X_ale[, j], na.rm = TRUE))
+      )
+    }
+  }
+  cat("Robuustheid over", n_splits, "splitsingen berekend voor:", target, "\n")
+}
+xgb_multisplit    <- rbindlist(multisplit_records)
+xgb_kantel_splits <- rbindlist(kantel_split_records, fill = TRUE)
+
+# Spreiding testset-R² per doelvariabele -> performance_summary
+perf_spreiding <- xgb_multisplit[, .(
+  r2_test_mediaan = median(r2_test, na.rm = TRUE),
+  r2_test_min     = min(r2_test, na.rm = TRUE),
+  r2_test_max     = max(r2_test, na.rm = TRUE),
+  n_splits        = .N
+), by = target]
+performance_summary <- merge(performance_summary, perf_spreiding, by = "target", all.x = TRUE, sort = FALSE)
+
+# Stabiliteit kantelpunten -> kantelpunt_tbl
+kantel_ref  <- kantelpunt_tbl[, .(target, predictor, x_ref = x_omslag, richting_ref = richting)]
+kantel_stab <- merge(xgb_kantel_splits, kantel_ref, by = c("target", "predictor"))[, .(
+  kantel_stabiel_n = sum(!is.na(x_omslag) & abs(x_omslag - x_ref) <= kantel_venster_frac * x_range &
+                           richting == richting_ref, na.rm = TRUE),
+  x_omslag_mediaan = median(x_omslag, na.rm = TRUE),
+  n_splits         = .N
+), by = .(target, predictor)]
+kantelpunt_tbl <- merge(kantelpunt_tbl, kantel_stab, by = c("target", "predictor"), all.x = TRUE, sort = FALSE)
+kantelpunt_tbl <- merge(kantelpunt_tbl, perf_spreiding[, .(target, r2_test_mediaan, r2_test_min, r2_test_max)],
+                        by = "target", all.x = TRUE, sort = FALSE)
+
+# Betrouwbaarheid aanscherpen met de spreiding over splitsingen. De oude
+# indicatie (alleen rapportsplitsing) blijft bewaard ter vergelijking.
+# - "Redelijk" alleen als de mediane R² >= 0,5 is én het kantelpunt in
+#   minstens 80% van de splitsingen terugkomt, anders hooguit "Matig";
+# - "Beperkt" als de mediane R² < 0,3 is of het kantelpunt in minder dan de
+#   helft van de splitsingen terugkomt (zelfde R²-grens als hierboven).
+kantelpunt_tbl[, betrouwbaarheid_enkele_split := betrouwbaarheid]
+kantelpunt_tbl[betrouwbaarheid == "Redelijk betrouwbaar" &
+                 (r2_test_mediaan < 0.5 | kantel_stabiel_n < 0.8 * n_splits),
+               betrouwbaarheid := "Matig betrouwbaar"]
+kantelpunt_tbl[r2_test_mediaan < 0.3 | kantel_stabiel_n < 0.5 * n_splits,
+               betrouwbaarheid := "Beperkt betrouwbaar"]
+print(kantelpunt_tbl[, .(target_nl, pred_nl, r2_test, r2_test_mediaan, x_omslag, x_omslag_mediaan,
+                         kantel_stabiel_n, n_splits, betrouwbaarheid_enkele_split, betrouwbaarheid)])
 
 # Gecombineerde ALE-figuur voor de zes uitgelichte modellen/predictoren: enkel
 # de ALE-curve (zonder de secundaire as van all_ale_plots, die bij 11 kleine
@@ -5067,6 +5193,9 @@ saveRDS(xgb_diag_best_target, paste0(rds_dir, "xgb_diag_best_target.rds"))
 # alleen "onderholling" voor Draagkracht oever) + betrouwbaarheidstabel,
 # zie sectie "Belangrijkste kantelpunten" in het rapport.
 saveRDS(kantelpunt_tbl,        paste0(rds_dir, "xgb_kantelpunt_tbl.rds"))
+# Testset-R² en kantelpunten per splitsing (robuustheid over n_splits splitsingen)
+saveRDS(xgb_multisplit,        paste0(rds_dir, "xgb_multisplit.rds"))
+saveRDS(xgb_kantel_splits,     paste0(rds_dir, "xgb_kantel_splits.rds"))
 saveRDS(xgb_kantelpunt_plot,   paste0(rds_dir, "xgb_kantelpunt_plot.rds"))
 
 # Aantal unieke sloten in de gefilterde dataset (voor toelichting bij

@@ -367,6 +367,9 @@ abio_proj[, names(abio_proj) := lapply(.SD, function(x) {
   if (is.character(x)) gsub(";", ":", iconv(x, to = "UTF-8", sub = "byte")) else x
 })]
 
+# Regio: westelijk veenweidegebied vs. noordoosten (zie bepaal_regio() in functions_veest.R)
+abio_proj[, regio := bepaal_regio(waterschap)]
+
 # 5. indices berekenen -------------------------------
 # Hulpfunctie: rowMeans maar NA als alle waarden in een rij NA zijn
 rowMeans_na <- function(...) {
@@ -502,6 +505,16 @@ abio_proj[, vernattingsrisico_index := rowMeans_na(
   vernatting_kaal_gras_norm, vernatting_steilte_norm,
   vernatting_emers2b_norm
 )]
+
+### Methaanrisico-index: hoog = groot risico op methaanemissie ------------------
+# Absolute index met vaste ankerpunten (zie bereken_methaanrisico() in
+# functions_veest.R): redox slib (<= -250 mV = 1, >= -100 mV = 0) x gemiddelde
+# van waterdiepte (<= 0,2 m = 1, >= 0,8 m = 0) en bedekking ondergedoken
+# planten (0% = 1, >= 50% = 0). Let op: redox slib WP2 (2024/2026) ligt
+# systematisch lager dan WP1; WP1 en WP2 apart interpreteren.
+abio_proj[, c("methaan_redox_norm", "methaan_diepte_norm", "methaan_planten_norm",
+              "methaanrisico_index") :=
+  bereken_methaanrisico(slib_redox_pH7, max_wtd, waterzone_1_subm_tot_perc)]
 
 ### indices visualiseren ------------------------------------
 

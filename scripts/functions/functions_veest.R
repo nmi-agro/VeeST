@@ -452,3 +452,76 @@ get_correlation_direction <- function(target_var, predictor_var, data) {
   corr <- cor(data[[target_var]], data[[predictor_var]], use = "complete.obs")
   ifelse(corr > 0, "+", "-")
 }
+
+## Methaanrisico-index -------------------------------------------------------------
+#' Schaal een waarde lineair tussen twee vaste ankerpunten naar 0-1
+#'
+#' @param x Numerieke vector.
+#' @param x_risico Waarde waarbij de component 1 is (maximaal risico).
+#' @param x_geen Waarde waarbij de component 0 is (geen risico).
+#' @return Numerieke vector tussen 0 en 1; NA blijft NA. Werkt in beide
+#'   richtingen (`x_risico` mag groter of kleiner zijn dan `x_geen`).
+schaal_anker <- function(x, x_risico, x_geen) {
+  pmin(pmax((x - x_geen) / (x_risico - x_geen), 0), 1)
+}
+
+#' Bereken de methaanrisico-index van een sloot
+#'
+#' Absolute index (vaste ankerpunten, niet geschaald op de dataset) voor het
+#' risico op methaanemissie uit de sloot. Productie vereist methanogene
+#' omstandigheden in het slib; ondiep water en het ontbreken van ondergedoken
+#' waterplanten verhogen de kans dat geproduceerd methaan de atmosfeer bereikt.
+#' Index = redox-component x gemiddelde(waterdiepte-component, planten-component).
+#' Zonder methanogene omstandigheden (redox-component 0) is het risico dus 0.
+#'
+#' @param redox_slib Redoxpotentiaal slib, gecorrigeerd naar pH 7 (mV).
+#' @param waterdiepte Maximale waterdiepte (m).
+#' @param subm_perc Bedekking ondergedoken waterplanten in waterzone 1 (%).
+#' @param redox_anker Redox (mV) waarbij de component 1 resp. 0 is.
+#'   Standaard -250 mV (methanogenese) en -100 mV (bovengrens sulfaatreductie).
+#' @param diepte_anker Waterdiepte (m) waarbij de component 1 resp. 0 is.
+#' @param subm_anker Bedekking (%) waarbij de component 1 resp. 0 is.
+#' @return data.table met de drie componenten en `methaanrisico_index` (0-1).
+#'   Ontbreekt de redox, dan is de index NA; ontbreekt waterdiepte of
+#'   plantenbedekking, dan telt alleen de beschikbare component mee.
+bereken_methaanrisico <- function(redox_slib, waterdiepte, subm_perc,
+                                  redox_anker = c(-250, -100),
+                                  diepte_anker = c(0.2, 0.8),
+                                  subm_anker = c(0, 50)) {
+  comp_redox  <- schaal_anker(redox_slib, redox_anker[1], redox_anker[2])
+  comp_diepte <- schaal_anker(waterdiepte, diepte_anker[1], diepte_anker[2])
+  comp_planten <- schaal_anker(subm_perc, subm_anker[1], subm_anker[2])
+  m <- cbind(comp_diepte, comp_planten)
+  transport <- ifelse(rowSums(!is.na(m)) == 0, NA_real_, rowMeans(m, na.rm = TRUE))
+  data.table(
+    methaan_redox_norm   = comp_redox,
+    methaan_diepte_norm  = comp_diepte,
+    methaan_planten_norm = comp_planten,
+    methaanrisico_index  = comp_redox * transport
+  )
+}
+
+## Regio-indeling ----------------------------------------------------------------
+#' Deel waterschappen in naar regio: westelijk veenweidegebied of noordoosten
+#'
+#' Noordoosten = Wetterskip Fryslân en Drents Overijsselse Delta (WDOD); alle
+#' overige VeeST-waterschappen (AGV, HHNK, Rijnland, HDSR, HHSK, HDL en WVV)
+#' vallen onder het westelijk veenweidegebied. Let op: WVV (Eemland) is
+#' hiermee als westelijk ingedeeld; pas `noordoost` aan als dat anders moet.
+#'
+#' @param waterschap Character- of factorvector met waterschapscodes zoals in
+#'   `abio_proj$waterschap`.
+#' @param noordoost Waterschapscodes die tot het noordoosten horen.
+#' @return Factor met niveaus "Westelijk veenweidegebied" en "Noordoosten";
+#'   NA als het waterschap onbekend is.
+#' @examples
+#' bepaal_regio(c("AGV", "Fryslân", NA))
+bepaal_regio <- function(waterschap, noordoost = c("Fryslân", "WDOD")) {
+  waterschap <- as.character(waterschap)
+  regio <- ifelse(is.na(waterschap), NA_character_,
+                  ifelse(waterschap %in% noordoost, "Noordoosten", "Westelijk veenweidegebied"))
+  factor(regio, levels = c("Westelijk veenweidegebied", "Noordoosten"))
+}
+
+#' Vaste kleuren voor de regio's (Okabe-Ito blauw en vermiljoen)
+kleuren_regio <- c("Westelijk veenweidegebied" = "#0072B2", "Noordoosten" = "#D55E00")
